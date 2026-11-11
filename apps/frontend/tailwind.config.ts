@@ -5,6 +5,8 @@ module.exports = {
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
     './modules/**/*.{js,ts,jsx,tsx,mdx}',
+    // Escala de z-index del admin (ADMIN_Z_INDEX_CLASS): sin esto Tailwind no genera esas clases.
+    './utils/adminZIndex.ts',
   ],
   theme: {
     extend: {

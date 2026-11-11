@@ -1,5 +1,5 @@
-import type { RefObject } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import type { ReactNode, RefObject } from 'react';
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react';
 
 type AgendaToolbarProps = {
   availableSports: string[];
@@ -12,7 +12,18 @@ type AgendaToolbarProps = {
   onDateChange: (date: Date) => void;
   onMoveDate: (days: number) => void;
   onCreateBooking: () => void;
+  /** Volver al día de hoy (y a la hora actual). */
+  onGoToday?: () => void;
+  /** Línea de resumen del día, a la derecha de los deportes. */
+  summary?: ReactNode;
+  /** Abre el buscador "¿Hay lugar?". */
+  onFindFreeSlot?: () => void;
+  /** Botón de leyenda de colores. */
+  legend?: ReactNode;
 };
+
+const isSameLocalDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
@@ -32,7 +43,12 @@ export default function AgendaToolbar({
   onDateChange,
   onMoveDate,
   onCreateBooking,
+  onGoToday,
+  summary,
+  onFindFreeSlot,
+  legend,
 }: AgendaToolbarProps) {
+  const isToday = isSameLocalDay(selectedDate, new Date());
   const openNativeDatePicker = () => {
     const input = quickDateInputRef.current;
     if (!input) return;
@@ -71,11 +87,28 @@ export default function AgendaToolbar({
               {sport}
             </button>
           ))}
+          {summary && (
+            <div className="ml-2 border-l border-p-border pl-3 text-[12px] font-semibold">{summary}</div>
+          )}
         </div>
       </div>
 
       <div className="shrink-0">
         <div className="flex flex-wrap items-center gap-2">
+          {onGoToday && (
+            <button
+              type="button"
+              onClick={onGoToday}
+              className={`h-8 rounded-lg px-3 text-[12px] font-semibold transition ${
+                isToday
+                  ? 'border border-p-border bg-p-surface text-p-text-muted hover:bg-p-surface-2'
+                  : 'bg-p-positive-bg text-p-accent hover:brightness-95'
+              }`}
+              title={isToday ? 'Ir a la hora actual' : 'Volver a hoy'}
+            >
+              Hoy
+            </button>
+          )}
           <div className="relative inline-flex h-8 items-center rounded-lg border border-p-border bg-p-surface overflow-hidden">
             <button
               type="button"
@@ -125,6 +158,17 @@ export default function AgendaToolbar({
               aria-label="Fecha de agenda"
             />
           </div>
+          {legend}
+          {onFindFreeSlot && (
+            <button
+              type="button"
+              onClick={onFindFreeSlot}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-2.5 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+            >
+              <Search size={14} />
+              ¿Hay lugar?
+            </button>
+          )}
           <button
             type="button"
             onClick={onCreateBooking}

@@ -17,6 +17,12 @@ import { ProductRepository } from '../repositories/ProductRepository';
 import { buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivityScheduleHelper';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { PricingService } from './PricingService';
+import { PlayerSlotService, type PlayerSlotDto, resolveShortGapMinutes, type PerPlayerQuote } from './PlayerSlotService';
+import { BookingReleaseService } from './BookingReleaseService';
+import { courtBlockedError, findCourtBlockOverlap } from './CourtBlockService';
+import { normalizeDni } from '../utils/dni';
+import { verifyPlayerInviteToken } from '../utils/playerInviteToken';
+import { PushMessages, loadBookingPushContext, pushNotificationService, shortUserName } from './PushNotificationService';
 import { EventService } from './EventService';
 import { AuditLogService } from './AuditLogService';
 import { AccountingService } from './AccountingService';
@@ -41,10 +47,15 @@ import { BookingHistoryService } from './BookingHistoryService';
 import { BookingCustomerWhatsappNotificationService } from './BookingCustomerWhatsappNotificationService';
 import { BookingStaffWhatsappNotificationService } from './BookingStaffWhatsappNotificationService';
 import { AppError, ErrorCodes, badRequest, conflict, forbidden, notFound } from '../errors';
+import { stockMovementService } from './StockMovementService';
+import { applyPercentToAmounts, buildPublicPriceHints, normalizePaymentMethodDiscounts } from './PaymentMethodDiscountService';
 
-type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED';
+// ONLINE_DEPOSIT_EXPIRED: reserva desde la app con seña online obligatoria que no se pagó a tiempo.
+type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED';
 type CancelBookingOptions = {
     reason?: CancelBookingReason;
+    // Motivo para el jugador (ej. "lluvia"): se incluye en el aviso de cancelación.
+    playerReasonText?: string | null;
     triggeredBy?: 'USER' | 'ADMIN' | 'SYSTEM';
     skipAccessValidation?: boolean;
     now?: Date;
@@ -56,6 +67,8 @@ type CancelBookingOptions = {
     };
 };
 type CreateBookingOptions = {
+    // Modalidad (ActivityFormat) para clubes con precio por jugador.
+    activityFormatId?: string | null;
     skipAccountCreation?: boolean;
     skipAdvanceLimit?: boolean;
     applyDiscount?: boolean;
@@ -74,9 +87,18 @@ type CreateBookingOptions = {
         personKey: string;
         searchQuery: string;
     } | null;
+    initialParticipants?: Array<{
+        email?: string | null;
+        dni?: string | null;
+        name?: string | null;
+        // Jugador elegido desde la búsqueda por nombre (token firmado, atado a quien reserva).
+        inviteToken?: string | null;
+    }>;
 };
 
 type CreateFixedBookingOptions = {
+    // Modalidad (clubes con precio por jugador); cada ocurrencia nace con el titular y lugares vacíos.
+    activityFormatId?: string | null;
     userId?: number | null;
     clientId?: string | null;
     clientDraft?: {
@@ -110,6 +132,7 @@ export type PlayerBookingDto = {
         name: string;
         slug: string;
         timeZone: string;
+        logoUrl: string | null;
     };
     court: {
         name: string;
@@ -117,6 +140,11 @@ export type PlayerBookingDto = {
     activity: {
         name: string;
     } | null;
+    formatName: string | null;
+    playerCount: number | null;
+    owner: {
+        displayName: string;
+    };
     startDateTime: string;
     endDateTime: string;
     status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
@@ -175,6 +203,16 @@ export type PlayerBookingInvitationDto = {
     invitedName?: string | null;
     invitedEmail?: string | null;
     status: 'INVITED';
+    activityName?: string | null;
+    // Precio por jugador: modalidad y parte que pagaría el invitado si acepta
+    formatName?: string | null;
+    playerCount?: number | null;
+    invitedByName?: string | null;
+    myShareAmount?: number | null;
+    myMemberCategoryName?: string | null;
+    // Lugares libres además del del invitado (precio por jugador) y si su parte se puede pagar online.
+    openSpots?: number | null;
+    onlinePaymentAvailable?: boolean;
 };
 
 export type PlayerBookingCheckoutDto = {
@@ -211,16 +249,74 @@ export type PlayerBookingCheckoutDto = {
         enabled: boolean;
         reason:
             | 'PROVIDER_NOT_CONFIGURED'
+            | 'PAY_AT_CLUB'
             | 'BOOKING_NOT_PAYABLE'
             | 'NO_PENDING_BALANCE'
             | 'ACCOUNT_MISSING'
             | 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED'
             | 'BOOKING_HAS_REFUNDS'
+            | 'MEMBER_PRICE_PENDING'
             | 'UNKNOWN'
             | null;
         futureProvider: 'MERCADO_PAGO' | null;
     };
+    // Seña (modo DEPOSIT_REQUIRED, solo para el titular): cuánto falta para confirmar y hasta cuándo.
+    deposit?: {
+        percent: number;
+        requiredAmount: number;
+        remainingAmount: number;
+        covered: boolean;
+        onlineRequired: boolean;
+        dueAt: string | null;
+    } | null;
+    // Precio efectivo en el club / online con descuento de lo que le toca pagar (null = sin descuento).
+    priceHints?: {
+        listAmount: number;
+        cashPercent: number;
+        cashAmount: number | null;
+        onlinePercent: number;
+        onlineAmount: number | null;
+    };
+    // Reservas por jugador: cada uno paga su parte. null en reservas por cancha.
+    shares: {
+        // pending incluye los consumos a cargo de quien mira (extrasPending).
+        mine: { amount: number; paid: number; pending: number; extrasPending: number; memberPricePending: boolean } | null;
+        // El titular puede pagar todo solo cuando todos los precios son definitivos.
+        canPayAll: boolean;
+        allPending: number;
+        // Consumos pendientes de la cuenta y quién los paga.
+        extras: Array<{ label: string; pending: number; slotIndex: number; isMine: boolean }>;
+        players: Array<{
+            slotIndex: number;
+            // Para mostrar el pago de cada uno en la lista de participantes.
+            participantId: string | null;
+            displayName: string | null;
+            isEmpty: boolean;
+            isMine: boolean;
+            amount: number;
+            paid: boolean;
+            memberPricePending: boolean;
+        }>;
+    } | null;
 };
+
+// OWN_SHARE: la parte de quien paga · ALL_SHARES: todas las partes (solo el titular, con precios definitivos).
+// DEPOSIT: el titular paga solo lo que falta para la seña (modo DEPOSIT_REQUIRED).
+export type OnlinePaymentScope = 'OWN_SHARE' | 'ALL_SHARES' | 'DEPOSIT';
+
+type OnlinePaymentTarget = {
+    perPlayer: boolean;
+    scope: 'ACCOUNT' | OnlinePaymentScope;
+    amount: number;
+    items: Array<{ accountItemId: string; amount: number }>;
+    payer: { ref: string; name: string | null } | null;
+    blocked: null | 'NO_PLAYER_SLOT' | 'MEMBER_PRICE_PENDING' | 'SHARES_NOT_FINAL' | 'NO_PENDING_BALANCE' | 'DEPOSIT_NOT_REQUIRED';
+    slots: PlayerSlotDto[];
+    // Consumos y otros cargos que no son la parte de cancha de un lugar, con el lugar que los paga.
+    extras: PlayerExtraCharge[];
+};
+
+type PlayerExtraCharge = { accountItemId: string; label: string; pending: number; slotIndex: number };
 
 export type PlayerBookingCheckoutStartDto = {
     attemptId: string;
@@ -240,11 +336,16 @@ type BookingPriceQuoteInput = {
     clientPhone?: string;
     clientDni?: string;
     applyDiscount?: boolean;
+    activityFormatId?: string | null;
+    /** Solo validar horario y duración (mover / editar), sin calcular precio. */
+    scheduleOnly?: boolean;
 };
 
 type BookingPriceQuote = {
     listPrice: number;
     finalPrice: number;
+    // Clubes con precio por jugador: desglose por jugador (titular con su precio, resto a precio general).
+    perPlayer?: PerPlayerQuote;
     discountAmount: number;
     hasDiscount: boolean;
     appliedPolicies: Array<{
@@ -292,8 +393,72 @@ type PersistedBillingAssignmentsJson = {
     assignments: BookingBillingAssignmentDTO[];
 };
 
+export type PerPlayerHoverParticipant = {
+    ref: string;
+    name: string;
+    isOwner: boolean;
+    assignedAmount: number;
+    paidAmount: number;
+};
+
+export function buildPerPlayerHoverParticipants(booking: any): PerPlayerHoverParticipant[] {
+    const slots = Array.isArray(booking?.playerSlots) ? booking.playerSlots : [];
+    if (slots.length === 0) return [];
+
+    const participants = Array.isArray(booking?.participants) ? booking.participants : [];
+    const participantById = new Map(
+        participants
+            .filter((participant: any) => String(participant?.id || '').trim())
+            .map((participant: any) => [String(participant.id), participant])
+    );
+    const resolveParticipantName = (participant: any) => {
+        const displayName = String(participant?.displayName || '').trim();
+        if (displayName) return displayName;
+        const invitedName = String(participant?.invitedName || '').trim();
+        if (invitedName) return invitedName;
+        const clientName = String(participant?.client?.name || '').trim();
+        if (clientName) return clientName;
+        return `${String(participant?.user?.firstName || '').trim()} ${String(participant?.user?.lastName || '').trim()}`.trim();
+    };
+
+    return [...slots]
+        .sort((left: any, right: any) => Number(left?.slotIndex || 0) - Number(right?.slotIndex || 0))
+        .map((slot: any) => {
+            const slotIndex = Number(slot?.slotIndex || 0);
+            const isOwner = slotIndex === 1;
+            const participant = participantById.get(String(slot?.participantId || ''));
+            const clientId = String(slot?.clientId || '').trim();
+            const userId = Number(slot?.userId || 0);
+            const participantId = String(slot?.participantId || '').trim();
+            const ref = clientId
+                ? `${isOwner ? 'booking-client' : 'participant-client'}:${clientId}`
+                : Number.isInteger(userId) && userId > 0
+                    ? `${isOwner ? 'booking-user' : 'participant-user'}:${userId}`
+                    : participantId
+                        ? `participant:${participantId}`
+                        : `player-slot:${slotIndex}`;
+            const isEmpty = !participantId && !clientId && !(Number.isInteger(userId) && userId > 0);
+            const name = String(slot?.displayName || '').trim()
+                || resolveParticipantName(participant)
+                || (isOwner ? String(booking?.client?.name || '').trim() : '')
+                || (isEmpty ? 'Sin asignar' : `Jugador ${slotIndex}`);
+            const accountItemAmount = slot?.accountItem?.total;
+            const assignedAmount = Number(Number(accountItemAmount ?? slot?.shareAmount ?? 0).toFixed(2));
+            const allocations = Array.isArray(slot?.accountItem?.paymentAllocations)
+                ? slot.accountItem.paymentAllocations
+                : [];
+            const paidAmount = Number(
+                allocations.reduce((sum: number, allocation: any) => sum + Number(allocation?.amount || 0), 0).toFixed(2)
+            );
+
+            return { ref, name, isOwner, assignedAmount, paidAmount };
+        });
+}
+
 export class BookingService {
     private readonly pricingService = new PricingService();
+    private readonly playerSlotService = new PlayerSlotService();
+    private readonly bookingReleaseService = new BookingReleaseService();
     private readonly eventService = new EventService();
     private readonly auditLogService = new AuditLogService();
     private readonly bookingHistoryService = new BookingHistoryService();
@@ -878,6 +1043,27 @@ export class BookingService {
         const safeDuration = Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : 60;
         const endDateTime = new Date(input.startDateTime.getTime() + safeDuration * 60000);
 
+        // Mover o editar respeta las mismas reglas que crear: deporte de la cancha, horarios y duraciones del club.
+        const targetActivityId = Number(targetCourt.activityTypeId || booking.activityId);
+        if (targetActivityId !== Number(booking.activityId)) {
+            throw this.invalidInput('No se puede mover la reserva a una cancha de otro deporte.');
+        }
+        const hasPlayerSlots = (await prisma.bookingPlayerSlot.count({ where: { bookingId: input.bookingId } })) > 0;
+        // Precio por cancha: depende de horario, duración y cancha, así que se recotiza.
+        // Precio por jugador: se recalcula por lugar dentro de la transacción (recalculateSlotsTx).
+        const isPerPlayerBooking = hasPlayerSlots || Boolean(booking.activityFormatId);
+        const scheduleQuote = await this.quoteBookingPrice({
+            courtId: targetCourt.id,
+            activityId: targetActivityId,
+            startDateTime: input.startDateTime,
+            durationMinutes: safeDuration,
+            activityFormatId: booking.activityFormatId ?? null,
+            clientId: booking.clientId ?? null,
+            allowAdminBenefits: true,
+            scheduleOnly: isPerPlayerBooking
+        });
+        const courtQuote = isPerPlayerBooking ? null : scheduleQuote;
+
         const classOverlap = await this.findClassSessionOverlap({
             clubId: input.clubId,
             courtId: input.courtId,
@@ -886,6 +1072,9 @@ export class BookingService {
         });
         if (classOverlap) {
             throw this.bookingSlotUnavailable('La cancha ya tiene una clase en ese horario.');
+        }
+        if (await findCourtBlockOverlap({ courtId: input.courtId, startDateTime: input.startDateTime, endDateTime })) {
+            throw courtBlockedError();
         }
 
         try {
@@ -947,6 +1136,22 @@ export class BookingService {
                     },
                 });
 
+                if (hasPlayerSlots) {
+                    await this.playerSlotService.recalculateSlotsTx(tx as any, input.bookingId, {
+                        actorUserId: input.actorUserId ?? null
+                    });
+                } else if (courtQuote) {
+                    await this.repriceCourtBookingTx(tx, {
+                        bookingId: input.bookingId,
+                        clubId: input.clubId,
+                        clientId: booking.clientId ?? null,
+                        activityId: targetActivityId,
+                        listPrice: Number(courtQuote.listPrice || 0),
+                        finalPrice: Number(courtQuote.finalPrice || 0),
+                        actorUserId: input.actorUserId ?? null
+                    });
+                }
+
                 return persisted;
             });
             return updated;
@@ -956,6 +1161,107 @@ export class BookingService {
             }
             throw error;
         }
+    }
+
+    /**
+     * Precio por cancha: deja el precio de la reserva y el ítem "Reserva cancha" de su cuenta
+     * alineados con la nueva cotización (al cambiar horario, duración o cancha).
+     * Si el ítem ya tiene pagos imputados no se toca: el precio cobrado queda congelado.
+     */
+    private async repriceCourtBookingTx(
+        tx: any,
+        params: {
+            bookingId: number;
+            clubId: number;
+            clientId: string | null;
+            activityId: number;
+            listPrice: number;
+            finalPrice: number;
+            actorUserId: number | null;
+        }
+    ) {
+        const finalPrice = this.roundCurrency(params.finalPrice);
+        const listPrice = this.roundCurrency(params.listPrice);
+        const account = await tx.account.findFirst({
+            where: { clubId: params.clubId, sourceType: 'BOOKING', sourceId: String(params.bookingId) }
+        });
+        if (account && account.status !== 'OPEN') return;
+        const bookingItem = account
+            ? await tx.accountItem.findFirst({ where: { accountId: account.id, type: 'BOOKING' } })
+            : null;
+
+        if (!account || !bookingItem) {
+            // Todavía sin cuenta (se crea al confirmar o cobrar): alcanza con el precio de la reserva.
+            await tx.booking.update({ where: { id: params.bookingId }, data: { price: finalPrice, listPrice } });
+            return;
+        }
+
+        const allocated = await tx.paymentAllocation.aggregate({
+            where: { accountItemId: bookingItem.id },
+            _sum: { amount: true }
+        });
+        if (this.roundCurrency(allocated._sum.amount) > 0.009) return;
+
+        const hadDiscounts = (await tx.accountItemDiscount.count({ where: { accountItemId: bookingItem.id } })) > 0;
+        const draft = hadDiscounts && params.clientId
+            ? await this.discountService.computeDraftDiscountTx(tx, {
+                clubId: params.clubId,
+                clientId: params.clientId,
+                itemType: 'BOOKING',
+                quantity: 1,
+                unitPrice: finalPrice,
+                activityTypeId: params.activityId
+            })
+            : { unitPrice: finalPrice, total: finalPrice, snapshots: [] as any[] };
+        const desiredTotal = this.roundCurrency(draft.total);
+        const currentTotal = this.roundCurrency(bookingItem.total);
+
+        if (Math.abs(desiredTotal - currentTotal) > 0.009) {
+            const nextAccountTotal = this.roundCurrency(Number(account.totalAmount) + desiredTotal - currentTotal);
+            if (this.roundCurrency(account.paidAmount) > nextAccountTotal + 0.009) {
+                throw this.invalidInput('El nuevo precio dejaría la cuenta sobrepagada. Revisá los pagos antes de cambiar el horario.');
+            }
+            await this.accountingService.reverseAccountItemTransaction(tx, {
+                clubId: params.clubId,
+                type: 'ACCOUNT_ITEM',
+                referenceType: 'ACCOUNT_ITEM',
+                referenceId: bookingItem.id,
+                accountId: account.id,
+                accountItemId: bookingItem.id,
+                amount: currentTotal,
+                revenueAccount: 'BOOKING_REVENUE',
+                description: `Reversión reserva cancha #${params.bookingId} (cambio de horario)`,
+                createdByUserId: params.actorUserId
+            });
+            await this.accountingService.createAccountItemTransaction(tx, {
+                clubId: params.clubId,
+                type: 'ACCOUNT_ITEM',
+                referenceType: 'BOOKING',
+                referenceId: String(params.bookingId),
+                accountId: account.id,
+                accountItemId: bookingItem.id,
+                amount: desiredTotal,
+                revenueAccount: 'BOOKING_REVENUE',
+                description: `Reserva cancha #${params.bookingId}`,
+                createdByUserId: params.actorUserId
+            });
+            await tx.accountItemDiscount.deleteMany({ where: { accountItemId: bookingItem.id } });
+            if (draft.snapshots.length) {
+                await this.discountService.persistAppliedDiscountsTx(tx, {
+                    clubId: params.clubId,
+                    accountItemId: bookingItem.id,
+                    appliedByUserId: params.actorUserId,
+                    snapshots: draft.snapshots
+                });
+            }
+            await tx.accountItem.update({
+                where: { id: bookingItem.id },
+                data: { unitPrice: this.roundCurrency(draft.unitPrice), total: desiredTotal }
+            });
+            await tx.account.update({ where: { id: account.id }, data: { totalAmount: nextAccountTotal } });
+            await this.projectionService.refreshAccountSummary(account.id, tx);
+        }
+        await tx.booking.update({ where: { id: params.bookingId }, data: { price: desiredTotal, listPrice } });
     }
 
     private roundCurrency(value: unknown) {
@@ -2087,23 +2393,6 @@ export class BookingService {
         }
     }
 
-    private calculateDurationAdjustedPrice(
-        basePrice: number,
-        effectiveDurationMinutes: number,
-        referenceDurationMinutes: number
-    ) {
-        const safeBase = Number(basePrice || 0);
-        const safeEffective = Number(effectiveDurationMinutes || 0);
-        const safeReference = Number(referenceDurationMinutes || 0);
-
-        if (!Number.isFinite(safeBase) || safeBase <= 0) return 0;
-        if (!Number.isFinite(safeEffective) || safeEffective <= 0) return Number(safeBase.toFixed(2));
-        if (!Number.isFinite(safeReference) || safeReference <= 0) return Number(safeBase.toFixed(2));
-
-        const proportional = safeBase * (safeEffective / safeReference);
-        return Number(proportional.toFixed(2));
-    }
-
     private resolvePriceReferenceDuration(
         activity: ActivityType,
         allowedDurations: number[],
@@ -2486,9 +2775,22 @@ export class BookingService {
             Number.isFinite(professorOverrideMinutes) &&
             professorOverrideMinutes > 0;
         const allowedDurations = activitySchedule.durations;
-        const effectiveDuration = input.durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        // Precio por jugador: la modalidad puede fijar la duración (ej. Single 60, Dobles 120).
+        const modalityDuration = await this.playerSlotService.resolveFormatDurationTx(prisma, {
+            clubId: Number((court as any).club.id),
+            activityId: input.activityId,
+            activityFormatId: input.activityFormatId
+        });
+        // Turno corto en huecos (si la modalidad lo permite): se acepta la duración corta.
+        const isShortGapRequestA = Boolean(
+            modalityDuration?.shortGapMinutes && Number(input.durationMinutes) === modalityDuration.shortGapMinutes
+        );
+        if (modalityDuration && input.durationMinutes && Number(input.durationMinutes) !== modalityDuration.durationMinutes && !isShortGapRequestA) {
+            throw this.invalidInput(`La modalidad ${modalityDuration.formatName} dura ${modalityDuration.durationMinutes} minutos.`);
+        }
+        const effectiveDuration = (isShortGapRequestA ? modalityDuration!.shortGapMinutes! : modalityDuration?.durationMinutes) ?? input.durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         this.assertValidDuration(effectiveDuration);
-        if (!allowedDurations.includes(effectiveDuration)) {
+        if (!modalityDuration && !allowedDurations.includes(effectiveDuration)) {
             if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
                 throw this.bookingSlotUnavailable('Duración no permitida por el club');
             }
@@ -2551,25 +2853,58 @@ export class BookingService {
             }
         }
 
-        const basePrice = await this.pricingService.calculateCourtPrice(input.courtId, input.startDateTime);
-        if (!Number.isFinite(basePrice) || basePrice <= 0) {
-            throw this.clubConfigInvalid('Precio de cancha no configurado.');
+        if (await findCourtBlockOverlap({ courtId: input.courtId, startDateTime: input.startDateTime, endDateTime })) {
+            throw courtBlockedError();
         }
 
-        const referenceDuration = this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration);
-        let listPrice = this.calculateDurationAdjustedPrice(Number(basePrice), effectiveDuration, referenceDuration);
-        if (clubConfig && clubConfig.lightsEnabled && clubConfig.lightsExtraAmount && clubConfig.lightsFromHour) {
-            const [lh, lm] = String(clubConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
-            if (Number.isNaN(lh) || Number.isNaN(lm)) {
-                throw this.clubConfigInvalid('Configuración de club inválida: lightsFromHour debe tener formato HH:MM');
-            }
-            const localStart = TimeHelper.utcToLocal(input.startDateTime, clubTimeZone);
-            const bookingTotalMinutes = localStart.getHours() * 60 + localStart.getMinutes();
-            const lightsTotalMinutes = lh * 60 + lm;
-            if (bookingTotalMinutes >= lightsTotalMinutes) {
-                listPrice += Number(clubConfig.lightsExtraAmount);
-            }
+        if (input.scheduleOnly) {
+            return { listPrice: 0, finalPrice: 0, discountAmount: 0, hasDiscount: false, appliedPolicies: [] };
         }
+
+        const quoteClubId = Number((court as any).club.id);
+        if (await this.playerSlotService.isPerPlayerClub(quoteClubId)) {
+            // El staff cotiza para cualquier cliente; el jugador solo con la ficha vinculada a su usuario (D2).
+            const ownerClientId = input.allowAdminBenefits
+                ? await prisma.$transaction((tx) => this.resolveClientIdForDiscountTx(tx, {
+                    clubId: quoteClubId,
+                    clientId: input.clientId ?? null,
+                    userId: input.userId,
+                    clientEmail: input.clientEmail,
+                    clientPhone: input.clientPhone,
+                    clientDni: input.clientDni
+                }))
+                : input.userId
+                    ? (await prisma.client.findFirst({ where: { clubId: quoteClubId, userId: Number(input.userId) }, select: { id: true } }))?.id ?? null
+                    : null;
+            const perPlayer = await this.playerSlotService.quotePerPlayer({
+                clubId: quoteClubId,
+                activityId: input.activityId,
+                activityFormatId: input.activityFormatId,
+                startDateTime: input.startDateTime,
+                ownerClientId: ownerClientId ?? null
+            });
+            return {
+                listPrice: perPlayer.listTotal,
+                finalPrice: perPlayer.estimatedTotal,
+                discountAmount: 0,
+                hasDiscount: false,
+                appliedPolicies: [],
+                perPlayer
+            };
+        }
+
+        const priceBreakdown = await this.pricingService.resolveCourtPriceBreakdown({
+            courtId: input.courtId,
+            startDateTime: input.startDateTime,
+            effectiveDurationMinutes: effectiveDuration,
+            referenceDurationMinutes: this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration),
+            timeZone: clubTimeZone,
+            lights: clubConfig
+        });
+        if (!Number.isFinite(priceBreakdown.basePrice) || priceBreakdown.basePrice <= 0) {
+            throw this.clubConfigInvalid('Precio de cancha no configurado.');
+        }
+        const listPrice = priceBreakdown.listPrice;
 
         const quote = await prisma.$transaction(async (tx) => {
             const clientId = await this.resolveClientIdForDiscountTx(tx, {
@@ -2746,9 +3081,21 @@ export class BookingService {
                 phone: safePhone || null,
                 email: safeEmail || null,
                 dni: safeDni || null,
-                userId: null
+                // La ficha nace por una acción autenticada de ese usuario. Vincularla acá evita
+                // crear dos identidades separadas que después requieren intervención del club.
+                userId: safeUserId
             }
         });
+
+        if (safeUserId) {
+            await recordUserClientLinkAuditTx(tx, {
+                clubId: input.clubId,
+                userId: safeUserId,
+                clientId: String(created.id),
+                reason: 'CREATED_CLIENT',
+                source: 'BOOKING'
+            });
+        }
         return created;
     }
 
@@ -2798,6 +3145,14 @@ export class BookingService {
                     paidAmount: 0
                 }
             });
+        }
+
+        const hasPlayerSlots = (await tx.bookingPlayerSlot.count({ where: { bookingId: params.bookingId } })) > 0;
+        if (hasPlayerSlots) {
+            await this.playerSlotService.syncAccountItemsTx(tx, params.bookingId, params.actorUserId ?? null);
+            await this.playerSlotService.applyBookingTotalsTx(tx, params.bookingId);
+            await this.projectionService.refreshAccountSummary(account.id, tx);
+            return account;
         }
 
         const bookingCharge = Number(params.bookingPrice || 0);
@@ -2989,12 +3344,15 @@ Ingresó un nuevo turno web en *${params.clubName}*.
         const cleanClientPhone = toDialablePhoneNumber(params.clientPhone);
         const cleanClubPhone = toDialablePhoneNumber(params.clubPhone);
         const { date, time } = this.formatBookingDateTime(params.startDateTime, params.timeZone);
-        const isAutoCancel = params.reason === 'AUTO_CANCEL_UNCONFIRMED';
+        const isAutoCancel = params.reason === 'AUTO_CANCEL_UNCONFIRMED' || params.reason === 'ONLINE_DEPOSIT_EXPIRED';
+        const autoCancelCause = params.reason === 'ONLINE_DEPOSIT_EXPIRED'
+            ? ' automáticamente porque no se pagó la seña a tiempo'
+            : ' automáticamente por falta de confirmación';
 
         const clientMessage = `
 ❌ *Reserva Cancelada en ${params.clubName}* ❌
 
-Hola *${params.clientName}*, te confirmamos que tu turno ha sido anulado${isAutoCancel ? ' automáticamente por falta de confirmación' : ' a través del sistema'}.
+Hola *${params.clientName}*, te confirmamos que tu turno ha sido anulado${isAutoCancel ? autoCancelCause : ' a través del sistema'}.
 
 📅 *Fecha:* ${date}
 ⏰ *Hora:* ${time}
@@ -3169,26 +3527,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         if (settings) {
             lightsEnabled = Boolean(settings.lightsEnabled);
             lightsFromHour = settings.lightsFromHour ? String(settings.lightsFromHour) : null;
-            const configuredLightsExtra = settings.lightsExtraAmount == null ? null : Number(settings.lightsExtraAmount);
             const clubTimeZone = String(settings.timeZone || 'America/Argentina/Buenos_Aires');
-            const localStart = TimeHelper.utcToLocal(summary.booking.startDateTime, clubTimeZone);
-
-            if (
-                lightsEnabled &&
-                Number.isFinite(Number(configuredLightsExtra)) &&
-                Number(configuredLightsExtra) > 0 &&
-                lightsFromHour &&
-                /^\d{2}:\d{2}$/.test(lightsFromHour)
-            ) {
-                const [lh, lm] = lightsFromHour.split(':').map((n) => Number.parseInt(n, 10));
-                if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
-                    const bookingTotalMinutes = localStart.getHours() * 60 + localStart.getMinutes();
-                    const lightsTotalMinutes = lh * 60 + lm;
-                    if (bookingTotalMinutes >= lightsTotalMinutes) {
-                        lightsApplies = true;
-                        lightsExtraAmount = Number(Number(configuredLightsExtra).toFixed(2));
-                    }
-                }
+            if (lightsFromHour && /^\d{2}:\d{2}$/.test(lightsFromHour)) {
+                lightsExtraAmount = PricingService.computeLightsExtra(summary.booking.startDateTime, clubTimeZone, {
+                    lightsEnabled,
+                    lightsExtraAmount: settings.lightsExtraAmount == null ? null : Number(settings.lightsExtraAmount),
+                    lightsFromHour
+                });
+                lightsApplies = lightsExtraAmount > 0;
             }
         }
 
@@ -3305,10 +3651,23 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw this.clubConfigInvalid('El club requiere una seña pero no tiene bookingDepositPercent válido');
         }
         const allowedDurations = activitySchedule.durations;
-        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        // Precio por jugador: la modalidad puede fijar la duración (ej. Single 60, Dobles 120).
+        const modalityDuration = await this.playerSlotService.resolveFormatDurationTx(prisma, {
+            clubId: bookingClubId,
+            activityId,
+            activityFormatId: options?.activityFormatId
+        });
+        // Turno corto en huecos (si la modalidad lo permite): se acepta la duración corta.
+        const isShortGapRequest = Boolean(
+            modalityDuration?.shortGapMinutes && Number(durationMinutes) === modalityDuration.shortGapMinutes
+        );
+        if (modalityDuration && durationMinutes && Number(durationMinutes) !== modalityDuration.durationMinutes && !isShortGapRequest) {
+            throw this.invalidInput(`La modalidad ${modalityDuration.formatName} dura ${modalityDuration.durationMinutes} minutos.`);
+        }
+        const effectiveDuration = (isShortGapRequest ? modalityDuration!.shortGapMinutes! : modalityDuration?.durationMinutes) ?? durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         this.assertValidDuration(effectiveDuration);
         // Regla operativa explícita: permitir duración especial profesor aunque no esté en scheduleDurations
-        if (!allowedDurations.includes(effectiveDuration)) {
+        if (!modalityDuration && !allowedDurations.includes(effectiveDuration)) {
             if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
                 throw this.bookingSlotUnavailable('Duración no permitida por el club');
             }
@@ -3349,6 +3708,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         // Verificar días de apertura del club (en la zona horaria del club)
         if (!this.isClubOpenOnLocalDate(clubConfig, startDateTime, clubTimeZone)) {
             throw this.bookingSlotUnavailable('El club está cerrado ese día');
+        }
+
+        // Ventanas de reserva (prioridad de socios): solo para reservas hechas por el jugador desde la app.
+        if (!createdByAdmin && !options?.skipAdvanceLimit) {
+            await this.bookingReleaseService.assertCanBook({ clubId: bookingClubId, userId, startDateTime });
         }
 
         // Política de anticipación para reservas simples.
@@ -3395,31 +3759,32 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw err;
         }
 
-    // Calcular precio base dinámico por reglas horarias y extra por luces según configuración del club
-        const BASE_PRICE = await this.pricingService.calculateCourtPrice(courtId, startDateTime);
-        if (!Number.isFinite(BASE_PRICE) || BASE_PRICE <= 0) {
-            throw this.clubConfigInvalid('Precio de cancha no configurado.');
-        }
-        const clubPricingConfig = this.resolveClubConfig((court as any)?.club);
-        const referenceDuration = this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration);
-        let finalPrice = this.calculateDurationAdjustedPrice(BASE_PRICE, effectiveDuration, referenceDuration);
-        // El descuento económico no se calcula acá: se unifica en DiscountPolicy sobre AccountItem.
-        if (clubPricingConfig && clubPricingConfig.lightsEnabled && clubPricingConfig.lightsExtraAmount && clubPricingConfig.lightsFromHour) {
-                try {
-                    const [lh, lm] = String(clubPricingConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
-                    if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
-                            const localStart = TimeHelper.utcToLocal(startDateTime, clubTimeZone);
-                            const bookingHour = localStart.getHours();
-                            const bookingMinutes = localStart.getMinutes();
-                        const bookingTotalMinutes = bookingHour * 60 + bookingMinutes;
-                        const lightsTotalMinutes = lh * 60 + lm;
-                        if (bookingTotalMinutes >= lightsTotalMinutes) {
-                            finalPrice += Number(clubPricingConfig.lightsExtraAmount);
-                        }
-                    }
-                } catch {
-                // Si algo falla en el parseo, seguimos cobrando solo el precio base
+        // Precio por jugador: la reserva se arma con lugares; su precio es la suma de las partes.
+        const perPlayerFormat = await this.playerSlotService.isPerPlayerClub(bookingClubId)
+            ? await this.playerSlotService.resolveFormatTx(prisma, {
+                clubId: bookingClubId,
+                activityId,
+                activityFormatId: options?.activityFormatId
+            })
+            : null;
+
+        // Precio por reglas horarias + duración + luces. El descuento económico no se calcula acá:
+        // se unifica en DiscountPolicy sobre AccountItem.
+        let finalPrice = 0;
+        if (!perPlayerFormat) {
+            const clubPricingConfig = this.resolveClubConfig((court as any)?.club);
+            const priceBreakdown = await this.pricingService.resolveCourtPriceBreakdown({
+                courtId,
+                startDateTime,
+                effectiveDurationMinutes: effectiveDuration,
+                referenceDurationMinutes: this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration),
+                timeZone: clubTimeZone,
+                lights: clubPricingConfig
+            });
+            if (!Number.isFinite(priceBreakdown.basePrice) || priceBreakdown.basePrice <= 0) {
+                throw this.clubConfigInvalid('Precio de cancha no configurado.');
             }
+            finalPrice = priceBreakdown.listPrice;
         }
 
         const created = await prisma.$transaction(async (tx: any) => {
@@ -3431,6 +3796,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             });
             if (classOverlap) {
                 throw this.bookingSlotUnavailable('La cancha ya tiene una clase en ese horario.');
+            }
+            if (await findCourtBlockOverlap({ courtId, startDateTime, endDateTime }, tx)) {
+                throw courtBlockedError();
             }
 
             const overlapping = await tx.booking.findMany({
@@ -3537,6 +3905,17 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     (clubConfig?.bookingConfirmationMode ?? 'MANUAL') as 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED'
                 );
 
+                // Seña online obligatoria: quien reserva desde la app tiene unos minutos para pagarla.
+                const rawClubSettings = (court as any)?.club?.settings ?? null;
+                const onlineDepositDueAt =
+                    !createdByAdmin
+                    && initialStatus === 'PENDING'
+                    && clubConfig?.bookingConfirmationMode === 'DEPOSIT_REQUIRED'
+                    && rawClubSettings?.onlineDepositRequired === true
+                    && rawClubSettings?.onlineCheckoutEnabled !== false
+                        ? new Date(Date.now() + Math.max(5, Number(rawClubSettings?.onlineDepositHoldMinutes || 15)) * 60_000)
+                        : null;
+
                 saved = await tx.booking.create({
                     data: {
                         displayCode: generateDisplayCode('RES'),
@@ -3545,16 +3924,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         listPrice: finalPrice,
                         price: finalPrice,
                         status: initialStatus,
+                        onlineDepositDueAt,
                         userId: resolvedBookingUserId,
                         clientId: resolvedClient.id,
                         courtId: courtId,
                         activityId: activityId,
-                        clubId: bookingClubId
+                        clubId: bookingClubId,
+                        activityFormatId: perPlayerFormat?.id ?? null,
+                        playerCount: perPlayerFormat?.playerCount ?? null
                     },
                     include: { user: true, client: true, court: { include: { club: true } }, activity: true }
                 });
 
-                await this.ensureOrganizerParticipantTx(tx, {
+                const organizerParticipant = await this.ensureOrganizerParticipantTx(tx, {
                     bookingId: saved.id,
                     client: {
                         id: String(resolvedClient.id),
@@ -3574,9 +3956,59 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     userId: resolvedBookingUserId
                 });
 
+                if (perPlayerFormat) {
+                    // Lugar 1 = titular: SELF si reserva el propio jugador, STAFF_VALIDATED si lo carga el club (D9).
+                    const updatedTotals = await this.playerSlotService.initializeSlotsTx(tx, {
+                        bookingId: saved.id,
+                        clubId: bookingClubId,
+                        activityFormatId: perPlayerFormat.id,
+                        playerCount: perPlayerFormat.playerCount,
+                        startDateTime,
+                        owner: {
+                            participantId: organizerParticipant?.id ?? null,
+                            clientId: String(resolvedClient.id),
+                            userId: resolvedBookingUserId ?? null,
+                            displayName: resolvedClient.name ?? null
+                        },
+                        // Desde la app, SELF solo si la ficha está vinculada a su usuario: una ficha encontrada
+                        // por datos declarados (email/teléfono) no da precio socio sin validación (D2/D9).
+                        ownerValidation: createdByAdmin
+                            ? 'STAFF_VALIDATED'
+                            : (resolvedBookingUserId && Number(resolvedClient.userId || 0) === Number(resolvedBookingUserId) ? 'SELF' : 'PENDING'),
+                        actorUserId: options?.actorUserId ?? user?.id ?? null
+                    });
+                    saved = { ...saved, listPrice: updatedTotals.listPrice, price: updatedTotals.price };
+                }
+
+                for (const participant of options?.initialParticipants || []) {
+                    await this.createPlayerBookingInvitationTx(tx, {
+                        bookingId: saved.id,
+                        clubId: bookingClubId,
+                        ownerUserId: Number(resolvedBookingUserId || 0),
+                        ownerEmail: bookingOwnerUser?.email ?? null,
+                        invitedEmail: participant.email,
+                        invitedDni: participant.dni,
+                        invitedName: participant.name,
+                        invitedUserToken: participant.inviteToken
+                    });
+                }
+                if (options?.initialParticipants?.length) {
+                    const refreshed = await tx.booking.findUnique({
+                        where: { id: saved.id },
+                        include: { user: true, client: true, court: { include: { club: true } }, activity: true }
+                    });
+                    if (refreshed) saved = refreshed;
+                }
+
                 // Estrategia lazy: para turnos simples no abrimos cuenta al crear.
                 // Solo se crea al confirmar, agregar consumos o registrar pagos.
-                if (initialStatus === 'CONFIRMED' || options?.skipAccountCreation === false) {
+                // Con seña la reserva nace pendiente pero necesita su cuenta: es donde se paga la seña
+                // (online o en el mostrador) para que se confirme sola.
+                const needsAccountForDeposit =
+                    initialStatus === 'PENDING'
+                    && clubConfig?.bookingConfirmationMode === 'DEPOSIT_REQUIRED'
+                    && options?.skipAccountCreation !== true;
+                if (initialStatus === 'CONFIRMED' || needsAccountForDeposit || options?.skipAccountCreation === false) {
                     await this.ensureBookingAccountWithChargeTx(tx, {
                         bookingId: saved.id,
                         clubId: bookingClubId,
@@ -3795,6 +4227,219 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         return this.bookingRepo.mapToEntity(created);
     }
 
+    /**
+     * Reglas de reserva del día para cada actividad del club: qué inicios y duraciones acepta el club.
+     * La agenda las usa para ajustar crear / mover / editar; el servidor valida lo mismo al guardar.
+     */
+    async getBookingRulesForDate(clubId: number, localDate: string) {
+        const club = await prisma.club.findUnique({ where: { id: clubId }, include: { settings: true } });
+        if (!club) throw this.clubConfigInvalid('Club inexistente');
+        const clubConfig = this.resolveClubConfig(club);
+        const timeZone = clubConfig?.timeZone ?? 'America/Argentina/Buenos_Aires';
+        const referenceDate = TimeHelper.localSlotToUtc(localDate, '12:00', timeZone);
+        const clubOpen = this.isClubOpenOnLocalDate(clubConfig, referenceDate, timeZone);
+
+        const professorOverrideMinutes = Number(clubConfig?.professorDurationOverrideMinutes ?? 60);
+        const professorOverride =
+            Boolean(clubConfig?.professorDurationOverrideEnabled) &&
+            Number.isFinite(professorOverrideMinutes) &&
+            professorOverrideMinutes > 0
+                ? professorOverrideMinutes
+                : null;
+
+        const perPlayer = await this.playerSlotService.isPerPlayerClub(clubId);
+        const activities = await prisma.activityType.findMany({
+            where: { clubId },
+            include: perPlayer ? { formats: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } } : undefined
+        });
+
+        const rules = [];
+        for (const activity of activities as any[]) {
+            const resolved = await this.resolveActivityScheduleForDate(activity, referenceDate, timeZone);
+            const schedule = resolved.schedule;
+            const formats = perPlayer
+                ? (activity.formats || []).map((format: any) => ({
+                        id: String(format.id),
+                        name: String(format.name),
+                        // null = la modalidad no fija duración: valen las del club.
+                        durationMinutes: Number(format.durationMinutes) > 0 ? Number(format.durationMinutes) : null,
+                        playerCount: Number(format.playerCount) > 0 ? Number(format.playerCount) : null,
+                        shortGapMinutes: resolveShortGapMinutes(format)
+                    }))
+                : [];
+            const durations = Array.from(new Set<number>([
+                ...schedule.durations,
+                ...formats.map((format: any) => format.durationMinutes).filter((value: any) => Number(value) > 0),
+                ...formats.map((format: any) => format.shortGapMinutes).filter((value: any) => Number(value) > 0),
+            ])).sort((a, b) => a - b);
+
+            const slots: Array<{ start: string; durationMinutes: number }> = [];
+            if (clubOpen && !resolved.isClosed) {
+                for (const duration of durations) {
+                    const built = buildSlotsFromSchedule(
+                        {
+                            scheduleMode: schedule.mode,
+                            scheduleOpenTime: schedule.openTime,
+                            scheduleCloseTime: schedule.closeTime,
+                            scheduleIntervalMinutes: schedule.intervalMinutes,
+                            scheduleWindows: schedule.rangeWindows,
+                            scheduleDurations: schedule.durations,
+                            scheduleFixedSlots: schedule.fixedSlots
+                        },
+                        activity.defaultDurationMinutes,
+                        duration
+                    ) as Array<{ slotTime: string; dayOffset: number }>;
+                    for (const slot of built) {
+                        if (slot.dayOffset === 0) slots.push({ start: slot.slotTime, durationMinutes: duration });
+                    }
+                }
+            }
+
+            rules.push({
+                activityId: Number(activity.id),
+                isClosed: !clubOpen || resolved.isClosed,
+                mode: schedule.mode,
+                durations: schedule.durations,
+                formats,
+                slots
+            });
+        }
+
+        return { date: localDate, timeZone, professorOverrideMinutes: professorOverride, activities: rules };
+    }
+
+    /**
+     * Ocupación para Informes: horas reservadas sobre horas abiertas, por cancha y por día de la
+     * semana × hora. "Abierto" sale de las mismas reglas que usa la agenda para cada fecha.
+     * Rangos de más de 62 días devuelven null (son muchas fechas para recorrer).
+     */
+    async getOccupancyReport(clubId: number, startDate: string, endDate: string) {
+        const parse = (key: string) => {
+            const [y, m, d] = key.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        };
+        const keyOf = (date: Date) =>
+            `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const start = parse(startDate);
+        const end = parse(endDate);
+        const dayCount = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+        if (!Number.isFinite(dayCount) || dayCount <= 0 || dayCount > 62) return null;
+
+        const club = await prisma.club.findUnique({ where: { id: clubId }, include: { settings: true } });
+        if (!club) return null;
+        const timeZone = this.resolveClubConfig(club)?.timeZone ?? 'America/Argentina/Buenos_Aires';
+
+        const courts = await prisma.court.findMany({
+            where: { clubId },
+            select: { id: true, name: true, activityTypeId: true },
+            orderBy: { id: 'asc' }
+        });
+
+        const rangeStartUtc = TimeHelper.localSlotToUtc(startDate, '00:00', timeZone);
+        const rangeEndUtc = TimeHelper.localSlotToUtc(endDate, '23:59', timeZone);
+        const bookings = await prisma.booking.findMany({
+            where: {
+                clubId,
+                status: { not: 'CANCELLED' },
+                startDateTime: { lt: rangeEndUtc },
+                endDateTime: { gt: rangeStartUtc }
+            },
+            select: { courtId: true, startDateTime: true, endDateTime: true }
+        });
+
+        type Interval = [number, number];
+        const merge = (intervals: Interval[]): Interval[] => {
+            const sorted = intervals.filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
+            const out: Interval[] = [];
+            for (const [a, b] of sorted) {
+                const last = out[out.length - 1];
+                if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+                else out.push([a, b]);
+            }
+            return out;
+        };
+        const overlap = (a: number, b: number, c: number, d: number) => Math.max(0, Math.min(b, d) - Math.max(a, c));
+
+        const byCourt = new Map<number, { courtId: number; name: string; openMinutes: number; bookedMinutes: number }>();
+        for (const court of courts) {
+            byCourt.set(court.id, { courtId: court.id, name: court.name, openMinutes: 0, bookedMinutes: 0 });
+        }
+        // heat[weekday][hour]
+        const heat = Array.from({ length: 7 }, () => Array.from({ length: 24 }, () => ({ open: 0, booked: 0 })));
+        // Horario abierto por cancha y día (para recortar reservas a lo abierto y no pasar de 100%).
+        const openByCourtDay = new Map<string, Interval[]>();
+
+        for (let i = 0; i < dayCount; i += 1) {
+            const day = new Date(start);
+            day.setDate(start.getDate() + i);
+            const dayKey = keyOf(day);
+            const weekday = day.getDay();
+            let rules: any;
+            try {
+                rules = await this.getBookingRulesForDate(clubId, dayKey);
+            } catch {
+                continue;
+            }
+            const openByActivity = new Map<number, Interval[]>();
+            for (const activity of rules?.activities || []) {
+                if (activity.isClosed) continue;
+                const intervals: Interval[] = (activity.slots || []).map((slot: any) => {
+                    const from = TimeHelper.timeToMinutes(String(slot.start));
+                    return [from, Math.min(24 * 60, from + Number(slot.durationMinutes || 0))] as Interval;
+                });
+                openByActivity.set(Number(activity.activityId), merge(intervals));
+            }
+            for (const court of courts) {
+                const intervals = court.activityTypeId ? openByActivity.get(Number(court.activityTypeId)) || [] : [];
+                if (intervals.length === 0) continue;
+                openByCourtDay.set(`${court.id}|${dayKey}`, intervals);
+                const entry = byCourt.get(court.id)!;
+                for (const [a, b] of intervals) {
+                    entry.openMinutes += b - a;
+                    for (let hour = Math.floor(a / 60); hour * 60 < b && hour < 24; hour += 1) {
+                        heat[weekday][hour].open += overlap(a, b, hour * 60, hour * 60 + 60);
+                    }
+                }
+            }
+        }
+
+        for (const booking of bookings) {
+            const localStart = TimeHelper.utcToLocal(new Date(booking.startDateTime), timeZone);
+            const localEnd = TimeHelper.utcToLocal(new Date(booking.endDateTime), timeZone);
+            const dayKey = keyOf(localStart);
+            const intervals = openByCourtDay.get(`${booking.courtId}|${dayKey}`);
+            if (!intervals) continue;
+            const from = localStart.getHours() * 60 + localStart.getMinutes();
+            const sameDay = keyOf(localEnd) === dayKey;
+            const to = sameDay ? localEnd.getHours() * 60 + localEnd.getMinutes() : 24 * 60;
+            const weekday = localStart.getDay();
+            const entry = byCourt.get(booking.courtId);
+            for (const [a, b] of intervals) {
+                const minutes = overlap(from, to, a, b);
+                if (minutes <= 0) continue;
+                if (entry) entry.bookedMinutes += minutes;
+                const lo = Math.max(from, a);
+                const hi = Math.min(to, b);
+                for (let hour = Math.floor(lo / 60); hour * 60 < hi && hour < 24; hour += 1) {
+                    heat[weekday][hour].booked += overlap(lo, hi, hour * 60, hour * 60 + 60);
+                }
+            }
+        }
+
+        const courtsOut = Array.from(byCourt.values()).filter((court) => court.openMinutes > 0);
+        const totals = courtsOut.reduce(
+            (acc, court) => ({ openMinutes: acc.openMinutes + court.openMinutes, bookedMinutes: acc.bookedMinutes + court.bookedMinutes }),
+            { openMinutes: 0, bookedMinutes: 0 }
+        );
+        const cells: Array<{ weekday: number; hour: number; openMinutes: number; bookedMinutes: number }> = [];
+        heat.forEach((hours, weekday) =>
+            hours.forEach((cell, hour) => {
+                if (cell.open > 0) cells.push({ weekday, hour, openMinutes: cell.open, bookedMinutes: cell.booked });
+            })
+        );
+        return { totals, courts: courtsOut, heatmap: cells };
+    }
+
     async getAvailableSlots(courtId: number, date: Date, activityId: number, durationMinutes?: number): Promise<string[]> {
         const court = await this.courtRepo.findById(courtId);
         if (!court) throw this.courtNotFound();
@@ -3825,7 +4470,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 status: { not: 'CANCELLED' }
             }
         });
-        const existingClasses = await prisma.classSession.findMany({
+        const existingClassRows = await prisma.classSession.findMany({
             where: {
                 clubId: Number((court as any)?.club?.id || 0),
                 courtId: courtId,
@@ -3835,6 +4480,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             },
             select: { startsAt: true, endsAt: true }
         });
+        // Clases y bloqueos ocupan la cancha igual que una reserva.
+        const existingBlocks = await prisma.courtBlock.findMany({
+            where: {
+                courtId: courtId,
+                startDateTime: { lt: endUtc },
+                endDateTime: { gt: startUtc }
+            },
+            select: { startDateTime: true, endDateTime: true }
+        });
+        const existingClasses = [
+            ...existingClassRows,
+            ...existingBlocks.map((block) => ({ startsAt: block.startDateTime, endsAt: block.endDateTime }))
+        ];
         const allowedDurations = activitySchedule.durations;
         const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         if (!allowedDurations.includes(effectiveDuration)) {
@@ -3916,7 +4574,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const reason = options?.reason ?? 'MANUAL';
         const now = options?.now ?? new Date();
         const skipAccessValidation = options?.skipAccessValidation ?? false;
-        const isAutoCancel = reason === 'AUTO_CANCEL_UNCONFIRMED';
+        const isDepositExpiry = reason === 'ONLINE_DEPOSIT_EXPIRED';
+        const isAutoCancel = reason === 'AUTO_CANCEL_UNCONFIRMED' || isDepositExpiry;
 
         const booking = await this.bookingRepo.findById(bookingId);
         if (!booking) {
@@ -3959,7 +4618,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 throw this.bookingNotFound('La reserva no existe.');
             }
 
-            if (isAutoCancel) {
+            if (isDepositExpiry) {
+                // Solo si sigue pendiente, venció el plazo y la seña no está cubierta.
+                if (currentBooking.status !== 'PENDING') return;
+                const dueAt = (currentBooking as { onlineDepositDueAt?: Date | null }).onlineDepositDueAt;
+                if (!dueAt || now.getTime() < dueAt.getTime()) return;
+                const summary = await this.bookingDomainService.getBookingFinancialSummaryTx(tx as any, bookingId, currentBooking.court.club.id);
+                if (summary.paid + 0.009 >= summary.depositRequiredAmount && summary.depositRequiredAmount > 0.009) return;
+            } else if (isAutoCancel) {
                 if (currentBooking.status !== 'PENDING') return;
 
                 const settings = currentBooking.court.club.settings;
@@ -4207,6 +4873,17 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             if (account) {
                 await this.projectionService.refreshAccountSummary(account.id, tx);
             }
+            // Solo cuando cancela el club (desde el admin) o el sistema; si cancela el propio jugador, no.
+            if (clubId != null || isAutoCancel) {
+                await this.enqueueBookingCancelledPushTx(tx, {
+                    bookingId,
+                    clubId: booking.court.club.id,
+                    ownerUserId: currentBooking.userId ?? null,
+                    actorUserId: isAutoCancel ? null : cancelledByUserId,
+                    reasonText: options?.playerReasonText ?? null,
+                    autoCancel: isAutoCancel
+                });
+            }
             wasCancelled = true;
         });
 
@@ -4425,7 +5102,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             });
 
-            await this.ensureOrganizerParticipantTx(tx, {
+            const nextOrganizer = await this.ensureOrganizerParticipantTx(tx, {
                 bookingId,
                 client: {
                     id: nextClient.id,
@@ -4435,6 +5112,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 },
                 user: nextBookingUserSnapshot,
                 userId: nextBookingUserId
+            });
+
+            // Precio por jugador: cambiar el titular es cambiar el jugador del lugar 1 (RN-06).
+            await this.playerSlotService.replaceOwnerSlotTx(tx, {
+                bookingId,
+                participantId: nextOrganizer?.id ?? null,
+                clientId: nextClient.id,
+                userId: nextBookingUserId ?? null,
+                displayName: nextClient.name ?? null,
+                actorUserId: Number(params.actorUserId || 0) || null
             });
 
             // 4.1 Sincronizar billing config para evitar inconsistencias
@@ -4595,6 +5282,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             });
 
             const nextStatus = await this.bookingDomainService.confirmBookingManuallyTx(tx, { bookingId, clubId });
+            if (nextStatus === 'CONFIRMED') {
+                await this.enqueueBookingConfirmedPushTx(tx, { bookingId, clubId, actorUserId });
+            }
             await this.eventService.bookingConfirmed(clubId, {
                 bookingId,
                 actorUserId,
@@ -4802,10 +5492,25 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             include: {
                 court: { include: { club: { include: { settings: true } } } },
                 activity: true,
+                activityFormat: {
+                    select: {
+                        name: true,
+                        playerCount: true
+                    }
+                },
+                user: {
+                    select: {
+                        firstName: true,
+                        lastName: true,
+                        email: true
+                    }
+                },
                 client: {
                     select: {
                         id: true,
-                        userId: true
+                        userId: true,
+                        name: true,
+                        email: true
                     }
                 },
                 participants: {
@@ -4868,6 +5573,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 !hasRegisteredPayments;
             const canInvitePlayers = isOwner && this.canInviteParticipantsForPlayerBooking(booking, userId, now);
             const canLeaveBooking = isParticipant && this.canLeavePlayerBooking(booking, now);
+            const ownerDisplayName = [
+                String(booking.user?.firstName || '').trim(),
+                String(booking.user?.lastName || '').trim()
+            ].filter(Boolean).join(' ').trim()
+                || String(booking.client?.name || '').trim()
+                || String(booking.user?.email || booking.client?.email || '').trim()
+                || 'Titular';
 
             return {
                 id: String(booking.id),
@@ -4876,7 +5588,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     id: String(booking.court.club.id),
                     name: String(booking.court.club.name || 'Club'),
                     slug: String(booking.court.club.slug || ''),
-                    timeZone: String(booking.court.club.settings?.timeZone || 'America/Argentina/Buenos_Aires')
+                    timeZone: String(booking.court.club.settings?.timeZone || 'America/Argentina/Buenos_Aires'),
+                    logoUrl: booking.court.club.logoUrl ?? null
                 },
                 court: {
                     name: String(booking.court.name || 'Cancha')
@@ -4884,6 +5597,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 activity: booking.activity
                     ? { name: String(booking.activity.name || 'Actividad') }
                     : null,
+                formatName: booking.activityFormat?.name ?? null,
+                playerCount: Number.isInteger(Number(booking.playerCount)) && Number(booking.playerCount) > 0
+                    ? Number(booking.playerCount)
+                    : booking.activityFormat?.playerCount ?? null,
+                owner: {
+                    displayName: ownerDisplayName
+                },
                 startDateTime: new Date(booking.startDateTime).toISOString(),
                 endDateTime: new Date(booking.endDateTime).toISOString(),
                 status: booking.status,
@@ -4898,6 +5618,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             } satisfies PlayerBookingDto;
         });
+    }
+
+    private async isOnlineCheckoutEnabledForClub(clubId: number) {
+        const settings = await prisma.clubSettings.findUnique({
+            where: { clubId },
+            select: { onlineCheckoutEnabled: true }
+        });
+        // Sin fila de configuración se mantiene el comportamiento histórico (checkout habilitado).
+        return settings?.onlineCheckoutEnabled ?? true;
     }
 
     async getPlayerBookingCheckout(bookingId: number, userId: number): Promise<PlayerBookingCheckoutDto> {
@@ -4992,7 +5721,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     enabled: false,
                     reason: 'ACCOUNT_MISSING',
                     futureProvider: null
-                }
+                },
+                shares: null
             };
         }
 
@@ -5002,6 +5732,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const hasRelevantRefunds = account.refunds.some((refund) => refund.status !== 'FAILED' && refund.status !== 'CANCELLED');
 
         const integrationStatus = await this.clubPaymentIntegrationService.getMercadoPagoIntegrationStatusForClub(booking.clubId);
+        const onlineCheckoutEnabled = await this.isOnlineCheckoutEnabledForClub(booking.clubId);
+        const target = await this.resolveOnlinePaymentTargetTx(prisma, {
+            bookingId,
+            userId,
+            isOwner,
+            scope: 'OWN_SHARE',
+            accountPending: pending,
+            perPlayer: Boolean(booking.activityFormatId)
+        });
         let checkoutEnabled = false;
         let checkoutReason: PlayerBookingCheckoutDto['checkout']['reason'] = 'UNKNOWN';
         let futureProvider: PlayerBookingCheckoutDto['checkout']['futureProvider'] = null;
@@ -5010,10 +5749,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             checkoutReason = 'BOOKING_HAS_REFUNDS';
         } else if (bookingNotPayable) {
             checkoutReason = 'BOOKING_NOT_PAYABLE';
-        } else if (isParticipant) {
+        } else if (isParticipant && (!target.perPlayer || target.blocked === 'NO_PLAYER_SLOT')) {
             checkoutReason = 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED';
-        } else if (pending <= 0.009) {
+        } else if (target.blocked === 'MEMBER_PRICE_PENDING') {
+            // Su precio socio todavía no está validado: pagar ahora lo congelaría a precio no socio (D9/D10).
+            checkoutReason = 'MEMBER_PRICE_PENDING';
+        } else if (pending <= 0.009 || target.blocked) {
             checkoutReason = 'NO_PENDING_BALANCE';
+        } else if (!onlineCheckoutEnabled) {
+            // El club cobra solo en el mostrador.
+            checkoutReason = 'PAY_AT_CLUB';
         } else if (!integrationStatus.connected) {
             checkoutReason = 'PROVIDER_NOT_CONFIGURED';
             futureProvider = 'MERCADO_PAGO';
@@ -5058,11 +5803,270 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 enabled: checkoutEnabled,
                 reason: checkoutReason,
                 futureProvider
-            }
+            },
+            priceHints: await this.buildPlayerPriceHints(booking.clubId, target),
+            deposit: isOwner ? await this.getDepositStatus(prisma, booking) : null,
+            shares: this.buildPlayerSharesView(target, { userId, isOwner })
         };
     }
 
-    async createPlayerMercadoPagoCheckoutAttempt(bookingId: number, userId: number): Promise<PlayerBookingCheckoutStartDto> {
+    // Precio efectivo en el club y precio online (con su descuento) de lo que le toca pagar al jugador.
+    private async buildPlayerPriceHints(clubId: number, target: OnlinePaymentTarget) {
+        const settings = await prisma.clubSettings.findUnique({ where: { clubId }, select: { paymentMethodDiscounts: true } });
+        const hints = buildPublicPriceHints(settings?.paymentMethodDiscounts);
+        const listAmount = Number(target.amount.toFixed(2));
+        const amounts = target.items.length > 0 ? target.items.map((item) => item.amount) : [listAmount];
+        return {
+            listAmount,
+            cashPercent: hints.cashPercent,
+            cashAmount: hints.cashPercent > 0 ? applyPercentToAmounts(amounts, hints.cashPercent) : null,
+            onlinePercent: hints.onlinePercent,
+            onlineAmount: hints.onlinePercent > 0 ? applyPercentToAmounts(amounts, hints.onlinePercent) : null
+        };
+    }
+
+    // Estado de cada parte para Mis reservas: lo propio completo; del resto, nombre corto y si pagó.
+    private buildPlayerSharesView(target: OnlinePaymentTarget, viewer: { userId: number; isOwner: boolean }): PlayerBookingCheckoutDto['shares'] {
+        if (!target.perPlayer) return null;
+        const outstanding = (slot: PlayerSlotDto) => Number(Math.max(0, slot.shareAmount - slot.paidAmount).toFixed(2));
+        const isMine = (slot: PlayerSlotDto) => slot.userId === viewer.userId || (viewer.isOwner && slot.slotIndex === 1);
+        const mineSlot = target.slots.find(isMine) || null;
+        const extrasFor = (slotIndex: number) =>
+            Number(target.extras.filter((extra) => extra.slotIndex === slotIndex).reduce((sum, extra) => sum + extra.pending, 0).toFixed(2));
+        const extrasTotal = Number(target.extras.reduce((sum, extra) => sum + extra.pending, 0).toFixed(2));
+        const allPending = Number((target.slots.reduce((sum, slot) => sum + outstanding(slot), 0) + extrasTotal).toFixed(2));
+        const allFinal = target.slots.every((slot) => !slot.isEmpty && !slot.memberPricePending);
+        return {
+            mine: mineSlot
+                ? {
+                    amount: mineSlot.shareAmount,
+                    paid: mineSlot.paidAmount,
+                    pending: Number((outstanding(mineSlot) + extrasFor(mineSlot.slotIndex)).toFixed(2)),
+                    extrasPending: extrasFor(mineSlot.slotIndex),
+                    memberPricePending: mineSlot.memberPricePending
+                }
+                : null,
+            canPayAll: viewer.isOwner && allFinal && allPending > 0.009,
+            allPending,
+            extras: target.extras.map((extra) => ({
+                label: extra.label,
+                pending: extra.pending,
+                slotIndex: extra.slotIndex,
+                isMine: Boolean(mineSlot && mineSlot.slotIndex === extra.slotIndex)
+            })),
+            players: this.playerSlotService
+                .toPlayerView(target.slots, { userId: viewer.userId, clientIds: [] })
+                .map((slot) => ({
+                    slotIndex: slot.slotIndex,
+                    participantId: target.slots.find((full) => full.slotIndex === slot.slotIndex)?.participantId ?? null,
+                    displayName: slot.displayName,
+                    isEmpty: slot.isEmpty,
+                    isMine: slot.isMine || (viewer.isOwner && slot.slotIndex === 1),
+                    amount: slot.shareAmount,
+                    paid: slot.paid,
+                    memberPricePending: target.slots.find((full) => full.slotIndex === slot.slotIndex)?.memberPricePending ?? false
+                }))
+        };
+    }
+
+    // Seña de la reserva: cuánto falta pagar para confirmarla y en qué estado está.
+    private async getDepositStatus(
+        db: Prisma.TransactionClient | typeof prisma,
+        booking: { id: number; clubId: number; status: string; onlineDepositDueAt?: Date | null }
+    ) {
+        const settings = await db.clubSettings.findUnique({
+            where: { clubId: booking.clubId },
+            select: { bookingConfirmationMode: true, bookingDepositPercent: true, onlineDepositRequired: true, onlineCheckoutEnabled: true }
+        });
+        if (settings?.bookingConfirmationMode !== 'DEPOSIT_REQUIRED') return null;
+        const summary = await this.bookingDomainService.getBookingFinancialSummaryTx(db as any, booking.id, booking.clubId);
+        const remaining = Number(Math.max(0, summary.depositRequiredAmount - summary.paid).toFixed(2));
+        return {
+            percent: Number(settings.bookingDepositPercent || 0),
+            requiredAmount: Number(summary.depositRequiredAmount.toFixed(2)),
+            remainingAmount: booking.status === 'PENDING' ? remaining : 0,
+            covered: booking.status !== 'PENDING' || remaining <= 0.009,
+            onlineRequired: Boolean(settings.onlineDepositRequired) && settings.onlineCheckoutEnabled !== false,
+            dueAt: booking.status === 'PENDING' && booking.onlineDepositDueAt ? booking.onlineDepositDueAt.toISOString() : null
+        };
+    }
+
+    // Pago online de la seña: lo que falta para confirmar, imputado a la cancha (primero el lugar del titular).
+    private async resolveDepositTargetTx(
+        tx: Prisma.TransactionClient,
+        input: {
+            bookingId: number;
+            clubId: number;
+            bookingStatus: string;
+            accountId: string;
+            items: Array<{ id: string; type: string; total: Prisma.Decimal | number; createdAt: Date }>;
+            perPlayer: boolean;
+            ownerRef: string | null;
+            ownerName: string | null;
+        }
+    ): Promise<OnlinePaymentTarget> {
+        const base = { perPlayer: input.perPlayer, scope: 'DEPOSIT' as const, slots: [], extras: [] };
+        const deposit = await this.getDepositStatus(tx, { id: input.bookingId, clubId: input.clubId, status: input.bookingStatus });
+        if (!deposit || deposit.remainingAmount <= 0.009) {
+            return { ...base, amount: 0, items: [], payer: null, blocked: 'DEPOSIT_NOT_REQUIRED' };
+        }
+        const ownerSlot = input.perPlayer
+            ? await tx.bookingPlayerSlot.findFirst({ where: { bookingId: input.bookingId, slotIndex: 1 }, select: { accountItemId: true } })
+            : null;
+        const courtItems = input.items
+            .filter((item) => item.type === 'BOOKING')
+            .sort((a, b) => {
+                if (ownerSlot?.accountItemId === a.id) return -1;
+                if (ownerSlot?.accountItemId === b.id) return 1;
+                return a.createdAt.getTime() - b.createdAt.getTime();
+            });
+        const items = await this.resolveOutstandingItemsTx(tx, input.accountId, courtItems, deposit.remainingAmount, { keepOrder: true });
+        const amount = Number(items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
+        return {
+            ...base,
+            amount,
+            items,
+            payer: input.ownerRef ? { ref: input.ownerRef, name: input.ownerName } : null,
+            blocked: amount > 0.009 ? null : 'DEPOSIT_NOT_REQUIRED'
+        };
+    }
+
+    // Saldo pendiente por ítem, en orden de creación (igual que la imputación automática de pagos).
+    private async resolveOutstandingItemsTx(
+        tx: Prisma.TransactionClient,
+        accountId: string,
+        items: Array<{ id: string; total: Prisma.Decimal | number; createdAt: Date }>,
+        amount: number,
+        options?: { keepOrder?: boolean }
+    ) {
+        const allocated = await tx.paymentAllocation.groupBy({
+            by: ['accountItemId'],
+            where: { accountId, accountItemId: { in: items.map((item) => item.id) } },
+            _sum: { amount: true }
+        });
+        const paidById = new Map(allocated.map((row) => [row.accountItemId, Number(row._sum.amount || 0)]));
+        let remaining = Number(amount.toFixed(2));
+        const result: Array<{ accountItemId: string; amount: number }> = [];
+        const ordered = options?.keepOrder ? items : [...items].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        for (const item of ordered) {
+            if (remaining <= 0.009) break;
+            const outstanding = Number(Math.max(0, Number(item.total || 0) - (paidById.get(item.id) || 0)).toFixed(2));
+            if (outstanding <= 0.009) continue;
+            const chunk = Number(Math.min(outstanding, remaining).toFixed(2));
+            result.push({ accountItemId: item.id, amount: chunk });
+            remaining = Number((remaining - chunk).toFixed(2));
+        }
+        return result;
+    }
+
+    // Qué cubre un pago online. Reserva por cancha: toda la cuenta (como siempre).
+    // Reserva por jugador: cada uno paga su parte (D9/D10). Solo se cobran partes con precio definitivo:
+    // un lugar libre o un socio que todavía no validó su precio no se cobran online.
+    private async resolveOnlinePaymentTargetTx(
+        db: Prisma.TransactionClient | typeof prisma,
+        input: { bookingId: number; userId: number; isOwner: boolean; scope: OnlinePaymentScope; accountPending: number; perPlayer: boolean }
+    ): Promise<OnlinePaymentTarget> {
+        // Las reservas por jugador tienen modalidad (activityFormatId); las por cancha no consultan lugares.
+        const slots = input.perPlayer ? await this.playerSlotService.getSlotsTx(db, input.bookingId) : [];
+        if (slots.length === 0) {
+            return {
+                perPlayer: false,
+                scope: 'ACCOUNT',
+                amount: Number(input.accountPending.toFixed(2)),
+                items: [],
+                payer: null,
+                blocked: input.accountPending > 0.009 ? null : 'NO_PENDING_BALANCE',
+                slots,
+                extras: []
+            };
+        }
+
+        const extras = await this.loadPlayerExtraChargesTx(db, input.bookingId, slots);
+        const extrasOf = (slot: PlayerSlotDto) => extras.filter((extra) => extra.slotIndex === slot.slotIndex);
+        const extraItems = (list: PlayerExtraCharge[]) => list.map((extra) => ({ accountItemId: extra.accountItemId, amount: extra.pending }));
+
+        const outstanding = (slot: PlayerSlotDto) => Number(Math.max(0, slot.shareAmount - slot.paidAmount).toFixed(2));
+        const refFor = (slot: PlayerSlotDto) =>
+            slot.clientId ? `booking-client:${slot.clientId}` : slot.userId ? `booking-user:${slot.userId}` : null;
+        const mine = slots.find((slot) => slot.userId === input.userId) || (input.isOwner ? slots.find((slot) => slot.slotIndex === 1) : undefined);
+        const base = { perPlayer: true, scope: input.scope, slots, extras } as const;
+
+        if (input.scope === 'ALL_SHARES') {
+            if (!input.isOwner) return { ...base, amount: 0, items: [], payer: null, blocked: 'NO_PLAYER_SLOT' };
+            if (slots.some((slot) => slot.isEmpty || slot.memberPricePending || !slot.accountItemId)) {
+                return { ...base, amount: 0, items: [], payer: null, blocked: 'SHARES_NOT_FINAL' };
+            }
+            const items = [
+                ...slots
+                    .filter((slot) => outstanding(slot) > 0.009)
+                    .map((slot) => ({ accountItemId: String(slot.accountItemId), amount: outstanding(slot) })),
+                ...extraItems(extras)
+            ];
+            const amount = Number(items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
+            const payerRef = mine ? refFor(mine) : null;
+            return {
+                ...base,
+                amount,
+                items,
+                payer: payerRef ? { ref: payerRef, name: mine?.displayName ?? null } : null,
+                blocked: amount > 0.009 ? null : 'NO_PENDING_BALANCE'
+            };
+        }
+
+        if (!mine || !mine.accountItemId) return { ...base, amount: 0, items: [], payer: null, blocked: 'NO_PLAYER_SLOT' };
+        if (mine.memberPricePending) return { ...base, amount: 0, items: [], payer: null, blocked: 'MEMBER_PRICE_PENDING' };
+        const shareAmount = outstanding(mine);
+        const items = [
+            ...(shareAmount > 0.009 ? [{ accountItemId: mine.accountItemId, amount: shareAmount }] : []),
+            ...extraItems(extrasOf(mine))
+        ];
+        const amount = Number(items.reduce((sum, item) => sum + item.amount, 0).toFixed(2));
+        const payerRef = refFor(mine);
+        return {
+            ...base,
+            amount,
+            items,
+            payer: payerRef ? { ref: payerRef, name: mine.displayName } : null,
+            blocked: amount > 0.009 ? null : 'NO_PENDING_BALANCE'
+        };
+    }
+
+    // Ítems de la cuenta que no son la parte de un lugar (consumos, servicios), con su saldo pendiente.
+    // Un ítem con clientId de un jugador lo paga ese jugador; el resto, el titular (lugar 1).
+    private async loadPlayerExtraChargesTx(
+        db: Prisma.TransactionClient | typeof prisma,
+        bookingId: number,
+        slots: PlayerSlotDto[]
+    ): Promise<PlayerExtraCharge[]> {
+        const account = await db.account.findFirst({
+            where: { sourceType: 'BOOKING', sourceId: String(bookingId) },
+            select: { items: { select: { id: true, description: true, total: true, clientId: true }, orderBy: { createdAt: 'asc' } } }
+        });
+        if (!account) return [];
+        const slotItemIds = new Set(slots.map((slot) => slot.accountItemId).filter(Boolean));
+        const extraItems = account.items.filter((item) => !slotItemIds.has(item.id) && Number(item.total) > 0.009);
+        if (extraItems.length === 0) return [];
+        const allocated = await db.paymentAllocation.groupBy({
+            by: ['accountItemId'],
+            where: { accountItemId: { in: extraItems.map((item) => item.id) } },
+            _sum: { amount: true }
+        });
+        const paidByItem = new Map(allocated.map((row) => [row.accountItemId, Number(row._sum.amount || 0)]));
+        return extraItems
+            .map((item) => ({
+                accountItemId: item.id,
+                label: String(item.description || 'Consumo'),
+                pending: Number(Math.max(0, Number(item.total) - (paidByItem.get(item.id) || 0)).toFixed(2)),
+                slotIndex: slots.find((slot) => item.clientId && slot.clientId === item.clientId)?.slotIndex ?? 1
+            }))
+            .filter((extra) => extra.pending > 0.009);
+    }
+
+    async createPlayerMercadoPagoCheckoutAttempt(
+        bookingId: number,
+        userId: number,
+        scope: OnlinePaymentScope = 'OWN_SHARE'
+    ): Promise<PlayerBookingCheckoutStartDto> {
         if (!Number.isInteger(userId) || userId <= 0) {
             throw this.bookingForbidden();
         }
@@ -5105,15 +6109,26 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         const isOwner = this.isExplicitBookingOwner(booking, userId);
         const isParticipant = !isOwner && this.isBookingParticipantJoined(booking, userId);
+        // Reserva por jugador: cada participante puede pagar su parte. Por cancha: solo el titular.
+        const perPlayerBooking = Boolean(booking.activityFormatId);
         if (!isOwner) {
-            if (isParticipant) {
+            if (isParticipant && !perPlayerBooking) {
                 throw forbidden(
                     'Por ahora el pago online está disponible solo para el titular de la reserva.',
                     ErrorCodes.CHECKOUT_FORBIDDEN
                 );
             }
-            throw this.bookingForbidden('No tenés permiso para iniciar el pago de esta reserva.');
+            if (!isParticipant) throw this.bookingForbidden('No tenés permiso para iniciar el pago de esta reserva.');
         }
+        if (scope === 'ALL_SHARES' && !isOwner) {
+            throw forbidden('Solo el titular puede pagar todas las partes.', ErrorCodes.CHECKOUT_FORBIDDEN);
+        }
+        if (scope === 'DEPOSIT' && !isOwner) {
+            throw forbidden('La seña la paga el titular de la reserva.', ErrorCodes.CHECKOUT_FORBIDDEN);
+        }
+        const payerUser = isOwner
+            ? null
+            : await prisma.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true, email: true } });
 
         const account = await prisma.account.findFirst({
             where: {
@@ -5150,6 +6165,10 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 'Esta reserva tiene devoluciones o ajustes que debe revisar el club.',
                 ErrorCodes.CHECKOUT_NOT_AVAILABLE
             );
+        }
+
+        if (!(await this.isOnlineCheckoutEnabledForClub(booking.clubId))) {
+            throw conflict('Este club cobra las reservas en el mostrador.', ErrorCodes.CHECKOUT_NOT_AVAILABLE);
         }
 
         const accessToken = await this.clubPaymentIntegrationService.getMercadoPagoAccessTokenForClub(booking.clubId);
@@ -5201,6 +6220,63 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 throw conflict('Esta reserva no tiene saldo pendiente por ahora.', ErrorCodes.CHECKOUT_NO_PENDING_BALANCE);
             }
 
+            const target = scope === 'DEPOSIT'
+                ? await this.resolveDepositTargetTx(tx, {
+                    bookingId,
+                    clubId: booking.clubId,
+                    bookingStatus: booking.status,
+                    accountId: freshAccount.id,
+                    items: freshAccount.items,
+                    perPlayer: perPlayerBooking,
+                    ownerRef: booking.clientId ? `booking-client:${booking.clientId}` : null,
+                    ownerName: booking.client?.name ?? null
+                })
+                : await this.resolveOnlinePaymentTargetTx(tx, {
+                    bookingId,
+                    userId,
+                    isOwner,
+                    scope,
+                    accountPending: pending,
+                    perPlayer: perPlayerBooking
+                });
+            if (target.blocked === 'DEPOSIT_NOT_REQUIRED') {
+                throw conflict('Esta reserva no tiene una seña pendiente.', ErrorCodes.CHECKOUT_NOT_AVAILABLE);
+            }
+            if (target.blocked === 'MEMBER_PRICE_PENDING') {
+                throw conflict(
+                    'Tu precio socio todavía no está validado. Aceptá la invitación o validalo en el club antes de pagar.',
+                    ErrorCodes.CHECKOUT_NOT_AVAILABLE
+                );
+            }
+            if (target.blocked === 'SHARES_NOT_FINAL') {
+                throw conflict(
+                    'Todavía hay lugares libres o precios socio sin validar. Pagá tu parte; el resto paga la suya.',
+                    ErrorCodes.CHECKOUT_NOT_AVAILABLE
+                );
+            }
+            if (target.blocked === 'NO_PLAYER_SLOT') {
+                throw forbidden('No tenés un lugar en esta reserva.', ErrorCodes.CHECKOUT_FORBIDDEN);
+            }
+            if (target.blocked === 'NO_PENDING_BALANCE') {
+                throw conflict('Tu parte ya está paga.', ErrorCodes.CHECKOUT_NO_PENDING_BALANCE);
+            }
+            // Descuento por pago online: se congela en el intento (% + ítems a precio de lista)
+            // para que el webhook registre exactamente lo que cobró Mercado Pago.
+            const onlinePercent = normalizePaymentMethodDiscounts(
+                (await tx.clubSettings.findUnique({ where: { clubId: booking.clubId }, select: { paymentMethodDiscounts: true } }))
+                    ?.paymentMethodDiscounts
+            ).ONLINE;
+            let onlineDiscount: { key: 'ONLINE'; percent: number; listAmount: number; listItems: Array<{ accountItemId: string; amount: number }> } | null = null;
+            if (onlinePercent > 0 && target.scope !== 'DEPOSIT') {
+                const listItems = target.items.length > 0
+                    ? target.items
+                    : await this.resolveOutstandingItemsTx(tx, freshAccount.id, freshAccount.items, target.amount);
+                onlineDiscount = { key: 'ONLINE', percent: onlinePercent, listAmount: target.amount, listItems };
+            }
+            const amount = onlineDiscount
+                ? applyPercentToAmounts(onlineDiscount.listItems.map((item) => item.amount), onlineDiscount.percent)
+                : target.amount;
+
             if (freshAccount.refunds.some((refund) => refund.status !== 'FAILED' && refund.status !== 'CANCELLED')) {
                 throw conflict(
                     'Esta reserva tiene devoluciones o ajustes que debe revisar el club.',
@@ -5208,17 +6284,25 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 );
             }
 
+            // En reservas por jugador cada uno tiene su propio intento: no se pisan entre jugadores.
             const existingAttempt = await tx.onlinePaymentAttempt.findFirst({
                 where: {
                     clubId: booking.clubId,
                     bookingId,
                     provider: 'MERCADO_PAGO',
-                    status: { in: ['CREATED', 'PENDING'] }
+                    status: { in: ['CREATED', 'PENDING'] },
+                    ...(target.perPlayer ? { userId } : {})
                 },
                 orderBy: { createdAt: 'desc' }
             });
+            const existingScope = (existingAttempt?.target as { scope?: string } | null)?.scope ?? 'ACCOUNT';
 
-            if (existingAttempt && Number(existingAttempt.amount || 0).toFixed(2) === pending.toFixed(2) && existingAttempt.initPoint) {
+            if (
+                existingAttempt
+                && existingScope === target.scope
+                && Number(existingAttempt.amount || 0).toFixed(2) === amount.toFixed(2)
+                && existingAttempt.initPoint
+            ) {
                 return {
                     attemptId: existingAttempt.id,
                     initPoint: String(existingAttempt.initPoint),
@@ -5226,7 +6310,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 };
             }
 
-            if (existingAttempt && Math.abs(Number(existingAttempt.amount || 0) - pending) > 0.009) {
+            if (existingAttempt && (existingScope !== target.scope || Math.abs(Number(existingAttempt.amount || 0) - amount) > 0.009)) {
                 await tx.onlinePaymentAttempt.update({
                     where: { id: existingAttempt.id },
                     data: {
@@ -5236,7 +6320,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 });
             }
 
-            const idempotencyKey = `booking:${bookingId}:user:${userId}:pending:${pending.toFixed(2)}`;
+            // Por cancha: la clave de siempre. Por partes: con un sufijo único, para poder reintentar
+            // la misma parte después de un pago rechazado.
+            const idempotencyKey = target.perPlayer
+                ? `booking:${bookingId}:user:${userId}:${target.scope}:${amount.toFixed(2)}:${generateDisplayCode('K')}`
+                : `booking:${bookingId}:user:${userId}:pending:${amount.toFixed(2)}`;
             const attempt = await tx.onlinePaymentAttempt.create({
                 data: {
                     clubId: booking.clubId,
@@ -5256,17 +6344,31 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     )?.id ?? null,
                     provider: 'MERCADO_PAGO',
                     status: 'CREATED',
-                    amount: pending,
+                    amount,
                     currency: 'ARS',
                     idempotencyKey,
+                    ...(target.perPlayer || onlineDiscount || target.scope === 'DEPOSIT'
+                        ? {
+                            target: {
+                                scope: target.scope,
+                                items: target.items,
+                                payer: target.payer,
+                                ...(onlineDiscount ? { methodDiscount: onlineDiscount } : {})
+                            } as Prisma.InputJsonValue
+                        }
+                        : {}),
                     externalReference: `booking-checkout:${bookingId}:attempt:${generateDisplayCode('CHK')}`
                 }
             });
 
-            const ownerFirstName = String(booking.user?.firstName || '').trim();
-            const ownerLastName = String(booking.user?.lastName || '').trim();
-            const payerEmail = String(booking.user?.email || booking.client?.email || '').trim() || null;
-            const preferenceTitle = `Reserva de cancha - ${booking.court.club.name}`;
+            const ownerFirstName = String(payerUser?.firstName || booking.user?.firstName || '').trim();
+            const ownerLastName = String(payerUser?.lastName || booking.user?.lastName || '').trim();
+            const payerEmail = String(payerUser?.email || booking.user?.email || booking.client?.email || '').trim() || null;
+            const preferenceTitle = target.scope === 'DEPOSIT'
+                ? `Seña de la reserva - ${booking.court.club.name}`
+                : `${target.scope === 'OWN_SHARE'
+                ? `Tu parte de la reserva - ${booking.court.club.name}`
+                : `Reserva de cancha - ${booking.court.club.name}`}${onlineDiscount ? ` (${onlineDiscount.percent}% off online)` : ''}`;
             const preferenceDescription = `${booking.court.name} · ${booking.court.club.name}`;
             const publicBase = mercadoPagoConfig.frontendUrl || 'http://localhost:3001';
             const backendBase = mercadoPagoConfig.appBaseUrl || 'http://localhost:3000';
@@ -5285,7 +6387,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 title: preferenceTitle,
                 description: preferenceDescription,
                 quantity: 1,
-                unitPrice: pending,
+                unitPrice: amount,
                 payer: payerEmail
                     ? {
                         name: ownerFirstName || booking.client?.name || 'Jugador',
@@ -5332,7 +6434,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         provider: 'MERCADO_PAGO',
                         bookingId: booking.id,
                         accountId: freshAccount.id,
-                        amount: pending
+                        amount,
+                        scope: target.scope
                     }
                 }
             });
@@ -5532,6 +6635,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         bookingId: number;
         clubId: number;
         actorUserId?: number | null;
+        // Lugar a ocupar en reservas con precio por jugador (por defecto, el primero libre).
+        slotIndex?: number | null;
         personSelection:
             | { kind: 'clubClient'; clientId: string }
             | { kind: 'linked' | 'systemUser'; userId: number; personKey: string; searchQuery: string }
@@ -5747,6 +6852,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 removedAt: null
             };
 
+            await this.playerSlotService.assertHasFreeSlotTx(tx, bookingId);
+
             const participant = archivedParticipant
                 ? await tx.bookingParticipant.update({
                     where: { id: archivedParticipant.id },
@@ -5758,6 +6865,17 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         ...data
                     }
                 });
+
+            // Precio por jugador: ocupa un lugar (el elegido o el primero libre) y recalcula su parte.
+            await this.playerSlotService.assignParticipantTx(tx, {
+                bookingId,
+                participantId: participant.id,
+                clientId: resolvedClient.id,
+                userId: resolvedUserId ?? null,
+                displayName: snapshot.displayName ?? null,
+                slotIndex: input.slotIndex ?? null,
+                actorUserId: Number(input.actorUserId || 0) || null
+            });
 
             await this.appendBookingHistoryEntryTx(tx, {
                 bookingId,
@@ -5851,6 +6969,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }
 
         await prisma.$transaction(async (tx) => {
+            // Precio por jugador: libera su lugar (bloquea si su parte ya tiene pagos).
+            await this.playerSlotService.releaseParticipantSlotTx(tx, {
+                bookingId: participant.bookingId,
+                participantId: participant.id,
+                actorUserId: null
+            });
             await tx.bookingParticipant.update({
                 where: { id: participant.id },
                 data: {
@@ -5903,44 +7027,241 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         return { success: true };
     }
 
+    // Busca a quién se va a invitar antes de confirmar el checkout, con las mismas reglas que la invitación.
+    // Solo devuelve nombre e inicial del apellido: no expone datos ni la condición de socio de terceros.
+    async lookupPlayerForInvitation(input: { userId: number; dni?: string | null; email?: string | null }): Promise<{
+        status: 'FOUND' | 'SELF' | 'DNI_NOT_FOUND' | 'EMAIL_WITHOUT_ACCOUNT';
+        displayName: string | null;
+    }> {
+        const select = { id: true, firstName: true, lastName: true } as const;
+        let invitedUser: { id: number; firstName: string; lastName: string } | null = null;
+        const rawDni = String(input.dni || '').trim();
+        if (rawDni) {
+            const dni = normalizeDni(rawDni);
+            if (!dni) {
+                throw new AppError({
+                    statusCode: 400,
+                    code: ErrorCodes.INVALID_INPUT,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { dni: 'Ingresá un DNI válido.' }
+                });
+            }
+            invitedUser = await prisma.user.findUnique({ where: { dni }, select });
+            if (!invitedUser) return { status: 'DNI_NOT_FOUND', displayName: null };
+        } else {
+            const email = normalizeEmail(String(input.email || ''));
+            if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                throw new AppError({
+                    statusCode: 400,
+                    code: ErrorCodes.INVALID_INPUT,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { email: 'Ingresá un email válido.' }
+                });
+            }
+            invitedUser = await prisma.user.findUnique({ where: { email }, select });
+            if (!invitedUser) return { status: 'EMAIL_WITHOUT_ACCOUNT', displayName: null };
+        }
+        const displayName = `${invitedUser.firstName} ${String(invitedUser.lastName || '').charAt(0)}.`.trim();
+        if (invitedUser.id === input.userId) return { status: 'SELF', displayName };
+        return { status: 'FOUND', displayName };
+    }
+
+    private async createPlayerBookingInvitationTx(tx: Prisma.TransactionClient, input: {
+        bookingId: number;
+        clubId: number;
+        ownerUserId: number;
+        ownerEmail?: string | null;
+        invitedEmail?: string | null;
+        invitedDni?: string | null;
+        invitedName?: string | null;
+        invitedUserToken?: string | null;
+    }) {
+        if (!Number.isInteger(input.ownerUserId) || input.ownerUserId <= 0) {
+            throw this.bookingForbidden();
+        }
+        const rawDni = String(input.invitedDni || '').trim();
+        const rawToken = String(input.invitedUserToken || '').trim();
+        let invitedUser: { id: number; email: string | null; firstName: string; lastName: string } | null = null;
+        if (rawToken) {
+            // Elegido desde la búsqueda por nombre: el token solo vale para quien hizo la búsqueda.
+            const invitedUserId = verifyPlayerInviteToken(rawToken, input.ownerUserId);
+            invitedUser = invitedUserId
+                ? await tx.user.findUnique({
+                    where: { id: invitedUserId },
+                    select: { id: true, email: true, firstName: true, lastName: true }
+                })
+                : null;
+            if (!invitedUser) {
+                throw new AppError({
+                    statusCode: 400,
+                    code: ErrorCodes.INVALID_INPUT,
+                    message: 'No pudimos invitar a ese jugador. Buscalo de nuevo.',
+                    fieldErrors: { name: 'Buscalo de nuevo para invitarlo.' }
+                });
+            }
+        } else if (rawDni) {
+            const dni = normalizeDni(rawDni);
+            if (!dni) {
+                throw new AppError({
+                    statusCode: 400,
+                    code: ErrorCodes.INVALID_INPUT,
+                    message: 'Revisá los campos marcados.',
+                    fieldErrors: { dni: 'Ingresá un DNI válido.' }
+                });
+            }
+            invitedUser = await tx.user.findUnique({
+                where: { dni },
+                select: { id: true, email: true, firstName: true, lastName: true }
+            });
+            if (!invitedUser) {
+                throw new AppError({
+                    statusCode: 404,
+                    code: ErrorCodes.USER_NOT_FOUND,
+                    message: 'No encontramos una cuenta con ese DNI. Podés invitarlo por email.',
+                    fieldErrors: { dni: 'No hay una cuenta con ese DNI.' }
+                });
+            }
+        }
+
+        const invitedEmail = invitedUser
+            ? normalizeEmail(String(invitedUser.email || '')) || null
+            : normalizeEmail(String(input.invitedEmail || ''));
+        if (!invitedUser && (!invitedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitedEmail))) {
+            throw new AppError({
+                statusCode: 400,
+                code: ErrorCodes.INVALID_INPUT,
+                message: 'Revisá los campos marcados.',
+                fieldErrors: { email: 'Ingresá un email válido.' }
+            });
+        }
+        if (!invitedUser && invitedEmail) {
+            invitedUser = await tx.user.findUnique({
+                where: { email: invitedEmail },
+                select: { id: true, email: true, firstName: true, lastName: true }
+            });
+        }
+        const invitedName = String(input.invitedName || '').trim()
+            || (invitedUser ? `${invitedUser.firstName} ${String(invitedUser.lastName || '').charAt(0)}.`.trim() : null);
+
+        if (
+            (invitedEmail && normalizeEmail(String(input.ownerEmail || '')) === invitedEmail) ||
+            (invitedUser && invitedUser.id === input.ownerUserId)
+        ) {
+            throw this.bookingParticipantAlreadyExists('No hace falta invitar al titular de la reserva.');
+        }
+
+        const participants = await tx.bookingParticipant.findMany({
+            where: { bookingId: input.bookingId, status: { in: ['INVITED', 'JOINED'] } },
+            select: { userId: true, invitedEmail: true, invitedUserId: true }
+        });
+        const duplicated = participants.some((participant) => {
+            const sameEmail = Boolean(invitedEmail)
+                && normalizeEmail(String(participant.invitedEmail || '')) === invitedEmail;
+            const sameUser = Boolean(invitedUser)
+                && (participant.userId === invitedUser!.id || participant.invitedUserId === invitedUser!.id);
+            return sameEmail || sameUser;
+        });
+        if (duplicated) throw this.bookingParticipantAlreadyExists();
+
+        await this.playerSlotService.assertHasFreeSlotTx(tx, input.bookingId);
+        const participant = await tx.bookingParticipant.create({
+            data: {
+                bookingId: input.bookingId,
+                clientId: null,
+                displayName: invitedName,
+                email: invitedEmail,
+                phone: null,
+                invitedEmail,
+                invitedName,
+                invitedUserId: invitedUser?.id ?? null,
+                invitedByUserId: input.ownerUserId,
+                status: 'INVITED',
+                role: 'PARTICIPANT'
+            },
+            include: {
+                user: { select: { id: true, firstName: true, lastName: true, email: true } }
+            }
+        });
+
+        await this.appendBookingHistoryEntryTx(tx, {
+            bookingId: input.bookingId,
+            clubId: input.clubId,
+            action: 'BOOKING_PARTICIPANT_ADDED',
+            category: 'PARTICIPANT',
+            source: 'PLAYER',
+            summary: 'Participante agregado',
+            actorUserId: input.ownerUserId,
+            bookingParticipantId: participant.id,
+            detail: { invitedEmail, invitedName, status: 'INVITED', role: 'PARTICIPANT' },
+            nextState: { status: 'INVITED', role: 'PARTICIPANT', invitedEmail, invitedName }
+        });
+        await tx.auditLog.create({
+            data: {
+                clubId: input.clubId,
+                userId: input.ownerUserId,
+                entity: 'BookingParticipant',
+                entityId: participant.id,
+                action: 'BOOKING_PARTICIPANT_INVITED',
+                payload: {
+                    bookingId: input.bookingId,
+                    invitedEmail,
+                    invitedName,
+                    invitedUserId: invitedUser?.id ?? null
+                }
+            }
+        });
+
+        if (invitedUser && invitedUser.id !== input.ownerUserId) {
+            const [pushContext, inviter] = await Promise.all([
+                loadBookingPushContext(tx, input.bookingId),
+                tx.user.findUnique({ where: { id: input.ownerUserId }, select: { firstName: true, lastName: true } })
+            ]);
+            if (pushContext) {
+                await pushNotificationService.enqueue(tx, {
+                    clubId: input.clubId,
+                    userId: invitedUser.id,
+                    kind: 'INVITATION',
+                    aggregateId: String(input.bookingId),
+                    content: PushMessages.invitation(pushContext, shortUserName(inviter))
+                });
+            }
+        }
+
+        const invitedClient = invitedUser
+            ? await tx.client.findFirst({
+                where: { clubId: input.clubId, userId: invitedUser.id },
+                select: { id: true }
+            })
+            : null;
+        await this.playerSlotService.assignParticipantTx(tx, {
+            bookingId: input.bookingId,
+            participantId: participant.id,
+            clientId: invitedClient?.id ?? null,
+            userId: invitedUser?.id ?? null,
+            displayName: invitedName,
+            actorUserId: input.ownerUserId
+        });
+        return participant;
+    }
+
     async invitePlayerBookingParticipant(input: {
         bookingId: number;
         ownerUserId: number;
-        invitedEmail: string;
+        // Email o DNI exacto, o el token de un jugador elegido en la búsqueda por nombre (acotada al club).
+        invitedEmail?: string | null;
+        invitedDni?: string | null;
         invitedName?: string | null;
+        invitedUserToken?: string | null;
     }): Promise<PlayerBookingParticipantDto> {
         if (!Number.isInteger(input.ownerUserId) || input.ownerUserId <= 0) {
             throw this.bookingForbidden();
         }
 
-        const invitedEmail = normalizeEmail(input.invitedEmail);
-        const invitedName = String(input.invitedName || '').trim() || null;
-        if (!invitedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invitedEmail)) {
-            throw new AppError({
-                statusCode: 400,
-                code: ErrorCodes.INVALID_INPUT,
-                message: 'Revisá los campos marcados.',
-                fieldErrors: {
-                    email: 'Ingresá un email válido.'
-                }
-            });
-        }
-
         const booking = await prisma.booking.findUnique({
             where: { id: input.bookingId },
             include: {
-                client: {
-                    select: { userId: true }
-                },
-                participants: {
-                    select: {
-                        id: true,
-                        userId: true,
-                        invitedEmail: true,
-                        status: true,
-                        role: true
-                    }
-                }
+                client: { select: { userId: true } },
+                participants: true
             }
         });
 
@@ -5956,85 +7277,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             where: { id: input.ownerUserId },
             select: { email: true }
         });
-        if (normalizeEmail(String(ownerUser?.email || '')) === invitedEmail) {
-            throw this.bookingParticipantAlreadyExists('No hace falta invitar al titular de la reserva.');
-        }
-
-        const duplicated = booking.participants.find((participant) => {
-            const sameEmail = normalizeEmail(String(participant.invitedEmail || '')) === invitedEmail;
-            const activeStatus = participant.status === 'INVITED' || participant.status === 'JOINED';
-            return sameEmail && activeStatus;
-        });
-        if (duplicated) {
-            throw this.bookingParticipantAlreadyExists();
-        }
-
-        const created = await prisma.$transaction(async (tx) => {
-            const participant = await tx.bookingParticipant.create({
-                data: {
-                    bookingId: booking.id,
-                    clientId: null,
-                    displayName: invitedName,
-                    email: invitedEmail,
-                    phone: null,
-                    invitedEmail,
-                    invitedName,
-                    invitedByUserId: input.ownerUserId,
-                    status: 'INVITED',
-                    role: 'PARTICIPANT'
-                },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            firstName: true,
-                            lastName: true,
-                            email: true
-                        }
-                    }
-                }
-            });
-
-            await this.appendBookingHistoryEntryTx(tx, {
-                bookingId: booking.id,
-                clubId: booking.clubId,
-                action: 'BOOKING_PARTICIPANT_ADDED',
-                category: 'PARTICIPANT',
-                source: 'PLAYER',
-                summary: 'Participante agregado',
-                actorUserId: input.ownerUserId,
-                bookingParticipantId: participant.id,
-                detail: {
-                    invitedEmail,
-                    invitedName,
-                    status: 'INVITED',
-                    role: 'PARTICIPANT',
-                },
-                nextState: {
-                    status: 'INVITED',
-                    role: 'PARTICIPANT',
-                    invitedEmail,
-                    invitedName,
-                },
-            });
-
-            await tx.auditLog.create({
-                data: {
-                    clubId: booking.clubId,
-                    userId: input.ownerUserId,
-                    entity: 'BookingParticipant',
-                    entityId: participant.id,
-                    action: 'BOOKING_PARTICIPANT_INVITED',
-                    payload: {
-                        bookingId: booking.id,
-                        invitedEmail,
-                        invitedName
-                    }
-                }
-            });
-
-            return participant;
-        });
+        const created = await prisma.$transaction((tx) => this.createPlayerBookingInvitationTx(tx, {
+            bookingId: booking.id,
+            clubId: booking.clubId,
+            ownerUserId: input.ownerUserId,
+            ownerEmail: ownerUser?.email ?? null,
+            invitedEmail: input.invitedEmail,
+            invitedDni: input.invitedDni,
+            invitedName: input.invitedName,
+            invitedUserToken: input.invitedUserToken
+        }));
 
         return {
             id: created.id,
@@ -6100,6 +7352,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }
 
         await prisma.$transaction(async (tx) => {
+            // Precio por jugador: libera su lugar (bloquea si su parte ya tiene pagos).
+            await this.playerSlotService.releaseParticipantSlotTx(tx, {
+                bookingId: participant.bookingId,
+                participantId: participant.id,
+                actorUserId: null
+            });
             await tx.bookingParticipant.update({
                 where: { id: participant.id },
                 data: {
@@ -6160,12 +7418,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             select: { email: true }
         });
         const email = normalizeEmail(String(user?.email || ''));
-        if (!email) return [];
 
         const invitations = await prisma.bookingParticipant.findMany({
             where: {
                 userId: null,
-                invitedEmail: email,
+                OR: [
+                    ...(email ? [{ invitedEmail: email }] : []),
+                    { invitedUserId: userId }
+                ],
                 status: 'INVITED',
                 booking: {
                     status: { in: ['PENDING', 'CONFIRMED'] },
@@ -6173,8 +7433,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             },
             include: {
+                invitedByUser: { select: { firstName: true, lastName: true } },
                 booking: {
                     include: {
+                        activity: { select: { name: true } },
+                        activityFormat: { select: { name: true, playerCount: true } },
                         court: {
                             include: {
                                 club: {
@@ -6194,6 +7457,30 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             }
         });
 
+        // Parte que pagaría el invitado si acepta (precio por jugador), con su ficha en cada club.
+        const shareByInvitation = new Map<string, { shareAmount: number; memberCategoryName: string | null } | null>();
+        const openSpotsByInvitation = new Map<string, number>();
+        const onlineByClub = new Map<number, boolean>();
+        for (const invitation of invitations) {
+            if (!invitation.booking.activityFormatId) continue;
+            const slots = await this.playerSlotService.getSlotsTx(prisma, invitation.bookingId);
+            openSpotsByInvitation.set(invitation.id, slots.filter((slot) => slot.isEmpty).length);
+            const clubId = invitation.booking.clubId;
+            if (!onlineByClub.has(clubId)) {
+                const integrationStatus = await this.clubPaymentIntegrationService.getMercadoPagoIntegrationStatusForClub(clubId);
+                onlineByClub.set(clubId, Boolean(integrationStatus.connected) && (await this.isOnlineCheckoutEnabledForClub(clubId)));
+            }
+            const myClient = await prisma.client.findFirst({
+                where: { clubId: invitation.booking.clubId, userId },
+                select: { id: true }
+            });
+            shareByInvitation.set(invitation.id, await this.playerSlotService.previewShareIfAcceptedTx(prisma, {
+                bookingId: invitation.bookingId,
+                participantId: invitation.id,
+                clientId: myClient?.id ?? null
+            }));
+        }
+
         return invitations.map((invitation) => ({
             id: invitation.id,
             bookingId: String(invitation.bookingId),
@@ -6210,8 +7497,116 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             endDateTime: new Date(invitation.booking.endDateTime).toISOString(),
             invitedName: invitation.invitedName ?? null,
             invitedEmail: invitation.invitedEmail ?? null,
-            status: 'INVITED'
+            status: 'INVITED' as const,
+            activityName: invitation.booking.activity?.name ?? null,
+            formatName: invitation.booking.activityFormat?.name ?? null,
+            playerCount: invitation.booking.activityFormat?.playerCount ?? null,
+            invitedByName: invitation.invitedByUser
+                ? `${invitation.invitedByUser.firstName || ''} ${invitation.invitedByUser.lastName || ''}`.trim() || null
+                : null,
+            myShareAmount: shareByInvitation.get(invitation.id)?.shareAmount ?? null,
+            myMemberCategoryName: shareByInvitation.get(invitation.id)?.memberCategoryName ?? null,
+            openSpots: openSpotsByInvitation.get(invitation.id) ?? null,
+            onlinePaymentAvailable: onlineByClub.get(invitation.booking.clubId) ?? false
         }));
+    }
+
+    // Aviso push a quien invitó cuando el invitado acepta o rechaza.
+    private async enqueueInvitationResponsePushTx(tx: Prisma.TransactionClient, input: {
+        bookingId: number;
+        clubId: number;
+        recipientUserId: number;
+        responderUserId: number;
+        accepted: boolean;
+    }) {
+        if (!Number.isInteger(input.recipientUserId) || input.recipientUserId <= 0) return;
+        if (input.recipientUserId === input.responderUserId) return;
+        const [pushContext, responder] = await Promise.all([
+            loadBookingPushContext(tx, input.bookingId),
+            tx.user.findUnique({ where: { id: input.responderUserId }, select: { firstName: true, lastName: true } })
+        ]);
+        if (!pushContext) return;
+        let content;
+        if (input.accepted) {
+            // Jugadores confirmados: titular + participantes que se sumaron.
+            const joined = await tx.bookingParticipant.findMany({
+                where: { bookingId: input.bookingId, status: 'JOINED' },
+                select: { userId: true, role: true }
+            });
+            const ownerCounted = joined.some((participant) =>
+                participant.role === 'ORGANIZER' || (pushContext.ownerUserId && participant.userId === pushContext.ownerUserId)
+            );
+            const joinedCount = joined.length + (ownerCounted ? 0 : 1);
+            content = PushMessages.invitationAccepted(pushContext, shortUserName(responder), joinedCount);
+        } else {
+            content = PushMessages.invitationDeclined(pushContext, shortUserName(responder));
+        }
+        await pushNotificationService.enqueue(tx, {
+            clubId: input.clubId,
+            userId: input.recipientUserId,
+            kind: 'INVITATION_RESPONSE',
+            aggregateId: String(input.bookingId),
+            content
+        });
+    }
+
+    // Aviso push al titular y a los jugadores confirmados cuando el club confirma una reserva pendiente.
+    private async enqueueBookingConfirmedPushTx(tx: Prisma.TransactionClient, input: {
+        bookingId: number;
+        clubId: number;
+        actorUserId: number | null;
+    }) {
+        const pushContext = await loadBookingPushContext(tx, input.bookingId);
+        if (!pushContext) return;
+        const joined = await tx.bookingParticipant.findMany({
+            where: { bookingId: input.bookingId, status: 'JOINED', userId: { not: null } },
+            select: { userId: true }
+        });
+        const recipients = new Set<number>();
+        if (pushContext.ownerUserId) recipients.add(pushContext.ownerUserId);
+        joined.forEach((participant) => { if (participant.userId) recipients.add(participant.userId); });
+        if (input.actorUserId) recipients.delete(input.actorUserId);
+        const content = PushMessages.confirmedByClub(pushContext);
+        for (const userId of recipients) {
+            await pushNotificationService.enqueue(tx, {
+                clubId: input.clubId,
+                userId,
+                kind: 'BOOKING_CONFIRMED',
+                aggregateId: String(input.bookingId),
+                content
+            });
+        }
+    }
+
+    // Aviso push a los jugadores cuando el club (o el sistema) cancela la reserva.
+    private async enqueueBookingCancelledPushTx(tx: Prisma.TransactionClient, input: {
+        bookingId: number;
+        clubId: number;
+        ownerUserId: number | null;
+        actorUserId: number | null;
+        reasonText?: string | null;
+        autoCancel: boolean;
+    }) {
+        const pushContext = await loadBookingPushContext(tx, input.bookingId);
+        if (!pushContext) return;
+        const joined = await tx.bookingParticipant.findMany({
+            where: { bookingId: input.bookingId, status: 'JOINED', userId: { not: null } },
+            select: { userId: true }
+        });
+        const recipients = new Set<number>();
+        if (input.ownerUserId) recipients.add(input.ownerUserId);
+        joined.forEach((participant) => { if (participant.userId) recipients.add(participant.userId); });
+        if (input.actorUserId) recipients.delete(input.actorUserId);
+        const content = PushMessages.cancelledByClub(pushContext, { text: input.reasonText, autoCancel: input.autoCancel });
+        for (const userId of recipients) {
+            await pushNotificationService.enqueue(tx, {
+                clubId: input.clubId,
+                userId,
+                kind: 'BOOKING_CANCELLED',
+                aggregateId: String(input.bookingId),
+                content
+            });
+        }
     }
 
     async acceptBookingInvitation(invitationId: string, userId: number) {
@@ -6224,9 +7619,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             select: { email: true }
         });
         const userEmail = normalizeEmail(String(user?.email || ''));
-        if (!userEmail) {
-            throw this.bookingInvitationEmailMismatch();
-        }
 
         const invitation = await prisma.bookingParticipant.findUnique({
             where: { id: invitationId },
@@ -6258,7 +7650,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             throw this.bookingInvitationInvalid();
         }
 
-        if (normalizeEmail(String(invitation.invitedEmail || '')) !== userEmail) {
+        const invitedByUser = Number(invitation.invitedUserId || 0) === userId;
+        const invitedByEmail = Boolean(userEmail) && normalizeEmail(String(invitation.invitedEmail || '')) === userEmail;
+        if (!invitedByUser && !invitedByEmail) {
             throw this.bookingInvitationEmailMismatch();
         }
 
@@ -6310,6 +7704,27 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 }
             });
 
+            // Precio por jugador: aceptar desde su cuenta confirma su precio socio (D9).
+            const acceptedClient = await tx.client.findFirst({
+                where: { clubId: invitation.booking.clubId, userId },
+                select: { id: true }
+            });
+            await this.playerSlotService.markParticipantAcceptedTx(tx, {
+                bookingId: invitation.bookingId,
+                participantId: invitation.id,
+                clientId: acceptedClient?.id ?? null,
+                userId,
+                actorUserId: userId
+            });
+
+            await this.enqueueInvitationResponsePushTx(tx, {
+                bookingId: invitation.bookingId,
+                clubId: invitation.booking.clubId,
+                recipientUserId: Number(invitation.invitedByUserId || invitation.booking.userId || 0),
+                responderUserId: userId,
+                accepted: true
+            });
+
             return participant;
         });
 
@@ -6326,9 +7741,6 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             select: { email: true }
         });
         const userEmail = normalizeEmail(String(user?.email || ''));
-        if (!userEmail) {
-            throw this.bookingInvitationEmailMismatch();
-        }
 
         const invitation = await prisma.bookingParticipant.findUnique({
             where: { id: invitationId },
@@ -6337,6 +7749,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     select: {
                         id: true,
                         clubId: true,
+                        userId: true,
                         status: true,
                         startDateTime: true
                     }
@@ -6357,11 +7770,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         if (invitation.status === 'LEFT' || invitation.status === 'REMOVED') {
             throw this.bookingInvitationInvalid();
         }
-        if (normalizeEmail(String(invitation.invitedEmail || '')) !== userEmail) {
+        const invitedByUser = Number(invitation.invitedUserId || 0) === userId;
+        const invitedByEmail = Boolean(userEmail) && normalizeEmail(String(invitation.invitedEmail || '')) === userEmail;
+        if (!invitedByUser && !invitedByEmail) {
             throw this.bookingInvitationEmailMismatch();
         }
 
         await prisma.$transaction(async (tx) => {
+            // Precio por jugador: libera su lugar (bloquea si su parte ya tiene pagos).
+            await this.playerSlotService.releaseParticipantSlotTx(tx, {
+                bookingId: invitation.bookingId,
+                participantId: invitation.id,
+                actorUserId: userId
+            });
             await tx.bookingParticipant.update({
                 where: { id: invitation.id },
                 data: {
@@ -6381,6 +7802,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         bookingId: invitation.booking.id
                     }
                 }
+            });
+
+            await this.enqueueInvitationResponsePushTx(tx, {
+                bookingId: invitation.booking.id,
+                clubId: invitation.booking.clubId,
+                recipientUserId: Number(invitation.invitedByUserId || invitation.booking.userId || 0),
+                responderUserId: userId,
+                accepted: false
             });
         });
 
@@ -6419,6 +7848,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         }
 
         await prisma.$transaction(async (tx) => {
+            // Precio por jugador: libera su lugar (bloquea si su parte ya tiene pagos).
+            await this.playerSlotService.releaseParticipantSlotTx(tx, {
+                bookingId: participant.bookingId,
+                participantId: participant.id,
+                actorUserId: userId
+            });
             await tx.bookingParticipant.update({
                 where: { id: participant.id },
                 data: {
@@ -6497,6 +7932,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             orderBy: {
                 createdAt: 'asc'
             }
+        },
+        playerSlots: {
+            include: {
+                accountItem: {
+                    select: {
+                        total: true,
+                        paymentAllocations: {
+                            select: { amount: true }
+                        }
+                    }
+                }
+            },
+            orderBy: { slotIndex: 'asc' }
         }
     }
 });
@@ -6921,7 +8369,12 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         Boolean(participant.ref || participant.name)
                     )
                 : [];
+            const perPlayerHoverParticipants = buildPerPlayerHoverParticipants(booking);
             const hoverParticipants = (() => {
+                if (perPlayerHoverParticipants.length > 0) {
+                    return perPlayerHoverParticipants;
+                }
+
                 if (realScheduleParticipants.length > 0) {
                     return realScheduleParticipants;
                 }
@@ -6965,6 +8418,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     totalAmount: roundedTotalAmount,
                     paidAmount: roundedPaidAmount,
                     remainingAmount: roundedRemainingAmount,
+                    perPlayer: perPlayerHoverParticipants.length > 0,
                     chargeMode: String(billingConfig?.chargeMode || ChargeMode.INDIVIDUAL),
                     chargeResponsibleRef: chargeResponsibleRef || null,
                     chargeResponsibleName: chargeResponsibleName || null,
@@ -7094,6 +8548,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             clientEmail?: string;
             clientPhone?: string;
             clientDni?: string;
+            // Modalidad para clubes con precio por jugador (por defecto, la primera activa).
+            activityFormatId?: string | null;
         }
     ): Promise<{
         slotsWithCourts: Array<{
@@ -7102,8 +8558,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 id: number;
                 name: string;
                 price?: number | null;
+                pricePerPlayer?: number | null;
+                generalPricePerPlayer?: number | null;
+                playerCount?: number | null;
+                memberCategoryName?: string | null;
             }>;
         }>;
+        perPlayer?: {
+            activityFormatId: string;
+            formatName: string;
+            playerCount: number;
+            durationMinutes: number;
+            shortGapMinutes?: number | null;
+        } | null;
         professorOverrideAvailable: boolean;
         professorDurationOverrideMinutes: number | null;
     }> {
@@ -7125,7 +8592,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             },
             include: { court: true }
         });
-        const classSessions = await prisma.classSession.findMany({
+        const classSessionRows = await prisma.classSession.findMany({
             where: {
                 startsAt: { lt: endUtc },
                 endsAt: { gt: startUtc },
@@ -7134,6 +8601,19 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             },
             select: { courtId: true, startsAt: true, endsAt: true }
         });
+        // Bloqueos de cancha: ocupan la cancha igual que una clase.
+        const courtBlockRows = await prisma.courtBlock.findMany({
+            where: {
+                startDateTime: { lt: endUtc },
+                endDateTime: { gt: startUtc },
+                ...(clubId ? { clubId } : {})
+            },
+            select: { courtId: true, startDateTime: true, endDateTime: true }
+        });
+        const classSessions = [
+            ...classSessionRows,
+            ...courtBlockRows.map((block) => ({ courtId: block.courtId, startsAt: block.startDateTime, endsAt: block.endDateTime }))
+        ];
 
         if (activityCourts.length === 0) {
             return {
@@ -7142,6 +8622,38 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 professorDurationOverrideMinutes: null
             };
         }
+
+        // Precio por jugador: la grilla muestra el precio de quien mira. El precio socio sale solo de
+        // la ficha vinculada a su usuario, nunca de datos enviados en el pedido (D2).
+        const perPlayerClub = clubId ? await this.playerSlotService.isPerPlayerClub(clubId) : false;
+        const perPlayerFormat = perPlayerClub
+            ? await prisma.activityFormat.findFirst({
+                where: {
+                    clubId,
+                    activityTypeId: Number(activityId),
+                    isActive: true,
+                    ...(identity?.activityFormatId ? { id: String(identity.activityFormatId) } : {})
+                },
+                orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }]
+            })
+            : null;
+        const perPlayerViewerClientId = perPlayerFormat && identity?.userId
+            ? (await prisma.client.findFirst({ where: { clubId, userId: Number(identity.userId) }, select: { id: true } }))?.id ?? null
+            : null;
+        const perPlayerQuotes = new Map<string, Promise<PerPlayerQuote | null>>();
+        const quoteForSlot = (slotDateTime: Date) => {
+            const key = slotDateTime.toISOString();
+            if (!perPlayerQuotes.has(key)) {
+                perPlayerQuotes.set(key, this.playerSlotService.quotePerPlayer({
+                    clubId: Number(clubId),
+                    activityId: Number(activityId),
+                    activityFormatId: perPlayerFormat!.id,
+                    startDateTime: slotDateTime,
+                    ownerClientId: perPlayerViewerClientId
+                }).catch(() => null));
+            }
+            return perPlayerQuotes.get(key)!;
+        };
 
         const activity = this.mapActivityType((activityCourts[0] as any).activityType)
             ?? await this.activityRepo.findById(activityId);
@@ -7183,9 +8695,14 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             Number.isFinite(professorOverrideMinutes) &&
             professorOverrideMinutes > 0;
         const allowedDurations = activitySchedule.durations;
-        const effectiveDuration = durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
+        // Precio por jugador: la modalidad puede fijar la duración; la grilla usa esa duración.
+        // Si la modalidad permite turnos de 1 h y se pide 1 h, la grilla se arma con 60 min.
+        const modalityShortMinutes = perPlayerFormat ? resolveShortGapMinutes(perPlayerFormat) : null;
+        const wantsShortModality = Boolean(modalityShortMinutes && Number(durationMinutes) === modalityShortMinutes);
+        const modalityDurationMinutes = wantsShortModality ? modalityShortMinutes : (perPlayerFormat?.durationMinutes ?? null);
+        const effectiveDuration = modalityDurationMinutes ?? durationMinutes ?? allowedDurations[0] ?? activity.defaultDurationMinutes;
         const referenceDuration = this.resolvePriceReferenceDuration(activity, allowedDurations, effectiveDuration);
-        if (!allowedDurations.includes(effectiveDuration)) {
+        if (!modalityDurationMinutes && !allowedDurations.includes(effectiveDuration)) {
             if (!(canProfessorDurationOverride && effectiveDuration === professorOverrideMinutes)) {
                 throw this.bookingSlotUnavailable('Duración no permitida por el club');
             }
@@ -7225,6 +8742,43 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 .map((start: string) => ({ slotTime: start, dayOffset: 0 }));
         }
 
+        // Turno corto en huecos: también se ofrecen los inicios donde solo entra 1 h (si la modalidad lo permite).
+        // Pidiendo 1 h directamente no hace falta: la grilla ya es de 60 min.
+        const shortGapMinutes = wantsShortModality ? null : modalityShortMinutes;
+        const fullDurationSlotTimes = new Set(possibleSlots.map((slot) => slot.slotTime));
+        // En horario fijo los inicios son los de los turnos de la modalidad: pidiendo 1 h se usan esos mismos inicios.
+        const extraSlotsDuration = shortGapMinutes
+            ?? (wantsShortModality && activitySchedule.mode === 'FIXED' ? perPlayerFormat?.durationMinutes ?? null : null);
+        if (extraSlotsDuration) {
+            const shortSlots = buildSlotsFromSchedule(
+                {
+                    scheduleMode: activitySchedule.mode,
+                    scheduleOpenTime: activitySchedule.openTime,
+                    scheduleCloseTime: activitySchedule.closeTime,
+                    scheduleIntervalMinutes: activitySchedule.intervalMinutes,
+                    scheduleWindows: activitySchedule.rangeWindows,
+                    scheduleDurations: activitySchedule.durations,
+                    scheduleFixedSlots: activitySchedule.fixedSlots
+                },
+                activity.defaultDurationMinutes,
+                extraSlotsDuration
+            ) as Array<{ slotTime: string; dayOffset: number }>;
+            const seen = new Set(possibleSlots.map((slot) => `${slot.dayOffset}|${slot.slotTime}`));
+            for (const slot of shortSlots) {
+                const key = `${slot.dayOffset}|${slot.slotTime}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    possibleSlots.push(slot);
+                    if (wantsShortModality) fullDurationSlotTimes.add(slot.slotTime);
+                }
+            }
+            possibleSlots.sort((a, b) =>
+                a.dayOffset !== b.dayOffset
+                    ? a.dayOffset - b.dayOffset
+                    : TimeHelper.timeToMinutes(a.slotTime) - TimeHelper.timeToMinutes(b.slotTime)
+            );
+        }
+
         const now = new Date();
 
         const anchors = [
@@ -7260,54 +8814,65 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         for (const { slotTime, slotDateTime } of slotsMap.values()) {
             const slotEndDateTime = new Date(slotDateTime.getTime() + effectiveDuration * 60000);
+            const fullDurationFitsSchedule = fullDurationSlotTimes.has(slotTime);
 
             // 1. Mapeamos TODAS las canchas calculando su disponibilidad real por milisegundos
             const courtsWithStatus = await Promise.all(activityCourts.map(async (court) => {
-                const isBusy = bookings.some(b => {
+                const isBusyFor = (endDateTime: Date) => bookings.some(b => {
                     if (b.court.id !== court.id || b.status === "CANCELLED") return false;
-                    
+
                     const bStart = b.startDateTime.getTime();
                     const bEnd = b.endDateTime.getTime();
                     const sStart = slotDateTime.getTime();
-                    const sEnd = slotEndDateTime.getTime();
+                    const sEnd = endDateTime.getTime();
 
                     // Si se solapan, la cancha está ocupada
                     return sStart < bEnd && sEnd > bStart;
                 }) || classSessions.some((classSession) => {
                     if (classSession.courtId !== court.id) return false;
-                    return slotDateTime < classSession.endsAt && slotEndDateTime > classSession.startsAt;
+                    return slotDateTime < classSession.endsAt && endDateTime > classSession.startsAt;
                 });
+                const isBusy = !fullDurationFitsSchedule || isBusyFor(slotEndDateTime);
+
+                if (perPlayerFormat) {
+                    const quote = await quoteForSlot(slotDateTime);
+                    // Hueco: el turno completo no entra pero sí el corto (mismo precio por jugador).
+                    const fitsShortGap = Boolean(
+                        isBusy && shortGapMinutes && !isBusyFor(new Date(slotDateTime.getTime() + shortGapMinutes * 60000))
+                    );
+                    return {
+                        id: court.id,
+                        name: court.name,
+                        price: quote ? quote.estimatedTotal : null,
+                        basePrice: quote ? quote.listTotal : null,
+                        lightsExtraApplied: quote ? quote.lightsExtra : 0,
+                        pricePerPlayer: quote ? quote.ownerPricePerPlayer + quote.lightsPerSlot : null,
+                        generalPricePerPlayer: quote ? quote.generalPricePerPlayer + quote.lightsPerSlot : null,
+                        playerCount: perPlayerFormat.playerCount,
+                        memberCategoryName: quote?.ownerMemberCategoryName ?? null,
+                        // Minutos que se pueden reservar en esta cancha a esta hora (turno completo o hueco corto).
+                        fitMinutes: isBusy ? (fitsShortGap ? shortGapMinutes : null) : effectiveDuration,
+                        isAvailable: !isBusy || fitsShortGap
+                    };
+                }
 
                 let calculatedPrice = Number((court as any).price ?? 0);
                 let calculatedBase = Number((court as any).price ?? 0);
                 let lightsExtraApplied = 0;
 
                 try {
-                    const basePrice = await this.pricingService.calculateCourtPrice(court.id, slotDateTime);
-                    if (Number.isFinite(Number(basePrice)) && Number(basePrice) > 0) {
-                        calculatedBase = this.calculateDurationAdjustedPrice(
-                            Number(basePrice),
-                            effectiveDuration,
-                            referenceDuration
-                        );
-                        calculatedPrice = calculatedBase;
-                        if (
-                            normalizedClubConfig &&
-                            normalizedClubConfig.lightsEnabled &&
-                            normalizedClubConfig.lightsExtraAmount &&
-                            normalizedClubConfig.lightsFromHour
-                        ) {
-                            const [lh, lm] = String(normalizedClubConfig.lightsFromHour).split(':').map((n: string) => parseInt(n, 10));
-                            if (!Number.isNaN(lh) && !Number.isNaN(lm)) {
-                                const localStart = TimeHelper.utcToLocal(slotDateTime, timeZone);
-                                const bookingTotalMinutes = localStart.getHours() * 60 + localStart.getMinutes();
-                                const lightsTotalMinutes = lh * 60 + lm;
-                                if (bookingTotalMinutes >= lightsTotalMinutes) {
-                                    lightsExtraApplied = Number(normalizedClubConfig.lightsExtraAmount || 0);
-                                    calculatedPrice += lightsExtraApplied;
-                                }
-                            }
-                        }
+                    const breakdown = await this.pricingService.resolveCourtPriceBreakdown({
+                        courtId: court.id,
+                        startDateTime: slotDateTime,
+                        effectiveDurationMinutes: effectiveDuration,
+                        referenceDurationMinutes: referenceDuration,
+                        timeZone,
+                        lights: normalizedClubConfig
+                    });
+                    if (Number.isFinite(breakdown.basePrice) && breakdown.basePrice > 0) {
+                        calculatedBase = breakdown.durationAdjustedPrice;
+                        lightsExtraApplied = breakdown.lightsExtra;
+                        calculatedPrice = breakdown.listPrice;
                     }
                 } catch {
                     // fallback al precio de cancha configurado
@@ -7341,7 +8906,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         return {
             slotsWithCourts,
             professorOverrideAvailable: Boolean(canProfessorDurationOverride),
-            professorDurationOverrideMinutes: canProfessorDurationOverride ? professorOverrideMinutes : null
+            professorDurationOverrideMinutes: canProfessorDurationOverride ? professorOverrideMinutes : null,
+            perPlayer: perPlayerFormat
+                ? {
+                    activityFormatId: perPlayerFormat.id,
+                    formatName: perPlayerFormat.name,
+                    playerCount: perPlayerFormat.playerCount,
+                    durationMinutes: effectiveDuration,
+                    shortGapMinutes
+                }
+                : null
         };
     }
 
@@ -7453,6 +9027,27 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const lastEnd = new Date(lastStart.getTime() + duration * 60000);
         const previewConflictsOnly = Boolean(options?.previewConflictsOnly);
 
+        // Bloqueos de cancha dentro del rango de la serie: esas ocurrencias se saltean.
+        const seriesCourtBlocks = await prisma.courtBlock.findMany({
+            where: {
+                courtId,
+                startDateTime: { lt: lastEnd },
+                endDateTime: { gt: firstStart }
+            },
+            include: { court: { select: { name: true } } }
+        });
+        const findSeriesBlock = (start: Date, end: Date) =>
+            seriesCourtBlocks.find((block) => block.startDateTime < end && block.endDateTime > start);
+        const mapSeriesBlockSkip = (start: Date, end: Date, block: (typeof seriesCourtBlocks)[number]) => ({
+            requestedStartDateTime: start,
+            requestedEndDateTime: end,
+            reason: 'COURT_BLOCKED',
+            conflictingStartDateTime: block.startDateTime,
+            conflictingEndDateTime: block.endDateTime,
+            conflictingClientName: block.title || 'Bloqueo',
+            conflictingCourtName: block.court?.name || ''
+        });
+
         if (previewConflictsOnly) {
             const existingBookings = await prisma.booking.findMany({
                 where: {
@@ -7507,6 +9102,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         conflictingActivityName: conflictingBooking?.activity?.name || '',
                         conflictingStatus: conflictingBooking?.status || ''
                     });
+                    continue;
+                }
+                const blockingBlock = findSeriesBlock(currentStart, currentEnd);
+                if (blockingBlock) {
+                    skippedOccurrences.push(mapSeriesBlockSkip(currentStart, currentEnd, blockingBlock));
                     continue;
                 }
                 generatedCount += 1;
@@ -7652,7 +9252,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     dayOfWeek,
                     startTimeMinutes,
                     endTimeMinutes,
-                    status: 'ACTIVE'
+                    status: 'ACTIVE',
+                    activityFormatId: options?.activityFormatId ?? null
                 }
             });
 
@@ -7700,6 +9301,11 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     });
                     continue;
                 }
+                const blockingBlock = findSeriesBlock(currentStart, currentEnd);
+                if (blockingBlock) {
+                    skippedOccurrences.push(mapSeriesBlockSkip(currentStart, currentEnd, blockingBlock));
+                    continue;
+                }
 
                 try {
                     const createdBooking = await this.createBooking(
@@ -7713,6 +9319,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                             skipAccountCreation: true,
                             skipAdvanceLimit: true,
                             actorUserId: options?.actorUserId ?? null,
+                            activityFormatId: options?.activityFormatId ?? null,
                             clientId: requestedOwnerUserSelection ? null : fixedClientId,
                             ownerUserSelection: requestedOwnerUserSelection || null
                         }
@@ -7851,10 +9458,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             }
 
             if (!previewOnly && canCancel) {
-                await prisma.booking.update({
-                    where: { id: Number(occurrence.id) },
-                    data: { status: 'CANCELLED' }
-                });
+                // Igual que una reserva suelta: cierra la cuenta, deja historial y avisa.
+                await this.cancelBooking(Number(occurrence.id), input.actorUserId ?? null, input.clubId);
             }
 
             const applicableItems = canCancel ? [mapApplicableCancelItem(occurrence)] : [];
@@ -7938,22 +9543,34 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             applicableItems.push(mapApplicableCancelItem(candidate));
         }
 
+        const cancelledIds: number[] = [];
         if (!previewOnly && cancellableIds.length > 0) {
-            await prisma.booking.updateMany({
-                where: { id: { in: cancellableIds } },
-                data: { status: 'CANCELLED' }
-            });
-            await prisma.fixedBooking.update({
-                where: { id: input.fixedBookingId },
-                data: { status: 'CANCELLED' }
-            });
+            // Cada turno se cancela como una reserva suelta (cuenta, historial, eventos).
+            // Antes se cambiaba solo el estado y las cuentas quedaban abiertas con deuda.
+            for (const bookingId of cancellableIds) {
+                try {
+                    await this.cancelBooking(bookingId, input.actorUserId ?? null, input.clubId);
+                    cancelledIds.push(bookingId);
+                } catch (error: any) {
+                    skipped.push({
+                        bookingId,
+                        reason: String(error?.message || 'No se pudo cancelar este turno.'),
+                    });
+                }
+            }
+            if (cancelledIds.length > 0) {
+                await prisma.fixedBooking.update({
+                    where: { id: input.fixedBookingId },
+                    data: { status: 'CANCELLED' }
+                });
+            }
         }
 
         return {
             preview: previewOnly,
             scope,
             totalCandidates: candidates.length,
-            cancelledCount: cancellableIds.length,
+            cancelledCount: previewOnly ? cancellableIds.length : cancelledIds.length,
             skippedCount: skipped.length,
             skipped,
             applicableItems,
@@ -8037,6 +9654,22 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             conflictingCourtName: params.conflict?.court?.name || '',
             conflictingActivityName: params.conflict?.activityType?.name || '',
             conflictingTeacherName: params.conflict?.teacher?.displayName || ''
+        });
+        const mapBlockOverlap = (params: {
+            requestedStartDateTime: Date;
+            requestedEndDateTime: Date;
+            conflict: any;
+            candidateBookingId?: number;
+        }) => ({
+            bookingId: Number(params.candidateBookingId || 0) || undefined,
+            requestedStartDateTime: params.requestedStartDateTime,
+            requestedEndDateTime: params.requestedEndDateTime,
+            reason: 'COURT_BLOCKED',
+            conflictingCourtBlockId: String(params.conflict?.id || ''),
+            conflictingStartDateTime: params.conflict?.startDateTime,
+            conflictingEndDateTime: params.conflict?.endDateTime,
+            conflictingClientName: params.conflict?.title || 'Bloqueo',
+            conflictingCourtName: params.conflict?.court?.name || ''
         });
         const mapApplicableRescheduleItem = (params: {
             bookingId?: number;
@@ -8173,6 +9806,35 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     };
                 }
                 throw this.bookingSlotUnavailable('La cancha ya tiene una clase en ese horario.');
+            }
+
+            const blockConflict = await findCourtBlockOverlap({
+                courtId: input.courtId,
+                startDateTime: new Date(input.startDateTime),
+                endDateTime: requestedEndDateTime
+            });
+            if (blockConflict) {
+                const overlaps = [
+                    mapBlockOverlap({
+                        requestedStartDateTime: new Date(input.startDateTime),
+                        requestedEndDateTime,
+                        conflict: blockConflict,
+                        candidateBookingId: occurrenceBookingId
+                    })
+                ];
+                if (previewOnly) {
+                    return {
+                        preview: true,
+                        scope: input.scope,
+                        totalCandidates: 1,
+                        willUpdateCount: 0,
+                        skippedCount: 1,
+                        overlaps,
+                        failedCount: 0,
+                        failures: [] as Array<{ bookingId: number; reason: string }>
+                    };
+                }
+                throw courtBlockedError();
             }
 
             if (previewOnly) {
@@ -8367,6 +10029,23 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         requestedStartDateTime: nextStart,
                         requestedEndDateTime: nextEnd,
                         conflict: classConflict,
+                        candidateBookingId: Number(candidate.id)
+                    })
+                );
+                continue;
+            }
+
+            const blockConflict = await findCourtBlockOverlap({
+                courtId: Number(targetCourt.id),
+                startDateTime: nextStart,
+                endDateTime: nextEnd
+            });
+            if (blockConflict) {
+                overlaps.push(
+                    mapBlockOverlap({
+                        requestedStartDateTime: nextStart,
+                        requestedEndDateTime: nextEnd,
+                        conflict: blockConflict,
                         candidateBookingId: Number(candidate.id)
                     })
                 );
@@ -8686,6 +10365,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 data: { stock: { decrement: normalizedQty } }
             });
             if (stockUpdate.count !== 1) throw conflict('No hay stock suficiente para completar la venta.', ErrorCodes.STOCK_INSUFFICIENT);
+            await stockMovementService.recordTx(tx, {
+                clubId,
+                productId,
+                quantity: -normalizedQty,
+                type: 'SALE',
+                accountId: account.id,
+                accountItemId: createdItem.id,
+                createdByUserId: options?.actorUserId ?? null
+            });
 
             await this.projectionService.refreshAccountSummary(account.id, tx);
 
@@ -8820,6 +10508,15 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     data: {
                         stock: { increment: item.quantity }
                     }
+                });
+                await stockMovementService.recordTx(tx, {
+                    clubId,
+                    productId: item.productId,
+                    quantity: Number(item.quantity || 0),
+                    type: 'SALE_REVERSAL',
+                    reason: 'Consumo eliminado',
+                    accountId: item.accountId,
+                    accountItemId: item.id
                 });
             }
 

@@ -13,6 +13,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'BOOKING_CREATED',
   'BOOKING_CANCELLED',
   'BOOKING_PENDING_WARNING',
+  'ACCOUNT_VERIFICATION_CODE',
 ] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
 
@@ -72,7 +73,7 @@ export const WHATSAPP_TEMPLATE_CATEGORIES = [
 export type WhatsappTemplateCategory =
   (typeof WHATSAPP_TEMPLATE_CATEGORIES)[number];
 
-export const NOTIFICATION_REFERENCE_TYPES = ['BOOKING'] as const;
+export const NOTIFICATION_REFERENCE_TYPES = ['BOOKING', 'USER'] as const;
 export type NotificationReferenceType =
   (typeof NOTIFICATION_REFERENCE_TYPES)[number];
 
@@ -107,6 +108,7 @@ export type SendTemplateMessageInput = {
   senderId: string;
   templateName: string;
   languageCode: string;
+  templateCategory?: WhatsappTemplateCategory;
   toPhone: string;
   recipientRole: NotificationRecipientRole;
   eventType: NotificationEventType;

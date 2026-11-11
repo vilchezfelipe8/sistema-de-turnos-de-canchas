@@ -6,8 +6,7 @@ import { ClubAdminService } from '../services/ClubAdminService';
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { showAdminToast } from '../utils/adminToast';
 import AdminAppModal from './admin/ui/AdminAppModal';
-import { AdminFilterToolbar, MetricCard } from './admin/ui';
-import ProductsTable from '../modules/tienda/components/ProductsTable';
+import ProductDetailPanel, { minStockOf } from '../modules/tienda/components/ProductDetailPanel';
 import ProductDrawer from '../modules/tienda/components/ProductDrawer';
 import type { ProductFormData } from '../modules/tienda/components/ProductDrawer';
 import type { ProductRow } from '../modules/tienda/components/ProductsTable';
@@ -25,6 +24,7 @@ const emptyForm = (): ProductFormData => ({
   name: '',
   price: '',
   stock: '',
+  minStock: '5',
   category: '',
   isCombo: false,
   components: [{ componentProductId: '', quantity: '1' }],
@@ -40,6 +40,8 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
+  /** Producto abierto en la ficha de la derecha. */
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProductRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [formError, setFormError] = useState('');
@@ -90,6 +92,7 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
       name: product.name,
       price: String(product.price),
       stock: String((product.baseStock as number | undefined) ?? product.stock ?? 0),
+      minStock: String((product.minStock as number | undefined) ?? 5),
       category: (product.category as string) || '',
       isCombo: Boolean(product.isCombo),
       components:
@@ -156,14 +159,17 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
 
     try {
       setSubmittingForm(true);
-      const payload = {
+      const minStock = formData.minStock.trim() === '' ? undefined : Number(formData.minStock);
+      const payload: Record<string, unknown> = {
         name: formData.name,
         price: Number(formData.price),
-        stock: formData.isCombo ? 0 : Number(formData.stock),
         category: formData.category,
         isCombo: formData.isCombo,
         components: formData.isCombo ? components : [],
+        ...(minStock !== undefined && Number.isFinite(minStock) ? { minStock } : {}),
       };
+      // El stock solo se manda al crear: después se mueve desde la ficha (queda registrado).
+      if (!editingProduct) payload.stock = formData.isCombo ? 0 : Number(formData.stock || 0);
       if (editingProduct) {
         await ClubAdminService.updateProduct(slug, editingProduct.id, payload);
         closeDrawer();
@@ -192,6 +198,7 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
     setDeleting(true);
     try {
       await ClubAdminService.deleteProduct(slug, deleteTarget.id);
+      if (Number(deleteTarget.id) === Number(selectedId)) setSelectedId(null);
       setDeleteTarget(null);
       void loadProducts();
       showAdminToast('Producto dado de baja.');
@@ -238,14 +245,27 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
     [products, searchTerm],
   );
 
+  const categories = useMemo(
+    () =>
+      Array.from(new Set(products.map((p) => String(p.category || '').trim()).filter(Boolean))).sort((a, b) =>
+        a.localeCompare(b, 'es'),
+      ),
+    [products],
+  );
+
   const comboOptions = useMemo(
     () => products.filter((p) => !editingProduct || p.id !== editingProduct.id),
     [products, editingProduct],
   );
 
+  const selectedProduct = useMemo(
+    () => products.find((p) => Number(p.id) === Number(selectedId)) || null,
+    [products, selectedId],
+  );
+
   const summary = useMemo(() => {
     const simple = products.filter((p) => !p.isCombo);
-    const lowStock = simple.filter((p) => Number(p.stock ?? 0) < 5);
+    const lowStock = simple.filter((p) => Number(p.stock ?? 0) <= minStockOf(p));
     const stockValue = simple.reduce(
       (sum, p) => sum + Number(p.stock ?? 0) * Number(p.price ?? 0),
       0,
@@ -261,62 +281,119 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
   return (
     <div className="flex flex-col gap-3">
 
-      {/* ── Summary metrics ── */}
-      <div className="grid grid-cols-2 gap-3">
-        <MetricCard
-          label="Bajo stock"
-          value={summary.lowStock}
-          format="number"
-          valueColor={summary.lowStock > 0 ? 'var(--error-fg)' : undefined}
-          delta={
-            summary.lowStock > 0
-              ? { value: -summary.lowStock, label: 'productos con menos de 5 u.' }
-              : { value: 0, label: 'sin alertas de stock' }
-          }
-        />
-        <MetricCard
-          label="Valor en stock"
-          value={summary.stockValue}
-          format="money"
-          delta={{ value: summary.total, label: 'productos activos' }}
-        />
+      {/* ── Qué hay, buscar y agregar ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="mr-auto text-[14px] text-p-text-secondary">
+          <span className="font-semibold text-p-text">
+            {summary.total === 1 ? '1 producto' : `${summary.total} productos`}
+          </span>
+          {' · '}
+          <span className="tabular-nums">${Number(summary.stockValue || 0).toLocaleString('es-AR')}</span> en stock
+          {' · '}
+          {summary.lowStock > 0 ? (
+            <span className="font-semibold text-p-warning">
+              {summary.lowStock === 1 ? '1 para reponer' : `${summary.lowStock} para reponer`}
+            </span>
+          ) : (
+            'nada para reponer'
+          )}
+        </p>
+        <label className="relative w-full sm:w-[260px]">
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} />
+          <input
+            type="text"
+            placeholder="Buscar producto"
+            className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={openNew}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+        >
+          <Plus size={15} strokeWidth={2.5} />
+          Nuevo producto
+        </button>
       </div>
 
-      {/* ── Table ── */}
-      <ProductsTable
-        products={filteredProducts}
-        loading={loading}
-        onEdit={openEdit}
-        onDelete={setDeleteTarget}
-        onRowClick={openEdit}
-        selectedId={editingProduct?.id ?? null}
-        toolbar={(
-          <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
-            <div className="relative w-full sm:w-[300px] sm:flex-none">
-              <Search
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-p-text-muted"
-                size={14}
-                strokeWidth={2.5}
-              />
-              <input
-                type="text"
-                placeholder="Buscar por nombre de producto..."
-                className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+      {/* ── Lista a la izquierda, ficha a la derecha ── */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className={selectedProduct ? 'max-lg:hidden' : ''}>
+          {loading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-14 animate-pulse rounded-xl bg-p-surface-2" />
+              ))}
             </div>
-            <button
-              type="button"
-              onClick={openNew}
-              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 hover:shadow-p-md sm:w-auto"
-            >
-              <Plus size={14} strokeWidth={2.5} />
-              Nuevo producto
-            </button>
-          </AdminFilterToolbar>
-        )}
-      />
+          ) : filteredProducts.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-p-border px-4 py-10 text-center">
+              <p className="text-[14px] font-semibold text-p-text-secondary">
+                {searchTerm.trim() ? 'No hay productos con ese nombre' : 'Todavía no cargaste productos'}
+              </p>
+              <p className="mt-1 text-[12px] text-p-text-muted">
+                {searchTerm.trim() ? 'Probá con otra palabra.' : 'Agregá bebidas, pelotas o lo que vendas en el mostrador.'}
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface">
+              {filteredProducts.map((product) => {
+                const stock = Number(product.stock ?? 0);
+                const low = !product.isCombo && stock <= minStockOf(product);
+                const isSelected = Number(selectedId) === Number(product.id);
+                return (
+                  <li key={product.id}>
+                    <button
+                      type="button"
+                      aria-pressed={isSelected}
+                      onClick={() => setSelectedId(Number(product.id))}
+                      className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition ${
+                        isSelected ? 'bg-p-surface-2' : 'hover:bg-p-surface-2'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-[14px] font-semibold text-p-text">{product.name}</p>
+                        <p className="truncate text-[12px] text-p-text-muted">
+                          {[product.category, product.isCombo ? 'Combo' : null].filter(Boolean).join(' · ') || 'Sin categoría'}
+                        </p>
+                      </div>
+                      <div className="flex flex-none items-center gap-4">
+                        <span
+                          className={`text-[13px] tabular-nums ${low ? 'font-semibold text-p-warning' : 'text-p-text-secondary'}`}
+                        >
+                          {product.isCombo ? 'Según sus productos' : low ? `Quedan ${stock} · reponer` : `${stock} en stock`}
+                        </span>
+                        <span className="w-20 text-right text-[14px] font-semibold tabular-nums text-p-text">
+                          ${Number(product.price || 0).toLocaleString('es-AR')}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className={`${selectedProduct ? '' : 'max-lg:hidden'} lg:sticky lg:top-0 lg:max-h-[calc(100vh-220px)]`}>
+          {selectedProduct ? (
+            <ProductDetailPanel
+              slug={slug}
+              product={selectedProduct}
+              allProducts={products}
+              onBack={() => setSelectedId(null)}
+              onEdit={openEdit}
+              onDelete={setDeleteTarget}
+              onStockChanged={() => void loadProducts()}
+            />
+          ) : (
+            <div className="flex h-full min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-p-border px-6 text-center">
+              <p className="text-[13px] text-p-text-muted">Elegí un producto para ver su stock y cargar lo que entra o sale.</p>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ── Drawer ── */}
       <ProductDrawer
@@ -324,6 +401,7 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
         onClose={closeDrawer}
         editingProduct={editingProduct}
         comboOptions={comboOptions}
+        categories={categories}
         formData={formData}
         formError={formError}
         fieldErrors={formFieldErrors}

@@ -1,8 +1,52 @@
 import { fetchWithAuth } from '../utils/apiClient';
 import { getApiUrl } from '../utils/apiUrl';
 import { parseApiErrorResponse, throwApiErrorFromResponse } from '../utils/apiError';
+import type { AgendaBookingRules } from '../components/admin/agenda/utils/agendaBookingRules';
 
 const apiBase = () => `${getApiUrl()}/api`;
+
+export type CourtBlockDto = {
+  id: string;
+  clubId: number;
+  courtId: number;
+  courtName: string;
+  startDateTime: string;
+  endDateTime: string;
+  title: string | null;
+  createdByUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StockMovementType = 'INITIAL' | 'PURCHASE' | 'SALE' | 'SALE_REVERSAL' | 'ADJUSTMENT' | 'WASTE' | 'MANUAL_EDIT';
+
+export type StockMovement = {
+  id: string;
+  type: StockMovementType;
+  quantity: number;
+  stockBefore: number;
+  stockAfter: number;
+  groupId: string | null;
+  supplier: string | null;
+  documentNumber: string | null;
+  unitCost: number | null;
+  reason: string | null;
+  accountId: string | null;
+  occurredAt: string;
+  product: { id: number; name: string; category: string | null };
+  createdBy: { id: number; name: string | null } | null;
+};
+
+export type StockMovementPage = { items: StockMovement[]; nextCursor: string | null };
+
+export type StockMovementFilters = {
+  productId?: number;
+  type?: StockMovementType;
+  from?: string;
+  to?: string;
+  limit?: number;
+  cursor?: string;
+};
 
 export type ActivityScheduleMode = 'FIXED' | 'RANGE';
 
@@ -151,6 +195,8 @@ export type AdminClassSession = {
   } | null;
   createdAt: string;
   updatedAt: string;
+  /** Alumnos anotados; viene solo en el listado. */
+  enrolledCount?: number;
 };
 
 export type AdminClassEnrollmentStatus = 'ENROLLED' | 'WAITLISTED' | 'CANCELLED';
@@ -700,7 +746,7 @@ export type AdminClubPaymentIntegration = {
   externalUserId: string | null;
   connectedBy: {
     id: number;
-    email: string;
+    email: string | null;
     firstName?: string | null;
     lastName?: string | null;
   } | null;
@@ -726,6 +772,17 @@ export class ClubAdminService {
   /**
    * Obtener la agenda del administrador para un club específico
    */
+  static async getBookingRules(clubSlug: string, date: string): Promise<AgendaBookingRules> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/booking-rules?date=${date}`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al cargar los horarios del club');
+    }
+    return res.json();
+  }
+
   static async getAdminSchedule(clubSlug: string, date: string) {
 
     const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/schedule?date=${date}`, {
@@ -1037,6 +1094,58 @@ export class ClubAdminService {
     return res.json();
   }
 
+  // Bloqueos de cancha (franjas no reservables)
+  static async listCourtBlocks(clubSlug: string, date: string): Promise<CourtBlockDto[]> {
+    const res = await fetchWithAuth(
+      `${apiBase()}/clubs/${clubSlug}/admin/court-blocks?date=${encodeURIComponent(date)}`
+    );
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al obtener bloqueos');
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  static async createCourtBlock(
+    clubSlug: string,
+    data: { courtId: number; startDateTime: string; endDateTime: string; title?: string | null }
+  ): Promise<CourtBlockDto> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/court-blocks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al crear el bloqueo');
+    }
+    return res.json();
+  }
+
+  static async updateCourtBlock(
+    clubSlug: string,
+    blockId: string,
+    data: { courtId?: number; startDateTime?: string; endDateTime?: string; title?: string | null }
+  ): Promise<CourtBlockDto> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/court-blocks/${encodeURIComponent(blockId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al actualizar el bloqueo');
+    }
+    return res.json();
+  }
+
+  static async deleteCourtBlock(clubSlug: string, blockId: string): Promise<void> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/court-blocks/${encodeURIComponent(blockId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      await throwApiErrorFromResponse(res, 'Error al eliminar el bloqueo');
+    }
+  }
+
   static async getBookingBillingConfig(clubSlug: string, bookingId: number): Promise<BookingBillingConfig> {
     const res = await fetchWithAuth(`${apiBase()}/clubs/${clubSlug}/admin/bookings/${bookingId}/billing-config`, {
       method: 'GET',
@@ -1217,6 +1326,60 @@ export class ClubAdminService {
       method: 'DELETE'
     });
     if (!res.ok) throw new Error('Error al eliminar producto');
+    return res.json();
+  }
+
+  static async getStockMovements(slug: string, filters: StockMovementFilters = {}): Promise<StockMovementPage> {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+    });
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/stock/movements${query}`, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) await throwApiErrorFromResponse(res, 'Error al cargar movimientos de stock');
+    return res.json();
+  }
+
+  static async createStockEntry(slug: string, data: {
+    supplier?: string;
+    documentNumber?: string;
+    notes?: string;
+    items: Array<{ productId: number; quantity: number; unitCost?: number | null }>;
+  }) {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/stock/entries`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) await throwApiErrorFromResponse(res, 'Error al registrar el ingreso');
+    return res.json();
+  }
+
+  static async createStockCount(slug: string, data: {
+    notes?: string;
+    items: Array<{ productId: number; countedQuantity: number }>;
+  }): Promise<{ groupId: string; movements: unknown[]; unchanged: number }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/stock/counts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) await throwApiErrorFromResponse(res, 'Error al registrar el conteo');
+    return res.json();
+  }
+
+  static async createStockWaste(slug: string, data: {
+    reason?: string;
+    items: Array<{ productId: number; quantity: number }>;
+  }) {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/stock/waste`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) await throwApiErrorFromResponse(res, 'Error al registrar la merma');
     return res.json();
   }
 

@@ -35,7 +35,19 @@ type Props = {
   onAmountChange: (value: string) => void;
   maxInlineLabel: string;
   maxFooterLabel: string;
+  /** Descuento del club para el método elegido (ej. precio efectivo). */
+  methodDiscount?: {
+    percent: number;
+    methodLabel: string;
+    enabled: boolean;
+    onToggle: (enabled: boolean) => void;
+    discountAmount: number;
+    chargeAmount: number;
+  };
 };
+
+const formatPesos = (value: number) =>
+  `$ ${Number(value || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const sectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
 
@@ -58,25 +70,39 @@ export default function PaymentRegistrationDrawer({
   onAmountChange,
   maxInlineLabel,
   maxFooterLabel,
+  methodDiscount,
 }: Props) {
   return (
     <>
       {/* Método de pago */}
       <AdminDrawerSection className={sectionCardClass}>
-        <label className="block">
-          <span className="text-[12px] font-medium text-p-text-muted">Método</span>
-          <select
-            value={methodValue}
-            onChange={(event) => onMethodChange(String(event.target.value || ''))}
-            className="mt-1 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none focus:border-p-accent"
-          >
-            {methodOptions.map((option) => (
-              <option key={option.value} value={option.value}>
+        <span className="text-[12px] font-medium text-p-text-muted">Medio de pago</span>
+        <div
+          role="radiogroup"
+          aria-label="Medio de pago"
+          className="mt-1 grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${Math.max(1, methodOptions.length)}, minmax(0, 1fr))` }}
+        >
+          {methodOptions.map((option) => {
+            const isActive = methodValue === option.value;
+            return (
+              <button
+                key={`payment-method-${option.value}`}
+                type="button"
+                role="radio"
+                aria-checked={isActive}
+                onClick={() => onMethodChange(option.value)}
+                className={`h-11 rounded-xl border text-[14px] font-semibold transition ${
+                  isActive
+                    ? 'border-ink-900 bg-ink-900 text-ink-50'
+                    : 'border-p-border bg-p-surface text-p-text hover:bg-p-surface-2'
+                }`}
+              >
                 {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+              </button>
+            );
+          })}
+        </div>
       </AdminDrawerSection>
 
       {/* Conceptos a cobrar */}
@@ -108,7 +134,7 @@ export default function PaymentRegistrationDrawer({
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-[12px] font-semibold text-p-text-secondary">Selección manual</span>
             <span className="text-[11px] font-semibold text-p-text-muted">
-              Total: {customSelectedTotal.toFixed(2)} $
+              Total: {formatPesos(customSelectedTotal)}
             </span>
           </div>
           <div className="flex items-center gap-2 mb-3">
@@ -183,7 +209,7 @@ export default function PaymentRegistrationDrawer({
                           <span className="ml-1 text-[11px] font-semibold text-p-text-muted">$</span>
                         </div>
                         <span className="w-[88px] text-right text-[11px] font-semibold text-p-text-secondary">
-                          {Number(item.remainingAmount || 0).toFixed(2)} $
+                          {formatPesos(Number(item.remainingAmount || 0))}
                         </span>
                       </div>
                     </div>
@@ -211,9 +237,43 @@ export default function PaymentRegistrationDrawer({
             <span className="text-[15px] font-semibold text-p-text-muted">$</span>
           </div>
           <p className="mt-1 text-[11px] text-p-text-muted">{maxInlineLabel}</p>
-          <p className="mt-2 text-[11px] text-p-text-muted">{maxFooterLabel}</p>
+          {maxFooterLabel && <p className="mt-2 text-[11px] text-p-text-muted">{maxFooterLabel}</p>}
         </label>
       </AdminDrawerSection>
+
+      {/* Precio por medio de pago */}
+      {methodDiscount && (
+        <AdminDrawerSection className={sectionCardClass}>
+          <label className="flex cursor-pointer items-start gap-2">
+            <input
+              type="checkbox"
+              checked={methodDiscount.enabled}
+              onChange={(event) => methodDiscount.onToggle(event.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-p-brand"
+            />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-semibold text-p-text">
+                Precio {methodDiscount.methodLabel} ({methodDiscount.percent}% menos)
+              </span>
+              <span className="block text-[11px] text-p-text-muted">
+                El monto final es a precio de lista. Al confirmar se descuenta del saldo.
+              </span>
+            </span>
+          </label>
+          {methodDiscount.enabled && methodDiscount.discountAmount > 0 && (
+            <div className="mt-3 space-y-1 rounded-lg border border-p-border bg-p-surface px-3 py-2 text-[12px]">
+              <div className="flex justify-between text-p-text-muted">
+                <span>Descuento</span>
+                <span>- {formatPesos(methodDiscount.discountAmount)}</span>
+              </div>
+              <div className="flex justify-between text-[14px] font-bold text-p-text">
+                <span>A cobrar</span>
+                <span>{formatPesos(methodDiscount.chargeAmount)}</span>
+              </div>
+            </div>
+          )}
+        </AdminDrawerSection>
+      )}
     </>
   );
 }

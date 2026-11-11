@@ -4,22 +4,21 @@ import AdminTabStatistics from '../../components/admin/AdminTabStatistics';
 import { AdminSegmentedControl } from '../../components/admin/ui';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 
-type ReportsTab = 'resumen' | 'reservas' | 'ingresos' | 'pendientes' | 'pos';
+type ReportsTab = 'resumen' | 'plata' | 'reservas' | 'mostrador';
 
 const REPORT_TABS: Array<{ value: ReportsTab; label: string }> = [
   { value: 'resumen', label: 'Resumen' },
-  { value: 'ingresos', label: 'Ingresos' },
+  { value: 'plata', label: 'Plata' },
   { value: 'reservas', label: 'Reservas' },
-  { value: 'pendientes', label: 'Pendientes' },
-  { value: 'pos', label: 'POS' },
+  { value: 'mostrador', label: 'Mostrador' },
 ];
 
 const parseReportsTab = (value: unknown): ReportsTab => {
   const raw = String(value || '').toLowerCase();
-  if (raw === 'ingresos') return 'ingresos';
+  // Links viejos: Ingresos y Pendientes viven en Plata.
+  if (raw === 'plata' || raw === 'ingresos' || raw === 'pendientes') return 'plata';
   if (raw === 'reservas') return 'reservas';
-  if (raw === 'pendientes') return 'pendientes';
-  if (raw === 'pos') return 'pos';
+  if (raw === 'mostrador' || raw === 'pos') return 'mostrador';
   return 'resumen';
 };
 
@@ -45,7 +44,8 @@ export default function AdminReportsPage() {
         const userSlug = getActiveClubSlug(normalizeSessionUser(user as any));
 
         return (
-          <div className="flex h-full min-h-0 flex-col gap-4 p-4 pb-0 lg:p-6 lg:pb-0">
+          <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 pb-0 lg:gap-4 lg:p-6 lg:pb-0">
+            <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Informes</h1>
             <AdminSegmentedControl
               options={REPORT_TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
               value={activeTab}
@@ -65,7 +65,7 @@ export default function AdminReportsPage() {
               )}
 
               {activeTab !== 'resumen' && userSlug && (
-                <AdminTabStatistics slugProp={userSlug} focus={activeTab} />
+                <AdminTabStatistics slugProp={userSlug} focus={activeTab === 'mostrador' ? 'pos' : activeTab} />
               )}
 
               {activeTab !== 'resumen' && !userSlug && (

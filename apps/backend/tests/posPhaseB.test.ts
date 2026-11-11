@@ -79,7 +79,13 @@ async function withVoidTransaction(state: VoidHarnessState, run: (service: Accou
           return { id: working.account.id, status: working.account.status, sourceId: working.account.sourceId };
         }
       },
+      stockMovement: { create: async (args: any) => ({ id: 'stock-movement', ...(args?.data || {}) }) },
       product: {
+        findFirst: async (args: any) => {
+          const productId = Number(args?.where?.id || 0);
+          if (!working.productStocks.has(productId)) return null;
+          return { id: productId, stock: Number(working.productStocks.get(productId) || 0) };
+        },
         updateMany: async (args: any) => {
           const productId = Number(args?.where?.id || 0);
           const currentStock = Number(working.productStocks.get(productId) || 0);
@@ -262,6 +268,7 @@ async function withPosCreateTransaction(run: (service: CashService, state: PosCr
           return { id: `item-${state.accountItems.length}` };
         }
       },
+      stockMovement: { create: async (args: any) => ({ id: 'stock-movement', ...(args?.data || {}) }) },
       product: {
         findFirst: async (args: any) => {
           if (Number(args?.where?.id) === 101) {

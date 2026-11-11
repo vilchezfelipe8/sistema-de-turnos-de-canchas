@@ -153,6 +153,9 @@ test('PaymentService.create allows PENDING booking payment in DEPOSIT_REQUIRED m
     },
     clubSettings: {
       findUnique: async () => ({ bookingConfirmationMode: 'DEPOSIT_REQUIRED' })
+    },
+    bookingHistoryEntry: {
+      create: async ({ data }: any) => ({ id: 'history-1', ...data })
     }
   });
 

@@ -61,7 +61,7 @@ Variables principales para operar Pique.
 | `WHATSAPP_META_WEBHOOK_VERIFY_TOKEN` | no | vacio | `replace_with_secret` | verificacion GET webhook Meta |
 | `MERCADO_PAGO_ENABLED` | no | `false` | `true` | checkout online |
 | `MERCADO_PAGO_TEST_TOKEN` | no | `false` | `false` | test vs real |
-| `MERCADO_PAGO_CLIENT_ID` | si MP | vacío | `APP_USR...` | OAuth MP |
+| `MERCADO_PAGO_CLIENT_ID` | si MP | vacío | App ID numérico | OAuth MP; no es Public Key ni Access Token |
 | `MERCADO_PAGO_CLIENT_SECRET` | si MP | vacío | `...` | OAuth MP |
 | `MERCADO_PAGO_REDIRECT_URI` | si MP | local | `https://pique.ar/api/integrations/mercadopago/callback` | callback OAuth |
 | `MERCADO_PAGO_WEBHOOK_SECRET` | si MP | vacío | `...` | firma webhook |
@@ -74,6 +74,17 @@ Variables principales para operar Pique.
 |---|---:|---|---|---|
 | `NEXT_PUBLIC_API_URL` | sí | `http://localhost:3000` | `/api` | base API |
 | `NEXT_PUBLIC_SITE_URL` | sí | `https://pique.ar` | `https://pique.ar` | metadata / branding |
+| `INTERNAL_API_URL` | no | origen del pedido | `http://backend:3000` | API interna para datos SSR, manifest e íconos del club |
+
+## Despliegue Docker
+
+Estas variables viven en el `.env` raíz y seleccionan imágenes de Compose.
+
+| Variable | Default | Uso |
+|---|---|---|
+| `RELEASE_TAG` | `local` | tag común cuando no hay uno específico por servicio |
+| `FRONTEND_RELEASE_TAG` | `RELEASE_TAG` | tag de `pique-frontend` |
+| `BACKEND_RELEASE_TAG` | `RELEASE_TAG` | tag de `pique-backend` para API, worker y scheduler |
 
 ## Notas
 

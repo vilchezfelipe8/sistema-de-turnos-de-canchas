@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AppleOAuthService } from '../src/services/AppleOAuthService';
 
+// El estado OAuth se guarda en memoria: con Redis la conexión queda abierta y el proceso no termina.
+delete process.env.REDIS_URL;
+
 const ORIGINAL_ENV = {
   clientId: process.env.APPLE_OAUTH_CLIENT_ID,
   teamId: process.env.APPLE_OAUTH_TEAM_ID,

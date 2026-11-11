@@ -5,7 +5,7 @@ import { ErrorCodes, badRequest, validationError } from '../errors';
 import { CashService } from './CashService';
 import { CashRepository } from '../repositories/CashRepository';
 
-type SourceType = 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+type SourceType = 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
 
 type ReportsServiceDeps = {
   prismaClient?: typeof prisma;
@@ -19,6 +19,7 @@ const ACCOUNT_SOURCE_LABELS: Record<SourceType, string> = {
   MANUAL: 'Manual',
   CLASS_PASS: 'Academia',
   CLASS_ENROLLMENT: 'Academia',
+  SUBSCRIPTION_INSTALLMENT: 'Planes',
 };
 
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
@@ -133,6 +134,7 @@ export class ReportsService {
           id: true,
           amount: true,
           method: true,
+          createdAt: true,
           account: {
             select: {
               sourceType: true,
@@ -175,6 +177,7 @@ export class ReportsService {
         },
         select: {
           amount: true,
+          executedAt: true,
         },
       }),
       this.cashService.getPosReport(clubId, range.startDate, range.endDate),
@@ -184,8 +187,31 @@ export class ReportsService {
     const bySourceMap = new Map<SourceType, { sourceType: SourceType; label: string; count: number; total: number }>();
     let collectedTotal = 0;
 
+    // Cobrado y devuelto por día (en la hora del club), con todos los días del rango.
+    const dayKeyOf = (value: Date) => {
+      const local = TimeHelper.utcToLocal(new Date(value), range.timeZone);
+      return `${local.getFullYear()}-${String(local.getMonth() + 1).padStart(2, '0')}-${String(local.getDate()).padStart(2, '0')}`;
+    };
+    const byDayMap = new Map<string, { date: string; collected: number; refunded: number; count: number }>();
+    {
+      const [sy, sm, sd] = range.startDate.split('-').map(Number);
+      const [ey, em, ed] = range.endDate.split('-').map(Number);
+      const cursor = new Date(sy, sm - 1, sd);
+      const last = new Date(ey, em - 1, ed);
+      while (cursor.getTime() <= last.getTime()) {
+        const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
+        byDayMap.set(key, { date: key, collected: 0, refunded: 0, count: 0 });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+
     for (const payment of payments) {
       const amount = this.roundMoney(Number(payment.amount || 0));
+      const dayEntry = byDayMap.get(dayKeyOf(payment.createdAt));
+      if (dayEntry) {
+        dayEntry.collected = this.roundMoney(dayEntry.collected + amount);
+        dayEntry.count += 1;
+      }
       const method = (String(payment.method || 'OTHER').toUpperCase() || 'OTHER') as PaymentMethod | 'OTHER';
       const sourceType = (String(payment.account?.sourceType || 'MANUAL').toUpperCase() || 'MANUAL') as SourceType;
 
@@ -223,8 +249,28 @@ export class ReportsService {
       bookingCounts[status] = Number(bookingCounts[status] || 0) + 1;
     }
 
+    // Cuentas de reservas: el cliente y la fecha salen de la reserva (la cuenta no siempre los tiene).
+    const pendingBookingIds = pendingAccountsRaw
+      .filter((account) => account.sourceType === 'BOOKING')
+      .filter((account) => Number(account.totalAmount || 0) - Number(account.paidAmount || 0) > 0)
+      .map((account) => Number(account.sourceId))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const pendingBookings = pendingBookingIds.length
+      ? await this.prismaClient.booking.findMany({
+          where: { clubId, id: { in: pendingBookingIds } },
+          select: {
+            id: true,
+            startDateTime: true,
+            court: { select: { name: true } },
+            client: { select: { name: true } },
+          },
+        })
+      : [];
+    const bookingById = new Map(pendingBookings.map((booking) => [booking.id, booking]));
+
     const pendingAccounts = pendingAccountsRaw
       .map((account) => {
+        const booking = account.sourceType === 'BOOKING' ? bookingById.get(Number(account.sourceId)) : undefined;
         const total = this.roundMoney(Number(account.totalAmount || 0));
         const paid = this.roundMoney(Number(account.paidAmount || 0));
         const pending = this.roundMoney(Math.max(0, total - paid));
@@ -241,7 +287,10 @@ export class ReportsService {
           sourceType: account.sourceType,
           sourceLabel: ACCOUNT_SOURCE_LABELS[account.sourceType as SourceType] || account.sourceType,
           status: isVoided ? 'VOIDED' : account.status,
-          clientName: account.client?.name || 'Consumidor final',
+          clientName: account.client?.name || booking?.client?.name || 'Sin nombre',
+          courtName: booking?.court?.name ?? null,
+          /** Cuándo: el turno si es una reserva; si no, cuándo se abrió la cuenta. */
+          when: booking?.startDateTime ?? account.createdAt,
           total,
           paid,
           pending,
@@ -250,9 +299,15 @@ export class ReportsService {
         };
       })
       .filter((account) => account.pending > 0 && account.status !== 'VOIDED')
-      .sort((a, b) => b.ageDays - a.ageDays || new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      .sort((a, b) => new Date(a.when).getTime() - new Date(b.when).getTime());
 
     const pendingTotal = pendingAccounts.reduce((sum, account) => this.roundMoney(sum + account.pending), 0);
+    for (const refund of refundsExecuted) {
+      if (!refund.executedAt) continue;
+      const dayEntry = byDayMap.get(dayKeyOf(refund.executedAt));
+      if (dayEntry) dayEntry.refunded = this.roundMoney(dayEntry.refunded + Number(refund.amount || 0));
+    }
+
     const refundedTotal = refundsExecuted.reduce(
       (sum, refund) => this.roundMoney(sum + Number(refund.amount || 0)),
       0
@@ -273,6 +328,7 @@ export class ReportsService {
         },
         byMethod: Array.from(byMethodMap.values()).sort((a, b) => b.total - a.total),
         byAccountSource: Array.from(bySourceMap.values()).sort((a, b) => b.total - a.total),
+        byDay: Array.from(byDayMap.values()),
       },
       bookings: {
         total: bookings.length,

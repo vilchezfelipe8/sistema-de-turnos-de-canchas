@@ -24,6 +24,9 @@ function buildBookingServiceHarness() {
     bookingCancelled: async () => null
   };
   (service as any).getBookingById = async (bookingId: number) => ({ id: bookingId });
+  // El historial y los avisos push tienen sus propios tests; acá solo importan las invariantes de cuenta.
+  (service as any).bookingHistoryService = { appendBookingHistoryEntryTx: async () => null };
+  (service as any).enqueueBookingConfirmedPushTx = async () => null;
 
   return service as any;
 }

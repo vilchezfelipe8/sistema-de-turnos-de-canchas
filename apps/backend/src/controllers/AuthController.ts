@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { isPiqueTeamUser } from '../config/piqueTeam';
 import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
@@ -15,6 +16,8 @@ import { GoogleOAuthService } from '../services/GoogleOAuthService';
 import { AppleOAuthService } from '../services/AppleOAuthService';
 import { FacebookOAuthService } from '../services/FacebookOAuthService';
 import { UserClubProfileService } from '../services/UserClubProfileService';
+import { AccountVerificationService } from '../services/AccountVerificationService';
+import { looksLikeDni, normalizeDni } from '../utils/dni';
 import {
     generateMagicLinkToken,
     getMagicLinkExpiresAt,
@@ -121,6 +124,7 @@ export class AuthController {
     private appleOAuthService = new AppleOAuthService();
     private facebookOAuthService = new FacebookOAuthService();
     private userClubProfileService = new UserClubProfileService();
+    private accountVerificationService = new AccountVerificationService();
 
     private getAuthEmailService() {
         if (!this.authEmailService) {
@@ -139,7 +143,7 @@ export class AuthController {
         } as const;
     }
 
-    private setSessionCookies(res: Response, accessToken: string, refreshToken: string) {
+    private setSessionCookies(res: Response, accessToken: string, refreshToken: string | null) {
         const base = this.getCookieBaseOptions();
         const accessMaxAgeMs = authConfig.accessTtlMinutes * 60 * 1000;
         const refreshMaxAgeMs = authConfig.refreshIdleDays * 24 * 60 * 60 * 1000;
@@ -147,10 +151,13 @@ export class AuthController {
             ...base,
             maxAge: accessMaxAgeMs
         });
-        res.cookie(authConfig.refreshCookieName, refreshToken, {
-            ...base,
-            maxAge: refreshMaxAgeMs
-        });
+        // En una renovación simultánea tolerada no hay credencial nueva: se conserva la que ya tiene el navegador.
+        if (refreshToken) {
+            res.cookie(authConfig.refreshCookieName, refreshToken, {
+                ...base,
+                maxAge: refreshMaxAgeMs
+            });
+        }
     }
 
     private clearSessionCookies(res: Response) {
@@ -301,6 +308,7 @@ export class AuthController {
                 email: user.email,
                 phoneNumber: user.phoneNumber,
                 role: user.role,
+                isPiqueTeam: isPiqueTeamUser(user),
                 clubId: resolvedClubId,
                 memberships,
                 activeClubId: resolvedClubId,
@@ -410,11 +418,37 @@ export class AuthController {
             );
         }
         
+        // DNI opcional para no socios. Si viene, se normaliza y debe ser único.
+        const rawDni = String(dni ?? '').trim();
+        const normalizedDni = rawDni ? normalizeDni(rawDni) : null;
+        if (rawDni && !normalizedDni) {
+            return sendAppError(
+                res,
+                validationError('Revisá los campos marcados.', { dni: 'Ingresá un DNI válido (solo números).' }),
+                'No se pudo validar el registro.'
+            );
+        }
+
         try {
             const normalizedUserEmail = normalizeEmail(email);
             const existingUser = await prisma.user.findUnique({ where: { email: normalizedUserEmail } });
             if (existingUser) {
                 return res.status(400).json({ error: "El email ya está registrado" });
+            }
+
+            if (normalizedDni) {
+                const existingDniUser = await prisma.user.findUnique({ where: { dni: normalizedDni }, select: { id: true } });
+                if (existingDniUser) {
+                    // No se crea otra cuenta ni se revela de quién es: se deriva a activar/recuperar,
+                    // y el código va al contacto del titular de esa cuenta.
+                    return res.status(409).json({
+                        error: 'Ese DNI ya tiene una cuenta. Si sos vos, activala o recuperá tu contraseña.',
+                        message: 'Ese DNI ya tiene una cuenta. Si sos vos, activala o recuperá tu contraseña.',
+                        code: 'DNI_ALREADY_REGISTERED',
+                        field: 'dni',
+                        blocking: true
+                    });
+                }
             }
 
             const hashedPassword = await bcrypt.hash(password, 10);
@@ -427,7 +461,7 @@ export class AuthController {
                     phoneNumber: normalizedPhoneNumber,
                     password: hashedPassword,
                     role: 'MEMBER',
-                    dni 
+                    dni: normalizedDni
                 }
             });
             return res.status(201).json({ message: "Usuario creado", userId: newUser.id });
@@ -438,27 +472,45 @@ export class AuthController {
     }
 
     login = async (req: Request, res: Response) => {
+        // `identifier` acepta DNI o email. `email` se mantiene por compatibilidad con clientes viejos.
         const loginSchema = z.object({
-            email: z.string().email(),
+            identifier: z.string().trim().min(1).optional(),
+            email: z.string().trim().min(1).optional(),
             password: z.string().min(1)
+        }).refine((value) => Boolean(value.identifier || value.email), {
+            path: ['identifier'],
+            message: 'Ingresá tu DNI o email'
         });
         const parsed = loginSchema.safeParse(req.body);
         if (!parsed.success) {
             return sendAppError(
                 res,
                 zodValidationAppError(parsed.error, 'Revisá los campos marcados.', {
-                    email: 'email',
+                    identifier: 'identifier',
+                    email: 'identifier',
                     password: 'password'
                 }),
                 'No se pudo validar el login.'
             );
         }
-        const normalizedUserEmail = normalizeEmail(parsed.data.email);
+        const rawIdentifier = String(parsed.data.identifier || parsed.data.email || '').trim();
         const { password } = parsed.data;
 
         try {
-            const user = await prisma.user.findUnique({ where: { email: normalizedUserEmail } });
+            const user = await this.findUserByLoginIdentifier(rawIdentifier);
             if (!user) {
+                return res.status(400).json({ error: "Credenciales inválidas" });
+            }
+
+            if (user.accountStatus === 'PENDING_ACTIVATION') {
+                return sendAuthError(
+                    res,
+                    403,
+                    'ACCOUNT_PENDING_ACTIVATION',
+                    'Tu cuenta de socio todavía no está activada. Activala con tu DNI para elegir tu contraseña.'
+                );
+            }
+            if (user.accountStatus === 'DISABLED') {
                 return res.status(400).json({ error: "Credenciales inválidas" });
             }
 
@@ -483,6 +535,225 @@ export class AuthController {
             return res.status(500).json({ error: 'No se pudo iniciar sesión en este momento.' });
         }
     }
+
+    private async findUserByLoginIdentifier(identifier: string) {
+        const raw = String(identifier || '').trim();
+        if (!raw) return null;
+        if (looksLikeDni(raw)) {
+            const dni = normalizeDni(raw);
+            return dni ? prisma.user.findUnique({ where: { dni } }) : null;
+        }
+        return prisma.user.findUnique({ where: { email: normalizeEmail(raw) } });
+    }
+
+    // Respuesta idéntica exista o no la cuenta: no revela qué DNI o email están registrados ni quién es socio.
+    private sendGenericCodeRequestResponse(res: Response) {
+        return res.status(202).json({
+            message: 'Si los datos corresponden a una cuenta, te enviamos un código para continuar.'
+        });
+    }
+
+    private readonly passwordSchema = z.string().min(6, 'La contraseña debe tener al menos 6 caracteres');
+
+    // AuditLog es por club: se registra en el club que pre-creó la cuenta; si no hay, queda en el log.
+    private async auditUserAccountEvent(userId: number, action: string, payload: Record<string, unknown>) {
+        const user = await prisma.user.findUnique({ where: { id: userId }, select: { createdByClubId: true } });
+        if (user?.createdByClubId) {
+            await prisma.auditLog.create({
+                data: {
+                    clubId: user.createdByClubId,
+                    userId,
+                    entity: 'USER',
+                    entityId: String(userId),
+                    action,
+                    payload: payload as any
+                }
+            });
+            return;
+        }
+        logger.info({ userId, action, ...payload }, 'User account event');
+    }
+
+    // Primer ingreso de un socio importado desde el padrón: pide el código por WhatsApp.
+    requestAccountActivation = async (req: Request, res: Response) => {
+        const parsed = z.object({ dni: z.string().trim().min(1) }).safeParse(req.body);
+        const dni = parsed.success ? normalizeDni(parsed.data.dni) : null;
+        if (!dni) {
+            return sendAppError(res, validationError('Revisá los campos marcados.', { dni: 'Ingresá un DNI válido.' }));
+        }
+
+        try {
+            const user = await prisma.user.findUnique({ where: { dni }, select: { id: true, accountStatus: true } });
+            if (user && user.accountStatus === 'PENDING_ACTIVATION') {
+                const result = await this.accountVerificationService.issueCode({
+                    userId: user.id,
+                    purpose: 'ACTIVATION',
+                    channel: 'WHATSAPP'
+                });
+                if (!result.ok) {
+                    logger.warn({ userId: user.id, reason: result.reason, action: 'requestAccountActivation' }, 'No se envió código de activación');
+                }
+            }
+            return this.sendGenericCodeRequestResponse(res);
+        } catch (error: any) {
+            logger.error({ err: error, action: 'requestAccountActivation' }, 'Error solicitando activación');
+            return res.status(500).json({ error: 'No pudimos procesar la solicitud en este momento.' });
+        }
+    };
+
+    confirmAccountActivation = async (req: Request, res: Response) => {
+        const parsed = z.object({
+            dni: z.string().trim().min(1),
+            code: z.string().trim().min(1),
+            password: this.passwordSchema
+        }).safeParse(req.body);
+        if (!parsed.success) {
+            return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
+        }
+        const dni = normalizeDni(parsed.data.dni);
+        const invalidCode = () => sendAppError(res, validationError('El código es inválido o venció.', { code: 'El código es inválido o venció.' }));
+        if (!dni) return invalidCode();
+
+        try {
+            const user = await prisma.user.findUnique({ where: { dni }, select: { id: true, accountStatus: true } });
+            if (!user || user.accountStatus !== 'PENDING_ACTIVATION') return invalidCode();
+
+            const verification = await this.accountVerificationService.verifyCode({
+                userId: user.id,
+                purpose: 'ACTIVATION',
+                code: parsed.data.code
+            });
+            if (!verification.ok) {
+                return verification.reason === 'TOO_MANY_ATTEMPTS'
+                    ? sendAppError(res, validationError('Superaste los intentos permitidos. Pedí un código nuevo.', { code: 'Pedí un código nuevo.' }))
+                    : invalidCode();
+            }
+
+            const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
+            await prisma.user.update({
+                where: { id: user.id },
+                data: { password: hashedPassword, accountStatus: 'ACTIVE', lastLoginAt: new Date() }
+            });
+            await this.auditUserAccountEvent(user.id, 'USER_ACCOUNT_ACTIVATED', { codeId: verification.codeId });
+
+            const payload = await this.issueAuthPayload(user.id, res, req);
+            return res.json({ message: 'Cuenta activada', ...payload });
+        } catch (error: any) {
+            logger.error({ err: error, action: 'confirmAccountActivation' }, 'Error activando cuenta');
+            return res.status(500).json({ error: 'No pudimos activar la cuenta en este momento.' });
+        }
+    };
+
+    // "Olvidé mi contraseña" por DNI o email. Email si la cuenta lo tiene; si no, WhatsApp por el club.
+    requestPasswordReset = async (req: Request, res: Response) => {
+        const parsed = z.object({ identifier: z.string().trim().min(1) }).safeParse(req.body);
+        if (!parsed.success) {
+            return sendAppError(res, validationError('Revisá los campos marcados.', { identifier: 'Ingresá tu DNI o email.' }));
+        }
+
+        try {
+            const user = await this.findUserByLoginIdentifier(parsed.data.identifier);
+            if (user && user.accountStatus !== 'DISABLED') {
+                // Una cuenta pendiente se "recupera" activándola: mismo flujo, mismo código.
+                const purpose = user.accountStatus === 'PENDING_ACTIVATION' ? 'ACTIVATION' : 'PASSWORD_RESET';
+                const channel = user.email ? 'EMAIL' : 'WHATSAPP';
+                const result = await this.accountVerificationService.issueCode({ userId: user.id, purpose, channel });
+                if (!result.ok) {
+                    logger.warn({ userId: user.id, reason: result.reason, action: 'requestPasswordReset' }, 'No se envió código de recuperación');
+                }
+            }
+            return this.sendGenericCodeRequestResponse(res);
+        } catch (error: any) {
+            logger.error({ err: error, action: 'requestPasswordReset' }, 'Error solicitando recuperación');
+            return res.status(500).json({ error: 'No pudimos procesar la solicitud en este momento.' });
+        }
+    };
+
+    confirmPasswordReset = async (req: Request, res: Response) => {
+        const parsed = z.object({
+            identifier: z.string().trim().min(1),
+            code: z.string().trim().min(1),
+            password: this.passwordSchema
+        }).safeParse(req.body);
+        if (!parsed.success) {
+            return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
+        }
+        const invalidCode = () => sendAppError(res, validationError('El código es inválido o venció.', { code: 'El código es inválido o venció.' }));
+
+        try {
+            const user = await this.findUserByLoginIdentifier(parsed.data.identifier);
+            if (!user || user.accountStatus === 'DISABLED') return invalidCode();
+
+            const purpose = user.accountStatus === 'PENDING_ACTIVATION' ? 'ACTIVATION' : 'PASSWORD_RESET';
+            const verification = await this.accountVerificationService.verifyCode({ userId: user.id, purpose, code: parsed.data.code });
+            if (!verification.ok) {
+                return verification.reason === 'TOO_MANY_ATTEMPTS'
+                    ? sendAppError(res, validationError('Superaste los intentos permitidos. Pedí un código nuevo.', { code: 'Pedí un código nuevo.' }))
+                    : invalidCode();
+            }
+
+            const hashedPassword = await bcrypt.hash(parsed.data.password, 10);
+            await prisma.user.update({
+                where: { id: user.id },
+                data: { password: hashedPassword, accountStatus: 'ACTIVE', lastLoginAt: new Date() }
+            });
+            // Cambiar la contraseña cierra las demás sesiones.
+            await this.authSessionService.revokeAllUserSessions(user.id);
+            await this.auditUserAccountEvent(
+                user.id,
+                purpose === 'ACTIVATION' ? 'USER_ACCOUNT_ACTIVATED' : 'USER_PASSWORD_RESET',
+                { codeId: verification.codeId }
+            );
+
+            const payload = await this.issueAuthPayload(user.id, res, req);
+            return res.json({ message: 'Contraseña actualizada', ...payload });
+        } catch (error: any) {
+            logger.error({ err: error, action: 'confirmPasswordReset' }, 'Error recuperando contraseña');
+            return res.status(500).json({ error: 'No pudimos actualizar la contraseña en este momento.' });
+        }
+    };
+
+    changePassword = async (req: Request, res: Response) => {
+        const userId = (req as any).user?.userId;
+        if (!userId) return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+        const parsed = z.object({
+            currentPassword: z.string().min(1).max(256),
+            newPassword: z.string().min(8, 'Usá al menos 8 caracteres.').max(72)
+                .refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'La contraseña es demasiado larga.')
+        }).safeParse(req.body);
+        if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá las contraseñas.'));
+        if (parsed.data.currentPassword === parsed.data.newPassword) {
+            return sendAppError(res, validationError('Elegí una contraseña diferente a la actual.', { newPassword: 'Elegí otra contraseña.' }));
+        }
+        try {
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            if (!user || user.accountStatus !== 'ACTIVE') return sendAuthError(res, 401, 'AUTH_INVALID', 'No autorizado');
+            if (!await bcrypt.compare(parsed.data.currentPassword, user.password)) {
+                return sendAppError(res, validationError('La contraseña actual es incorrecta.', { currentPassword: 'Contraseña incorrecta.' }));
+            }
+            const password = await bcrypt.hash(parsed.data.newPassword, 10);
+            const changed = await prisma.$transaction(async (tx) => {
+                // Evita que dos cambios simultáneos acepten la misma contraseña anterior.
+                const updated = await tx.user.updateMany({
+                    where: { id: userId, password: user.password, accountStatus: 'ACTIVE' },
+                    data: { password }
+                });
+                if (updated.count !== 1) return false;
+                await tx.authSession.updateMany({
+                    where: { userId, status: { in: ['ACTIVE', 'ROTATED'] } },
+                    data: { status: 'REVOKED', revokedAt: new Date() }
+                });
+                return true;
+            });
+            if (!changed) return sendAppError(res, validationError('La contraseña cambió. Volvé a iniciar sesión.', {}));
+            await this.auditUserAccountEvent(userId, 'USER_PASSWORD_CHANGED', {});
+            const payload = await this.issueAuthPayload(userId, res, req);
+            return res.json({ message: 'Contraseña actualizada', ...payload });
+        } catch (error) {
+            logger.error({ err: error, action: 'changePassword' }, 'Error cambiando contraseña');
+            return res.status(500).json({ error: 'No pudimos actualizar la contraseña en este momento.' });
+        }
+    };
 
     requestEmailMagicLink = async (req: Request, res: Response) => {
         const schema = z.object({
@@ -593,15 +864,20 @@ export class AuthController {
 
                 const existingUser = await tx.user.findUnique({
                     where: { email: stored.email },
-                    select: { id: true, emailVerifiedAt: true }
+                    select: { id: true, emailVerifiedAt: true, accountStatus: true }
                 });
 
                 if (existingUser) {
+                    if (existingUser.accountStatus === 'DISABLED') {
+                        return { ok: false as const, reason: 'invalid_or_expired' as VerifyFailureReason };
+                    }
                     const updated = await tx.user.update({
                         where: { id: existingUser.id },
                         data: {
                             emailVerifiedAt: existingUser.emailVerifiedAt ?? now,
-                            lastLoginAt: now
+                            lastLoginAt: now,
+                            // Probar el email activa una cuenta pre-creada por el club.
+                            ...(existingUser.accountStatus === 'PENDING_ACTIVATION' ? { accountStatus: 'ACTIVE' as const } : {})
                         },
                         select: { id: true }
                     });
@@ -995,6 +1271,7 @@ export class AuthController {
                 email: user.email,
                 phoneNumber: user.phoneNumber,
                 role: user.role,
+                isPiqueTeam: isPiqueTeamUser(user),
                 clubId,
                 memberships,
                 activeClubId: clubId,
@@ -1050,11 +1327,20 @@ export class AuthController {
             }));
         }
 
-        const sanitizedDni = String(dni ?? '').trim();
-        if (sanitizedDni && sanitizedDni.length < 7) {
+        const rawDni = String(dni ?? '').trim();
+        const sanitizedDni = rawDni ? normalizeDni(rawDni) : null;
+        if (rawDni && !sanitizedDni) {
             return sendAppError(res, validationError('Revisá los campos marcados.', {
-                dni: 'Si cargás DNI, debe tener al menos 7 dígitos.'
+                dni: 'Ingresá un DNI válido (solo números).'
             }));
+        }
+        if (sanitizedDni) {
+            const dniOwner = await prisma.user.findUnique({ where: { dni: sanitizedDni }, select: { id: true } });
+            if (dniOwner && dniOwner.id !== Number(payload.userId)) {
+                return sendAppError(res, validationError('Revisá los campos marcados.', {
+                    dni: 'Ese DNI ya está asociado a otra cuenta.'
+                }));
+            }
         }
 
         try {
@@ -1091,6 +1377,7 @@ export class AuthController {
                 email: user.email,
                 phoneNumber: user.phoneNumber,
                 role: user.role,
+                isPiqueTeam: isPiqueTeamUser(user),
                 clubId,
                 memberships,
                 activeClubId: clubId,

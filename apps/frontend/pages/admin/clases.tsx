@@ -1,6 +1,6 @@
 import type { GetServerSideProps } from 'next';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Search, UserPlus, Users, XCircle } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Pencil, Plus, Search, UserPlus, XCircle } from 'lucide-react';
 import {
   AcademyEmptyState,
   AcademyStatusBadge,
@@ -23,14 +23,11 @@ import AccountDrawer, {
 } from '../../modules/cuentas/components/AccountDrawer';
 import {
   AdminAppModal,
-  AdminDataTable,
   AdminDrawer,
   AdminDrawerSection,
-  type AdminDataTableColumn,
   AdminFeedbackBanner,
   AdminFilterToolbar,
   AdminInlineError,
-  MetricCard,
   AdminPanel,
   AdminSegmentedControl,
 } from '../../components/admin/ui';
@@ -52,6 +49,7 @@ import {
   type ClubActivityType,
   type PersonSearchResult,
 } from '../../services/ClubAdminService';
+import { ClientService } from '../../services/ClientService';
 import { getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
 import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
@@ -249,6 +247,68 @@ const formatDateRange = (startsAt: string, endsAt: string) => {
   const endTime = end.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
   return `${day} · ${startTime} - ${endTime}`;
 };
+
+const formatClassDay = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date
+    .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+    .replace(/\./g, '')
+    .replace(',', '');
+};
+
+const formatClassTime = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+};
+
+/** "sáb 7 nov · 10:30–11:30" */
+const formatClassWhen = (startsAt: string, endsAt: string) =>
+  `${formatClassDay(startsAt)} · ${formatClassTime(startsAt)}–${formatClassTime(endsAt)}`;
+
+const startOfWeek = (value: Date) => {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  const weekday = (date.getDay() + 6) % 7; // lunes = 0
+  date.setDate(date.getDate() - weekday);
+  return date;
+};
+
+const classWeekLabel = (weekStart: Date) => {
+  const thisWeek = startOfWeek(new Date()).getTime();
+  const diffWeeks = Math.round((weekStart.getTime() - thisWeek) / (7 * 24 * 60 * 60 * 1000));
+  if (diffWeeks === 0) return 'Esta semana';
+  if (diffWeeks === 1) return 'La semana que viene';
+  if (diffWeeks === -1) return 'La semana pasada';
+  const label = weekStart.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace(/\./g, '');
+  return `Semana del lunes ${label}`;
+};
+
+const shiftLocalInputDays = (value: string, days: number) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  date.setDate(date.getDate() + days);
+  return toLocalDateTimeInputValue(date);
+};
+
+const CLASS_DURATION_CHOICES = [30, 45, 60, 90, 120];
+
+const CLASS_REPEAT_CHOICES: Array<{ value: number; label: string }> = [
+  { value: 1, label: 'Solo esta vez' },
+  { value: 4, label: '4 semanas' },
+  { value: 8, label: '8 semanas' },
+  { value: 12, label: '12 semanas' },
+];
+
+const durationChoiceLabel = (minutes: number) => {
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} h ${rest}` : `${hours} h`;
+};
+
+const classIsPast = (classSession: AdminClassSession) => new Date(classSession.endsAt).getTime() < Date.now();
 
 const formatDateTime = (value: string | null) => {
   if (!value) return '-';
@@ -550,10 +610,8 @@ const personBadges = (row: { badges?: string[] | null }) =>
 
 const buildStudentCandidate = (row: PersonSearchResult): EnrollmentPersonOption => {
   if (row.kind === 'newClientSuggestion') {
-    return {
-      ...row,
-      disabledReason: 'La creación de clientes desde clases todavía no está disponible. Usá Clientes.',
-    };
+    // Se crea como cliente del club al anotarlo.
+    return { ...row, badges: ['No está cargado: se crea al anotarlo'] };
   }
   if (!row.clientId) {
     return {
@@ -796,7 +854,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [loading, setLoading] = useState(true);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<ClassStatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<ClassStatusFilter>('active');
+  const [classRepeatWeeks, setClassRepeatWeeks] = useState(1);
+  const [classFormMoreOpen, setClassFormMoreOpen] = useState(false);
+  const [classCancelConfirm, setClassCancelConfirm] = useState<AdminClassSession | null>(null);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
@@ -816,6 +877,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [editingEnrollmentId, setEditingEnrollmentId] = useState<string | null>(null);
   const [enrollmentDrawerTab, setEnrollmentDrawerTab] = useState<EnrollmentDrawerTab>('summary');
   const [enrollmentForm, setEnrollmentForm] = useState<EnrollmentFormState>(() => buildEmptyEnrollmentForm());
+  const [newStudentPhone, setNewStudentPhone] = useState('');
+  const [enrollmentOtherPayer, setEnrollmentOtherPayer] = useState(false);
   const [enrollmentFormError, setEnrollmentFormError] = useState('');
   const [enrollmentFieldErrors, setEnrollmentFieldErrors] = useState<Record<string, string>>({});
   const [enrollmentSubmitting, setEnrollmentSubmitting] = useState(false);
@@ -1070,8 +1133,9 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const filteredClasses = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     return classSessions.filter((classSession) => {
-      if (statusFilter === 'active' && !['DRAFT', 'SCHEDULED', 'CONFIRMED'].includes(classSession.status)) return false;
-      if (statusFilter === 'completed' && classSession.status !== 'COMPLETED') return false;
+      const past = classIsPast(classSession);
+      if (statusFilter === 'active' && (past || !['DRAFT', 'SCHEDULED', 'CONFIRMED'].includes(classSession.status))) return false;
+      if (statusFilter === 'completed' && (classSession.status === 'CANCELLED' || (!past && classSession.status !== 'COMPLETED'))) return false;
       if (statusFilter === 'cancelled' && classSession.status !== 'CANCELLED') return false;
       if (!term) return true;
       const haystack = [
@@ -1090,10 +1154,44 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     });
   }, [classSessions, searchTerm, statusFilter]);
 
+  // Lista agrupada por semana. Las ya dadas se muestran de la más nueva a la más vieja.
+  const classWeeks = useMemo(() => {
+    const rows = [...filteredClasses].sort((a, b) => {
+      const diff = new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
+      return statusFilter === 'completed' ? -diff : diff;
+    });
+    const groups: Array<{ key: string; label: string; rows: AdminClassSession[] }> = [];
+    for (const row of rows) {
+      const weekStart = startOfWeek(new Date(row.startsAt));
+      const key = String(weekStart.getTime());
+      const last = groups[groups.length - 1];
+      if (last && last.key === key) {
+        last.rows.push(row);
+      } else {
+        groups.push({ key, label: classWeekLabel(weekStart), rows: [row] });
+      }
+    }
+    return groups;
+  }, [filteredClasses, statusFilter]);
+
   const selectedClass = useMemo(
     () => classSessions.find((row) => row.id === selectedClassId) || null,
     [classSessions, selectedClassId]
   );
+
+  // Desde la agenda se llega con ?clase=<id>: se abre esa clase una sola vez.
+  const classFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (classFromUrlHandledRef.current || typeof window === 'undefined' || classSessions.length === 0) return;
+    const fromUrl = new URLSearchParams(window.location.search).get('clase');
+    classFromUrlHandledRef.current = true;
+    if (!fromUrl) return;
+    const target = classSessions.find((row) => row.id === fromUrl);
+    if (!target) return;
+    if (classIsPast(target) || !['DRAFT', 'SCHEDULED', 'CONFIRMED'].includes(target.status)) setStatusFilter('all');
+    setClassDrawerTab('summary');
+    setSelectedClassId(target.id);
+  }, [classSessions]);
 
   useEffect(() => {
     if (!selectedClassId) return;
@@ -1143,6 +1241,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     setFormError('');
     setFieldErrors({});
     setEditingClassId(null);
+    setClassRepeatWeeks(1);
+    setClassFormMoreOpen(false);
   }, []);
 
   const resetEnrollmentForm = useCallback(() => {
@@ -1164,8 +1264,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
   const openCreateModal = useCallback(() => {
     resetClassForm();
+    // Si hay un solo profesor activo, ya viene elegido.
+    const activeTeachers = teachers.filter((teacher) => teacher.isActive);
+    if (activeTeachers.length === 1) {
+      setForm((prev) => ({ ...prev, teacherId: activeTeachers[0].id }));
+    }
     setModalOpen(true);
-  }, [resetClassForm]);
+  }, [resetClassForm, teachers]);
 
   const openEditModal = useCallback(
     async (classSessionId: string) => {
@@ -1231,7 +1336,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     const parsedPrice = parseOptionalPositiveNumber(form.pricePerStudent);
 
     if (!form.teacherId) {
-      setFormError('Seleccioná un profesor para la clase.');
+      setFormError('Elegí quién da la clase.');
       setFieldErrors({ teacherId: 'Elegí un profesor.' });
       return;
     }
@@ -1242,7 +1347,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     }
 
     if (!Number.isInteger(capacity) || capacity <= 0) {
-      setFormError('Ingresá una capacidad válida.');
+      setFormError('Poné para cuántos alumnos es la clase.');
       return;
     }
 
@@ -1252,12 +1357,12 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     }
 
     if (form.classType === 'GROUP' && capacity < 2) {
-      setFormError('Las clases grupales necesitan capacidad mayor a 1.');
+      setFormError('Una clase grupal es para 2 alumnos o más.');
       return;
     }
 
     if (Number.isNaN(parsedPrice)) {
-      setFormError('Ingresá un precio válido por alumno.');
+      setFormError('Revisá el precio por alumno.');
       return;
     }
 
@@ -1284,17 +1389,40 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         requiresPaymentToEnroll: form.requiresPaymentToEnroll,
       };
 
+      let partialError = '';
       if (editingClassId) {
         await ClubAdminService.updateClassSession(clubSlug, editingClassId, payload);
         showAdminToast('Clase actualizada.');
       } else {
-        await ClubAdminService.createClassSession(clubSlug, payload);
-        showAdminToast('Clase creada.');
+        // "Se repite": se crea una clase por semana, mismo día y hora.
+        const weeks = Math.max(1, classRepeatWeeks);
+        const failed: string[] = [];
+        let created = 0;
+        for (let week = 0; week < weeks; week += 1) {
+          const startsAt = localInputToIso(shiftLocalInputDays(form.startsAt, week * 7));
+          const endsAt = localInputToIso(shiftLocalInputDays(form.endsAt, week * 7));
+          try {
+            await ClubAdminService.createClassSession(clubSlug, { ...payload, startsAt, endsAt });
+            created += 1;
+          } catch (error) {
+            if (weeks === 1) throw error;
+            failed.push(`${formatClassDay(startsAt)} (${extractErrorMessage(error, 'no se pudo')})`);
+          }
+        }
+        if (created === 0) {
+          setFormError(`No se pudo crear ninguna clase. ${failed[0] || ''}`.trim());
+          return;
+        }
+        showAdminToast(created === 1 ? 'Clase creada.' : `Se crearon ${created} clases.`);
+        if (failed.length) {
+          partialError = `No se pudieron crear ${failed.length === 1 ? '1 clase' : `${failed.length} clases`}: ${failed.join(' · ')}`;
+        }
       }
 
       closeModalImmediately();
       await loadClassSessions();
-      setFeedback(null);
+      setFeedback(partialError ? { tone: 'error', message: partialError } : null);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
     } catch (error) {
       reportUiError({ area: 'AdminClassesPage', action: 'submitForm' }, error);
       setFieldErrors(getApiFieldErrors(error));
@@ -1324,6 +1452,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
   const openEnrollmentCreateModal = useCallback(() => {
     resetEnrollmentForm();
+    setNewStudentPhone('');
+    setEnrollmentOtherPayer(false);
     setEnrollmentDrawerTab('summary');
     setEnrollmentModalOpen(true);
   }, [resetEnrollmentForm]);
@@ -1520,9 +1650,15 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     event.preventDefault();
     if (!clubSlug || !selectedClass || enrollmentSubmitting) return;
 
-    if (!enrollmentForm.selectedStudent?.clientId) {
-      setEnrollmentFormError('Seleccioná un alumno explícitamente desde PersonSearch.');
-      setEnrollmentFieldErrors({ studentClientId: 'Elegí un alumno del club.' });
+    const pendingNewStudent =
+      !editingEnrollmentId &&
+      enrollmentForm.selectedStudent?.kind === 'newClientSuggestion' &&
+      !enrollmentForm.selectedStudent.clientId
+        ? enrollmentForm.selectedStudent
+        : null;
+    if (!enrollmentForm.selectedStudent?.clientId && !pendingNewStudent) {
+      setEnrollmentFormError('Elegí quién viene a la clase.');
+      setEnrollmentFieldErrors({ studentClientId: 'Buscalo por nombre o teléfono.' });
       return;
     }
 
@@ -1544,13 +1680,25 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         }
         showAdminToast('Inscripción actualizada.');
       } else {
+        let studentClientId = enrollmentForm.selectedStudent?.clientId || '';
+        if (pendingNewStudent) {
+          const phone = newStudentPhone.trim() || pendingNewStudent.phone || '';
+          const created = await ClientService.createByClubSlug(clubSlug, {
+            name: pendingNewStudent.displayName.trim(),
+            ...(phone ? { phone } : {}),
+            ...(pendingNewStudent.email ? { email: pendingNewStudent.email } : {}),
+          });
+          studentClientId = String(created?.id || created?.client?.id || '');
+          if (!studentClientId) throw new Error('No se pudo crear el cliente.');
+        }
         await ClubAdminService.createClassEnrollment(clubSlug, selectedClass.id, {
-          studentClientId: enrollmentForm.selectedStudent.clientId,
-          studentUserId: enrollmentForm.selectedStudentUser?.userId ?? enrollmentForm.selectedStudent.userId ?? null,
-          billingResponsibleClientId: enrollmentForm.selectedResponsible?.clientId ?? null,
+          studentClientId,
+          studentUserId: enrollmentForm.selectedStudentUser?.userId ?? enrollmentForm.selectedStudent?.userId ?? null,
+          billingResponsibleClientId: enrollmentOtherPayer ? enrollmentForm.selectedResponsible?.clientId ?? null : null,
           notes: normalizeOptionalText(enrollmentForm.notes),
         });
-        showAdminToast('Alumno agregado a la clase.');
+        showAdminToast(pendingNewStudent ? 'Cliente creado y anotado.' : 'Alumno anotado.');
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
       }
 
       closeEnrollmentModalImmediately();
@@ -1831,108 +1979,28 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     [classPassesByStudent, classPassesLoading, selectedClass]
   );
 
-  const classColumns = useMemo<AdminDataTableColumn<AdminClassSession>[]>(
-    () => [
-      {
-        key: 'session',
-        label: 'Clase',
-        render: (classSession) => (
-          <div className="min-w-0">
-            <p className="truncate font-semibold text-p-text">
-              {classSession.activityType?.name || 'Clase sin actividad'}
-            </p>
-            <p className="mt-1 text-[12px] text-p-text-secondary">
-              {classSession.teacher?.displayName || 'Profesor sin referencia'}
-            </p>
-          </div>
-        ),
-      },
-      {
-        key: 'schedule',
-        label: 'Horario',
-        width: 'w-[220px]',
-        render: (classSession) => (
-          <div className="text-[12px] text-p-text-secondary">
-            <p>{formatDateRange(classSession.startsAt, classSession.endsAt)}</p>
-            <p className="mt-0.5 text-p-text-muted">{classSession.durationMinutes} min</p>
-          </div>
-        ),
-      },
-      {
-        key: 'students',
-        label: 'Alumnos',
-        width: 'w-[150px]',
-        render: (classSession) => (
-          <div className="text-[12px] text-p-text-secondary">
-            <p className="font-semibold text-p-text">Hasta {classSession.capacity}</p>
-            <p className="mt-0.5 text-p-text-muted">{classTypeLabel(classSession.classType)}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'status',
-        label: 'Estado',
-        width: 'w-[240px]',
-        render: (classSession) => (
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${statusToneClasses(classSession.status)}`}>
-                {statusLabel(classSession.status)}
-              </span>
-              <AcademyStatusBadge label={visibilityLabel(classSession.visibility)} tone="neutral" />
-            </div>
-            <p className="mt-1 truncate text-[12px] text-p-text-muted">
-              {classSession.court?.name || 'Sin cancha asignada'}
-              {classSession.level ? ` · ${classSession.level}` : ''}
-            </p>
-          </div>
-        ),
-      },
-      {
-        key: 'actions',
-        label: '',
-        align: 'right',
-        isActions: true,
-        width: 'w-[250px]',
-        render: (classSession) => (
-          <div className="flex items-center justify-end gap-2 opacity-100">
-            <button
-              type="button"
-              onClick={() => setSelectedClassId(classSession.id)}
-              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-sm transition hover:bg-ink-800"
-            >
-              <Users size={13} />
-              Gestionar
-            </button>
-            <button
-              type="button"
-              onClick={() => void openEditModal(classSession.id)}
-              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:bg-p-surface-2 hover:text-p-text"
-            >
-              <Pencil size={13} />
-              Editar
-            </button>
-            <button
-              type="button"
-              onClick={() => void updateStatus(classSession, 'CANCELLED')}
-              disabled={statusBusyId === classSession.id || classSession.status === 'CANCELLED'}
-              className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-error bg-p-error-bg px-2.5 text-[11px] font-semibold text-[var(--error-fg)] transition hover:bg-[var(--error-fg)] hover:text-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <XCircle size={13} />
-              Cancelar
-            </button>
-          </div>
-        ),
-      },
-    ],
-    [openEditModal, statusBusyId, updateStatus]
-  );
-
   const canCreateClass = teachers.length > 0 && !optionsLoading;
   const durationMinutes = durationFromForm(form);
   const activeEnrollmentCount = enrollmentActiveCount(enrollments);
   const waitlistedCount = enrollmentWaitlistCount(enrollments);
   const cancelledEnrollmentCount = enrollmentCancelledCount(enrollments);
+  const classMoneySummary = useMemo(() => {
+    let settled = 0;
+    let owing = 0;
+    let owedAmount = 0;
+    let collected = 0;
+    for (const row of enrollments) {
+      if (row.enrollmentStatus !== 'ENROLLED') continue;
+      collected += Number(row.paidAmount || 0);
+      if (row.paymentStatus === 'PAID' || row.paymentStatus === 'COVERED_BY_CREDIT') {
+        settled += 1;
+      } else if (Number(row.priceAtEnrollment || 0) > 0) {
+        owing += 1;
+        owedAmount += Math.max(0, Number(row.priceAtEnrollment || 0) - Number(row.paidAmount || 0));
+      }
+    }
+    return { settled, owing, owedAmount, collected };
+  }, [enrollments]);
   const editingEnrollmentPasses = editingEnrollment
     ? classPassesByStudent[editingEnrollment.studentClientId] || []
     : [];
@@ -1992,196 +2060,255 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const showEnrollmentCreditsTab = !enrollmentDrawerShowsTabs || enrollmentDrawerTab === 'credits';
   const showEnrollmentAccountTab = enrollmentDrawerShowsTabs && enrollmentDrawerTab === 'account';
   const showEnrollmentTraceabilityTab = enrollmentDrawerShowsTabs && enrollmentDrawerTab === 'traceability';
+  const formDate = form.startsAt.slice(0, 10);
+  const formTime = form.startsAt.slice(11, 16);
+  const setClassSchedule = (nextDate: string, nextTime: string, nextMinutes: number) => {
+    if (!nextDate || !nextTime) return;
+    const start = new Date(`${nextDate}T${nextTime}`);
+    if (Number.isNaN(start.getTime())) return;
+    setForm((prev) => ({
+      ...prev,
+      startsAt: `${nextDate}T${nextTime}`,
+      endsAt: toLocalDateTimeInputValue(addMinutes(start, Math.max(15, nextMinutes))),
+    }));
+  };
+  const teacherChoices = teachers.filter((teacher) => teacher.isActive || teacher.id === form.teacherId);
+  const durationChoices =
+    CLASS_DURATION_CHOICES.includes(durationMinutes) || durationMinutes <= 0
+      ? CLASS_DURATION_CHOICES
+      : [...CLASS_DURATION_CHOICES, durationMinutes].sort((a, b) => a - b);
+  const repeatHint = (() => {
+    if (editingClassId || classRepeatWeeks <= 1 || !formDate) return '';
+    const start = new Date(form.startsAt);
+    if (Number.isNaN(start.getTime())) return '';
+    const weekday = start.toLocaleDateString('es-AR', { weekday: 'long' });
+    const last = new Date(start);
+    last.setDate(last.getDate() + (classRepeatWeeks - 1) * 7);
+    const lastLabel = last.toLocaleDateString('es-AR', { day: 'numeric', month: 'long' });
+    return `Se crean ${classRepeatWeeks} clases: todos los ${weekday} a las ${formTime}, hasta el ${lastLabel}.`;
+  })();
   const classFormContent = (
-    <form id="class-session-form" onSubmit={submitForm} className="space-y-4">
+    <form id="class-session-form" onSubmit={submitForm} className="space-y-6">
       {formError && <AdminInlineError>{formError}</AdminInlineError>}
 
-      <AdminDrawerSection title="Configuración base" className={drawerSectionCardClass}>
-        <div className="space-y-4">
-          <div className={helperCardClass}>
-            <p className="font-semibold text-p-text">Visibilidad y formato se definen por separado</p>
-            <p className="mt-1">
-              Una clase pública puede ser individual, y una clase privada puede ser grupal. El cupo depende del formato, no de la visibilidad.
-            </p>
+      <FormBlock title="¿Quién la da?" error={fieldErrors.teacherId}>
+        {teacherChoices.length ? (
+          <div className="flex flex-wrap gap-2">
+            {teacherChoices.map((teacher) => (
+              <ChoiceChip
+                key={teacher.id}
+                active={form.teacherId === teacher.id}
+                onClick={() => setForm((prev) => ({ ...prev, teacherId: teacher.id }))}
+              >
+                {teacher.displayName}
+              </ChoiceChip>
+            ))}
           </div>
+        ) : (
+          <p className="text-[13px] text-p-text-muted">
+            {optionsLoading ? 'Cargando profesores...' : 'Primero sumá un profesor en la pestaña Profesores.'}
+          </p>
+        )}
+      </FormBlock>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <SelectField
-              label="Profesor"
-              value={form.teacherId}
-              onChange={(value) => setForm((prev) => ({ ...prev, teacherId: value }))}
-              error={fieldErrors.teacherId}
+      {activityTypes.length > 0 && (
+        <FormBlock title="Deporte" optional error={fieldErrors.activityTypeId}>
+          <div className="flex flex-wrap gap-2">
+            {activityTypes.map((activity) => (
+              <ChoiceChip
+                key={activity.id}
+                active={form.activityTypeId === String(activity.id)}
+                onClick={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    activityTypeId: prev.activityTypeId === String(activity.id) ? '' : String(activity.id),
+                  }))
+                }
+              >
+                {activity.name}
+              </ChoiceChip>
+            ))}
+          </div>
+        </FormBlock>
+      )}
+
+      <FormBlock title="¿Cuándo?" error={fieldErrors.startsAt || fieldErrors.endsAt}>
+        <div className="grid grid-cols-2 gap-3 sm:max-w-[360px]">
+          <label className="space-y-1">
+            <span className="text-[12px] text-p-text-muted">Día</span>
+            <input
+              type="date"
+              value={formDate}
+              onChange={(event) => setClassSchedule(event.target.value, formTime, durationMinutes)}
+              className={fieldInputClass}
               required
-              options={[
-                { value: '', label: optionsLoading ? 'Cargando profesores...' : 'Seleccionar profesor' },
-                ...teachers.map((teacher) => ({
-                  value: teacher.id,
-                  label: teacher.isActive ? teacher.displayName : `${teacher.displayName} (inactivo)`,
-                })),
-              ]}
-              inputClassName={fieldInputClass}
             />
-            <SelectField
-              label="Estado"
-              value={form.status}
-              onChange={(value) => setForm((prev) => ({ ...prev, status: value as AdminClassSessionStatus }))}
-              error={fieldErrors.status}
-              options={CLASS_STATUS_OPTIONS}
-              inputClassName={fieldInputClass}
+          </label>
+          <label className="space-y-1">
+            <span className="text-[12px] text-p-text-muted">Hora</span>
+            <input
+              type="time"
+              step={900}
+              value={formTime}
+              onChange={(event) => setClassSchedule(formDate, event.target.value, durationMinutes)}
+              className={fieldInputClass}
+              required
             />
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-[12px] font-semibold text-p-text">Visibilidad</label>
-              <AdminSegmentedControl
-                options={[
-                  { value: 'PUBLIC', label: 'Pública' },
-                  { value: 'PRIVATE', label: 'Privada' },
-                ]}
-                value={form.visibility}
-                onChange={(value) => setForm((prev) => ({ ...prev, visibility: value as AdminClassSessionVisibility }))}
-                ariaLabel="Visibilidad de la clase"
-              />
-              {fieldErrors.visibility && <p className="text-[11px] text-[var(--error-fg)]">{fieldErrors.visibility}</p>}
-            </div>
-            <div className="space-y-2">
-              <label className="text-[12px] font-semibold text-p-text">Formato</label>
-              <AdminSegmentedControl
-                options={[
-                  { value: 'INDIVIDUAL', label: 'Individual' },
-                  { value: 'GROUP', label: 'Grupal' },
-                ]}
-                value={form.classType}
-                onChange={(value) => updateClassType(value as AdminClassSessionType)}
-                ariaLabel="Formato de la clase"
-              />
-              {fieldErrors.classType && <p className="text-[11px] text-[var(--error-fg)]">{fieldErrors.classType}</p>}
-            </div>
+          </label>
+        </div>
+        <div className="space-y-1">
+          <span className="text-[12px] text-p-text-muted">Dura</span>
+          <div className="flex flex-wrap gap-2">
+            {durationChoices.map((minutes) => (
+              <ChoiceChip
+                key={minutes}
+                active={durationMinutes === minutes}
+                onClick={() => setClassSchedule(formDate, formTime, minutes)}
+              >
+                {durationChoiceLabel(minutes)}
+              </ChoiceChip>
+            ))}
           </div>
         </div>
-      </AdminDrawerSection>
+        {durationMinutes > 0 && formTime ? (
+          <p className="text-[12px] text-p-text-muted">
+            De {formTime} a {form.endsAt.slice(11, 16)}.
+          </p>
+        ) : null}
+      </FormBlock>
 
-      <AdminDrawerSection title="Recursos y horario" className={drawerSectionCardClass}>
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <SelectField
-              label="Cancha"
-              value={form.courtId}
-              onChange={(value) => setForm((prev) => ({ ...prev, courtId: value }))}
-              error={fieldErrors.courtId}
-              options={[
-                { value: '', label: 'Sin cancha asignada' },
-                ...courts.map((court) => ({ value: String(court.id), label: court.name })),
-              ]}
-              inputClassName={fieldInputClass}
-            />
-            <SelectField
-              label="Actividad"
-              value={form.activityTypeId}
-              onChange={(value) => setForm((prev) => ({ ...prev, activityTypeId: value }))}
-              error={fieldErrors.activityTypeId}
-              options={[
-                { value: '', label: 'Sin actividad específica' },
-                ...activityTypes.map((activity) => ({ value: String(activity.id), label: activity.name })),
-              ]}
-              inputClassName={fieldInputClass}
-            />
+      {!editingClassId && (
+        <FormBlock title="¿Se repite todas las semanas?" hint={repeatHint}>
+          <div className="flex flex-wrap gap-2">
+            {CLASS_REPEAT_CHOICES.map((choice) => (
+              <ChoiceChip
+                key={choice.value}
+                active={classRepeatWeeks === choice.value}
+                onClick={() => setClassRepeatWeeks(choice.value)}
+              >
+                {choice.label}
+              </ChoiceChip>
+            ))}
           </div>
+        </FormBlock>
+      )}
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field
-              label="Inicio"
-              type="datetime-local"
-              value={form.startsAt}
-              onChange={(value) => setForm((prev) => ({ ...prev, startsAt: value }))}
-              error={fieldErrors.startsAt}
-              required
-              inputClassName={fieldInputClass}
-            />
-            <Field
-              label="Fin"
-              type="datetime-local"
-              value={form.endsAt}
-              onChange={(value) => setForm((prev) => ({ ...prev, endsAt: value }))}
-              error={fieldErrors.endsAt}
-              required
-              inputClassName={fieldInputClass}
-            />
-          </div>
+      <FormBlock title="Cancha" optional error={fieldErrors.courtId}>
+        <div className="flex flex-wrap gap-2">
+          <ChoiceChip active={!form.courtId} onClick={() => setForm((prev) => ({ ...prev, courtId: '' }))}>
+            Sin cancha
+          </ChoiceChip>
+          {courts.map((court) => (
+            <ChoiceChip
+              key={court.id}
+              active={form.courtId === String(court.id)}
+              onClick={() => setForm((prev) => ({ ...prev, courtId: String(court.id) }))}
+            >
+              {court.name}
+            </ChoiceChip>
+          ))}
         </div>
-      </AdminDrawerSection>
+        {form.courtId ? (
+          <p className="text-[12px] text-p-text-muted">La cancha queda ocupada en ese horario y no se puede reservar.</p>
+        ) : null}
+      </FormBlock>
 
-      <AdminDrawerSection title="Capacidad y reglas" className={drawerSectionCardClass}>
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <Field
-              label="Duración"
-              value={durationMinutes > 0 ? String(durationMinutes) : ''}
-              onChange={() => undefined}
-              disabled
-              placeholder="Se calcula sola"
-              hint="Se calcula a partir del inicio y el fin."
-              inputClassName={fieldInputClass}
-            />
-            <Field
-              label="Capacidad"
-              type="number"
-              value={form.capacity}
-              onChange={(value) => setForm((prev) => ({ ...prev, capacity: value }))}
-              error={fieldErrors.capacity}
-              required
-              disabled={form.classType === 'INDIVIDUAL'}
-              hint={form.classType === 'INDIVIDUAL' ? 'Las clases individuales usan cupo 1.' : 'Para clases grupales debe ser mayor a 1.'}
-              inputClassName={fieldInputClass}
-            />
-            <Field
-              label="Precio por alumno"
-              type="number"
-              value={form.pricePerStudent}
-              onChange={(value) => setForm((prev) => ({ ...prev, pricePerStudent: value }))}
-              error={fieldErrors.pricePerStudent}
-              placeholder="Opcional"
-              inputClassName={fieldInputClass}
-            />
-          </div>
+      <FormBlock title="¿Para cuántos?" error={fieldErrors.capacity || fieldErrors.classType}>
+        <div className="flex flex-wrap items-center gap-2">
+          <ChoiceChip active={form.classType === 'INDIVIDUAL'} onClick={() => updateClassType('INDIVIDUAL')}>
+            Individual
+          </ChoiceChip>
+          <ChoiceChip active={form.classType === 'GROUP'} onClick={() => updateClassType('GROUP')}>
+            Grupal
+          </ChoiceChip>
+          {form.classType === 'GROUP' && (
+            <label className="ml-1 inline-flex items-center gap-2 text-[13px] text-p-text-secondary">
+              hasta
+              <input
+                type="number"
+                min={2}
+                value={form.capacity}
+                onChange={(event) => setForm((prev) => ({ ...prev, capacity: event.target.value }))}
+                className={fieldInputClass.replace('w-full', 'w-20')}
+              />
+              alumnos
+            </label>
+          )}
+        </div>
+      </FormBlock>
 
-          <div className="grid gap-4 md:grid-cols-2">
+      <FormBlock title="Precio por alumno" optional error={fieldErrors.pricePerStudent}>
+        <div className="relative sm:max-w-[200px]">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-p-text-muted">$</span>
+          <input
+            type="number"
+            min={0}
+            value={form.pricePerStudent}
+            onChange={(event) => setForm((prev) => ({ ...prev, pricePerStudent: event.target.value }))}
+            placeholder="0"
+            className={`${fieldInputClass} pl-7`}
+          />
+        </div>
+      </FormBlock>
+
+      <div className="border-t border-p-border pt-4">
+        <button
+          type="button"
+          onClick={() => setClassFormMoreOpen((value) => !value)}
+          className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-p-text-secondary hover:text-p-text"
+          aria-expanded={classFormMoreOpen}
+        >
+          <ChevronDown size={15} className={`transition ${classFormMoreOpen ? 'rotate-180' : ''}`} />
+          Más opciones
+        </button>
+        {classFormMoreOpen && (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-2">
+              <CheckboxField
+                label="Se ve en la app: los jugadores pueden anotarse solos"
+                checked={form.visibility === 'PUBLIC'}
+                onChange={(checked) => setForm((prev) => ({ ...prev, visibility: checked ? 'PUBLIC' : 'PRIVATE' }))}
+              />
+              <CheckboxField
+                label="Aprobar a cada uno antes de anotarlo"
+                checked={form.requiresApproval}
+                onChange={(checked) => setForm((prev) => ({ ...prev, requiresApproval: checked }))}
+              />
+              <CheckboxField
+                label="Cobrar antes de anotar"
+                checked={form.requiresPaymentToEnroll}
+                onChange={(checked) => setForm((prev) => ({ ...prev, requiresPaymentToEnroll: checked }))}
+              />
+            </div>
             <Field
-              label="Nivel"
+              label="Nivel (opcional)"
               value={form.level}
               onChange={(value) => setForm((prev) => ({ ...prev, level: value }))}
               error={fieldErrors.level}
               placeholder="Ej: Inicial, Intermedio"
               inputClassName={fieldInputClass}
             />
-            <div className="space-y-2">
-              <label className="text-[12px] font-semibold text-p-text">Reglas rápidas</label>
-              <div className="grid gap-2">
-                <CheckboxField
-                  label="Requiere aprobación para inscribirse"
-                  checked={form.requiresApproval}
-                  onChange={(checked) => setForm((prev) => ({ ...prev, requiresApproval: checked }))}
-                />
-                <CheckboxField
-                  label="Requiere pago para habilitar inscripción"
-                  checked={form.requiresPaymentToEnroll}
-                  onChange={(checked) => setForm((prev) => ({ ...prev, requiresPaymentToEnroll: checked }))}
-                />
-              </div>
-            </div>
+            <TextAreaField
+              label="Notas (opcional)"
+              value={form.description}
+              onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
+              error={fieldErrors.description}
+              placeholder="Qué se trabaja, qué traer, etc."
+              inputClassName={`${fieldInputClass} min-h-[96px] py-2`}
+            />
+            {editingClassId && (
+              <SelectField
+                label="Estado"
+                value={form.status}
+                onChange={(value) => setForm((prev) => ({ ...prev, status: value as AdminClassSessionStatus }))}
+                error={fieldErrors.status}
+                options={CLASS_STATUS_OPTIONS}
+                inputClassName={fieldInputClass}
+              />
+            )}
           </div>
-
-          <TextAreaField
-            label="Descripción"
-            value={form.description}
-            onChange={(value) => setForm((prev) => ({ ...prev, description: value }))}
-            error={fieldErrors.description}
-            placeholder="Contexto operativo de la clase, objetivo o notas visibles para el admin."
-            inputClassName={`${fieldInputClass} min-h-[112px] py-2`}
-          />
-        </div>
-      </AdminDrawerSection>
+        )}
+      </div>
     </form>
   );
 
@@ -2308,7 +2435,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           value={classPassForm.notes}
           onChange={(value) => setClassPassForm((prev) => (prev ? { ...prev, notes: value } : prev))}
           error={classPassFieldErrors.notes}
-          placeholder="Contexto operativo del pack o aclaraciones del titular."
+          placeholder="Notas del pack (opcional)."
           inputClassName={`${fieldInputClass} min-h-[112px] py-2`}
         />
       </AdminDrawerSection>
@@ -2327,33 +2454,19 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         </AdminFeedbackBanner>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <MetricCard
-          label="Programadas"
-          value={summary.activeCount}
-          format="number"
-          delta={{ value: summary.total, label: `de ${summary.total} cargadas` }}
-          className={academyMetricCardClass}
-        />
-        <MetricCard
-          label="Públicas"
-          value={summary.publicCount}
-          format="number"
-          valueColor="var(--accent-fg)"
-          className={academyMetricCardClass}
-        />
-        <MetricCard
-          label="Canceladas"
-          value={summary.cancelled}
-          format="number"
-          valueColor={summary.cancelled > 0 ? 'var(--error-fg)' : 'var(--positive-fg)'}
-          className={academyMetricCardClass}
-        />
-      </div>
+      {summary.total > 0 && (
+        <p className="text-[14px] text-p-text-secondary">
+          <span className="font-semibold text-p-text">
+            {summary.activeCount === 1 ? '1 clase programada' : `${summary.activeCount} clases programadas`}
+          </span>
+          {summary.publicCount > 0 ? ` · ${summary.publicCount} se ven en la app` : ''}
+          {summary.cancelled > 0 ? ` · ${summary.cancelled} canceladas` : ''}
+        </p>
+      )}
 
       <AdminPanel
-        title="Clases del club"
-        description="Escaneá rápido horario, profesor, cupo, estado y pendientes sin salir del módulo."
+        title="Clases"
+        description="Por semana: cuándo, quién la da y cuántos hay anotados."
         bodyClassName="p-0"
         className={academyPanelClass}
         headerClassName={academyPanelHeaderClass}
@@ -2361,22 +2474,22 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-2 sm:flex-nowrap sm:justify-end">
             <AdminSegmentedControl
               options={[
-                { value: 'all', label: 'Todas' },
-                { value: 'active', label: 'Activas' },
-                { value: 'completed', label: 'Completadas' },
+                { value: 'active', label: 'Próximas' },
+                { value: 'completed', label: 'Ya dadas' },
                 { value: 'cancelled', label: 'Canceladas' },
+                { value: 'all', label: 'Todas' },
               ]}
               value={statusFilter}
               onChange={(value) => setStatusFilter(value as ClassStatusFilter)}
-              ariaLabel="Filtro de estado de clases"
+              ariaLabel="Qué clases ver"
               density="compact"
               className="w-fit"
             />
-            <div className="relative w-full sm:w-[320px] sm:flex-none">
+            <div className="relative w-full sm:w-[240px] sm:flex-none">
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} strokeWidth={2.5} />
               <input
                 type="text"
-                placeholder="Buscar por profesor, cancha, actividad o nivel..."
+                placeholder="Buscar profesor, cancha, deporte..."
                 className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.target.value)}
@@ -2394,52 +2507,92 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           </AdminFilterToolbar>
         }
       >
-        <AdminDataTable
-          columns={classColumns}
-          data={filteredClasses}
-          rowKey={(row) => row.id}
-          loading={loading}
-          onRowClick={(row) => setSelectedClassId(row.id)}
-          rowClassName={(row) =>
-            row.id === selectedClassId ? 'bg-p-surface-2/80 ring-1 ring-inset ring-p-border-strong' : ''
-          }
-          empty={{
-            title: teachers.length === 0 && !optionsLoading ? 'Cargá profesores antes de crear clases' : 'Todavía no hay clases cargadas',
-            description:
-              teachers.length === 0 && !optionsLoading
-                ? 'La clase necesita un profesor explícito. Primero completá el padrón en Profesores.'
-                : 'Creá la primera clase para ordenar el día a día de Academia y empezar a operar desde acá.',
-            action: canCreateClass ? (
-              <button
-                type="button"
-                onClick={openCreateModal}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800"
-              >
-                <Plus size={14} />
-                Nueva clase
-              </button>
-            ) : undefined,
-          }}
-        />
+        {loading ? (
+          <div className="px-4 py-12 text-center">
+            <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-p-border border-t-p-accent" />
+          </div>
+        ) : classWeeks.length === 0 ? (
+          <div className="p-4 lg:p-5">
+            <AcademyEmptyState
+              title={
+                teachers.length === 0 && !optionsLoading
+                  ? 'Primero sumá un profesor'
+                  : searchTerm.trim()
+                    ? 'No hay clases con esa búsqueda'
+                    : statusFilter === 'active'
+                      ? 'No hay clases próximas'
+                      : statusFilter === 'completed'
+                        ? 'Todavía no se dio ninguna clase'
+                        : statusFilter === 'cancelled'
+                          ? 'No hay clases canceladas'
+                          : 'Todavía no hay clases'
+              }
+              description={
+                teachers.length === 0 && !optionsLoading
+                  ? 'Cada clase la da un profesor. Sumalo en la pestaña Profesores y después creá la clase.'
+                  : statusFilter === 'active' && !searchTerm.trim()
+                    ? 'Creá una clase y elegí si se repite todas las semanas.'
+                    : undefined
+              }
+              action={
+                canCreateClass && statusFilter === 'active' && !searchTerm.trim() ? (
+                  <button
+                    type="button"
+                    onClick={openCreateModal}
+                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                  >
+                    <Plus size={14} />
+                    Nueva clase
+                  </button>
+                ) : undefined
+              }
+            />
+          </div>
+        ) : (
+          <div>
+            {classWeeks.map((week) => (
+              <section key={week.key}>
+                <p className="border-b border-p-border bg-p-surface-2 px-4 py-2 text-[12px] font-semibold text-p-text-secondary lg:px-5">
+                  {week.label}
+                  <span className="font-normal text-p-text-muted">
+                    {' · '}
+                    {week.rows.length === 1 ? '1 clase' : `${week.rows.length} clases`}
+                  </span>
+                </p>
+                <ul className="divide-y divide-p-border">
+                  {week.rows.map((classSession) => (
+                    <ClassListRow
+                      key={classSession.id}
+                      classSession={classSession}
+                      selected={classSession.id === selectedClassId}
+                      onOpen={() => {
+                        setClassDrawerTab('summary');
+                        setSelectedClassId(classSession.id);
+                      }}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        )}
       </AdminPanel>
 
       <AdminDrawer
         open={Boolean(selectedClass) && !modalOpen && !enrollmentModalOpen}
         onClose={() => setSelectedClassId(null)}
-        title={selectedClass ? selectedClass.activityType?.name || 'Clase' : 'Clase'}
-        subtitle={
-          selectedClass
-            ? `${selectedClass.teacher?.displayName || 'Sin profesor'} · ${formatDateRange(selectedClass.startsAt, selectedClass.endsAt)}`
-            : undefined
+        title={selectedClass ? `Clase${selectedClass.activityType?.name ? ` de ${selectedClass.activityType.name}` : ''}` : 'Clase'}
+        subtitle={selectedClass?.teacher?.displayName ? `Con ${selectedClass.teacher.displayName}` : undefined}
+        statusChip={
+          selectedClass && !['SCHEDULED', 'CONFIRMED'].includes(selectedClass.status) ? statusLabel(selectedClass.status) : undefined
         }
-        statusChip={selectedClass ? statusLabel(selectedClass.status) : undefined}
         statusChipClassName={selectedClass ? statusToneClasses(selectedClass.status) : undefined}
         size="lg"
         tabs={
           selectedClass
             ? [
-                { id: 'summary', label: 'Detalle' },
-                { id: 'students', label: 'Alumnos' },
+                { id: 'summary', label: 'Resumen' },
+                { id: 'students', label: activeEnrollmentCount ? `Alumnos (${activeEnrollmentCount})` : 'Alumnos' },
               ]
             : undefined
         }
@@ -2448,13 +2601,15 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         footer={
           selectedClass ? (
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setSelectedClassId(null)}
-                className="inline-flex h-9 items-center justify-center rounded-lg border border-p-border px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
-              >
-                Cerrar
-              </button>
+              {selectedClass.status !== 'CANCELLED' && selectedClass.status !== 'COMPLETED' && (
+                <button
+                  type="button"
+                  onClick={() => setClassCancelConfirm(selectedClass)}
+                  className="mr-auto inline-flex h-9 items-center justify-center rounded-lg px-2 text-sm font-semibold text-[var(--error-fg)] transition hover:underline underline-offset-2"
+                >
+                  Cancelar clase
+                </button>
+              )}
               <button
                 type="button"
                 onClick={openEnrollmentCreateModal}
@@ -2469,7 +2624,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
               >
                 <Pencil size={14} />
-                Editar clase
+                Editar
               </button>
             </div>
           ) : null
@@ -2481,6 +2636,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             activeEnrollmentCount={activeEnrollmentCount}
             waitlistedCount={waitlistedCount}
             cancelledEnrollmentCount={cancelledEnrollmentCount}
+            moneySummary={classMoneySummary}
+            onGoToStudents={() => setClassDrawerTab('students')}
             enrollmentsError={enrollmentsError}
             enrollmentFilter={enrollmentFilter}
             onEnrollmentFilterChange={(value) => setEnrollmentFilter(value)}
@@ -2504,11 +2661,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         open={modalOpen}
         onClose={closeModal}
         title={editingClassId ? 'Editar clase' : 'Nueva clase'}
-        subtitle={
-          editingClassId
-            ? 'Ajustá los datos operativos de la clase desde el panel lateral, sin mezclar agenda ni cobros.'
-            : 'Creá la clase desde el panel lateral, manteniendo la página principal como espacio de listado y operación general.'
-        }
+        subtitle={editingClassId ? 'Cambiá lo que necesites.' : 'Quién la da, cuándo y para cuántos.'}
         size="lg"
         footer={
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -2525,7 +2678,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               disabled={submitting}
               className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
             >
-              {submitting ? 'Guardando...' : editingClassId ? 'Guardar cambios' : 'Crear clase'}
+              {submitting
+                ? 'Guardando...'
+                : editingClassId
+                  ? 'Guardar cambios'
+                  : classRepeatWeeks > 1
+                    ? `Crear ${classRepeatWeeks} clases`
+                    : 'Crear clase'}
             </button>
           </div>
         }
@@ -2536,20 +2695,24 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       <AdminDrawer
         open={enrollmentModalOpen && !classPassDrawerOpen}
         onClose={closeEnrollmentModal}
-        title={editingEnrollmentId ? 'Gestionar inscripción' : 'Agregar alumno'}
-        subtitle={
+        title={
           editingEnrollmentId
-            ? 'Resolvé asistencia, créditos y cuenta sin perder el contexto de esta clase.'
-            : 'Seleccioná explícitamente al alumno y, si corresponde, un responsable de pago opcional.'
+            ? enrollmentForm.selectedStudent?.displayName || 'Alumno'
+            : 'Anotar alumno'
+        }
+        subtitle={
+          selectedClass
+            ? `${selectedClass.activityType?.name || 'Clase'} · ${formatClassWhen(selectedClass.startsAt, selectedClass.endsAt)}`
+            : undefined
         }
         size="lg"
         tabs={
           enrollmentDrawerShowsTabs
             ? [
-                { id: 'summary', label: 'Resumen' },
-                { id: 'credits', label: 'Créditos' },
-                { id: 'account', label: 'Cuenta' },
-                { id: 'traceability', label: 'Trazabilidad' },
+                { id: 'summary', label: 'Datos' },
+                { id: 'account', label: 'Cobro' },
+                { id: 'credits', label: 'Pack' },
+                { id: 'traceability', label: 'Historial' },
               ]
             : undefined
         }
@@ -2570,7 +2733,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               disabled={enrollmentSubmitting}
               className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
             >
-              {enrollmentSubmitting ? 'Guardando...' : editingEnrollmentId ? 'Guardar inscripción' : 'Agregar alumno'}
+              {enrollmentSubmitting
+                ? 'Guardando...'
+                : editingEnrollmentId
+                  ? 'Guardar'
+                  : enrollmentForm.selectedStudent?.kind === 'newClientSuggestion' && !enrollmentForm.selectedStudent.clientId
+                    ? 'Crear y anotar'
+                    : 'Anotar'}
             </button>
           </div>
         }
@@ -2579,14 +2748,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           {enrollmentFormError && <AdminInlineError>{enrollmentFormError}</AdminInlineError>}
 
           {showEnrollmentSummaryTab ? (
-          <AdminDrawerSection title="Identidad y responsable" className={drawerSectionCardClass}>
+          <AdminDrawerSection title={editingEnrollmentId ? 'Alumno' : '¿Quién viene?'} className={drawerSectionCardClass}>
             <div className="space-y-4">
-              <div className={helperCardClass}>
-                <p className="font-semibold text-p-text">Alumno y responsable no son lo mismo</p>
-                <p className="mt-1">
-                  Alumno es quien toma la clase. Responsable es quien paga o administra, y puede ser otra persona.
-                </p>
-              </div>
 
               {editingEnrollmentId ? (
                 <div className="rounded-xl border border-p-border bg-p-surface px-4 py-3">
@@ -2600,9 +2763,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 </div>
               ) : (
                 <PersonSearchSelectField
-                  label="Alumno"
-                  required
-                  placeholder="Buscar alumno por nombre, teléfono o email..."
+                  label="Nombre o teléfono"
+                  placeholder="Ej: Juan o 351..."
                   selected={enrollmentForm.selectedStudent}
                   query={enrollmentForm.studentQuery}
                   onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, studentQuery: value }))}
@@ -2627,13 +2789,28 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                     }))
                   }
                   error={enrollmentFieldErrors.studentClientId}
-                  helper="Solo se pueden inscribir clientes del club. Si la búsqueda sugiere crear uno nuevo, hacelo primero desde Clientes."
+                  helper="Si no está cargado, escribí el nombre completo y elegí la opción para crearlo."
                 />
               )}
 
+              {!editingEnrollmentId &&
+              enrollmentForm.selectedStudent?.kind === 'newClientSuggestion' &&
+              !enrollmentForm.selectedStudent.clientId ? (
+                <Field
+                  label="Teléfono (opcional)"
+                  type="tel"
+                  value={newStudentPhone}
+                  onChange={setNewStudentPhone}
+                  placeholder="351 555 1234"
+                  hint="Se crea como cliente del club al anotarlo."
+                  inputClassName={fieldInputClass}
+                />
+              ) : null}
+
+              {editingEnrollmentId ? (
               <PersonSearchSelectField
-                label="Usuario del alumno"
-                placeholder="Buscar usuario explícito del alumno..."
+                label="Cuenta en la app (opcional)"
+                placeholder="Buscar por email..."
                 selected={enrollmentForm.selectedStudentUser}
                 query={enrollmentForm.studentUserQuery}
                 onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, studentUserQuery: value }))}
@@ -2654,13 +2831,22 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   }))
                 }
                 error={enrollmentFieldErrors.studentUserId}
-                helper="Opcional. Se guarda solo por selección explícita y no crea vínculos automáticos."
-                disabled={!editingEnrollmentId && !enrollmentForm.selectedStudent}
+                helper="Si el alumno usa la app, así ve esta clase en su celular."
               />
+              ) : null}
 
+              {!editingEnrollmentId ? (
+                <CheckboxField
+                  label="Paga otra persona (ej: la madre o el padre)"
+                  checked={enrollmentOtherPayer}
+                  onChange={setEnrollmentOtherPayer}
+                />
+              ) : null}
+
+              {editingEnrollmentId || enrollmentOtherPayer ? (
               <PersonSearchSelectField
-                label="Responsable de pago"
-                placeholder="Buscar responsable opcional..."
+                label="Quién paga"
+                placeholder="Buscar por nombre o teléfono..."
                 selected={enrollmentForm.selectedResponsible}
                 query={enrollmentForm.responsibleQuery}
                 onQueryChange={(value) => setEnrollmentForm((prev) => ({ ...prev, responsibleQuery: value }))}
@@ -2681,14 +2867,15 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   }))
                 }
                 error={enrollmentFieldErrors.billingResponsibleClientId}
-                helper="Opcional. Puede ser distinto del alumno y en esta fase solo se valida que pertenezca al club."
+                helper={editingEnrollmentId ? 'Opcional. Si está vacío, paga el alumno.' : 'Tiene que estar cargado como cliente del club.'}
               />
+              ) : null}
             </div>
           </AdminDrawerSection>
           ) : null}
 
           {showEnrollmentSummaryTab ? (
-          <AdminDrawerSection title="Asistencia y notas" className={drawerSectionCardClass}>
+          <AdminDrawerSection title={editingEnrollmentId ? 'Asistencia y notas' : 'Notas'} className={drawerSectionCardClass}>
             <div className="space-y-4">
               {editingEnrollmentId ? (
                 <SelectField
@@ -2704,29 +2891,22 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   options={attendanceOptions}
                   inputClassName={fieldInputClass}
                 />
-              ) : (
-                <div className={helperCardClass}>
-                  <p className="font-semibold text-p-text">Asistencia inicial</p>
-                  <p className="mt-1">
-                    Las nuevas inscripciones arrancan como pendiente. La asistencia se gestiona después desde la edición del alumno.
-                  </p>
-                </div>
-              )}
+              ) : null}
 
               <TextAreaField
-                label="Notas"
+                label="Notas (opcional)"
                 value={enrollmentForm.notes}
                 onChange={(value) => setEnrollmentForm((prev) => ({ ...prev, notes: value }))}
                 error={enrollmentFieldErrors.notes}
-                placeholder="Notas operativas sobre esta inscripción."
+                placeholder="Ej: viene con paleta propia, avisar si se suspende."
                 inputClassName={`${fieldInputClass} min-h-[112px] py-2`}
               />
             </div>
           </AdminDrawerSection>
           ) : null}
 
-          {showEnrollmentCreditsTab ? (
-          <AdminDrawerSection title="Créditos" className={drawerSectionCardClass}>
+          {showEnrollmentCreditsTab && editingEnrollmentId ? (
+          <AdminDrawerSection title="Pack" className={drawerSectionCardClass}>
             {!editingEnrollmentId || !editingEnrollment || !editingEnrollmentForCredit ? (
               <div className={helperCardClass}>
                 <p className="font-semibold text-p-text">Créditos después de guardar</p>
@@ -3213,6 +3393,31 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       />
 
       <AdminAppModal
+        show={Boolean(classCancelConfirm)}
+        onClose={() => {
+          if (!statusBusyId) setClassCancelConfirm(null);
+        }}
+        title="¿Cancelar esta clase?"
+        message={
+          classCancelConfirm ? (
+            <p>
+              {formatClassWhen(classCancelConfirm.startsAt, classCancelConfirm.endsAt)}
+              {classCancelConfirm.teacher?.displayName ? ` con ${classCancelConfirm.teacher.displayName}` : ''}. La cancha
+              queda libre. A los alumnos anotados avisales vos.
+            </p>
+          ) : null
+        }
+        cancelText="No, volver"
+        confirmText={statusBusyId ? 'Cancelando...' : 'Sí, cancelar clase'}
+        confirmDisabled={Boolean(statusBusyId)}
+        onConfirm={() => {
+          const target = classCancelConfirm;
+          if (!target) return;
+          void updateStatus(target, 'CANCELLED').then(() => setClassCancelConfirm(null));
+        }}
+      />
+
+      <AdminAppModal
         show={Boolean(creditUsageConfirmState)}
         onClose={() => {
           if (!creditUsageBusyPassId) setCreditUsageConfirmState(null);
@@ -3459,6 +3664,8 @@ function ClassSessionDrawerContent({
   activeEnrollmentCount,
   waitlistedCount,
   cancelledEnrollmentCount,
+  moneySummary,
+  onGoToStudents,
   enrollmentsError,
   enrollmentFilter,
   onEnrollmentFilterChange,
@@ -3479,6 +3686,8 @@ function ClassSessionDrawerContent({
   activeEnrollmentCount: number;
   waitlistedCount: number;
   cancelledEnrollmentCount: number;
+  moneySummary: { settled: number; owing: number; owedAmount: number; collected: number };
+  onGoToStudents: () => void;
   enrollmentsError: string;
   enrollmentFilter: EnrollmentFilter;
   onEnrollmentFilterChange: (value: EnrollmentFilter) => void;
@@ -3498,43 +3707,85 @@ function ClassSessionDrawerContent({
   return (
     <>
       {activeTabId === 'summary' ? (
-        <AdminDrawerSection title="Resumen" className={drawerSectionCardClass}>
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-p-text-muted">
-            <span className={`inline-flex rounded-full border px-2 py-0.5 font-semibold ${statusToneClasses(selectedClass.status)}`}>
-              {statusLabel(selectedClass.status)}
-            </span>
-            <AcademyStatusBadge label={visibilityLabel(selectedClass.visibility)} tone="neutral" />
-            <AcademyStatusBadge label={classTypeLabel(selectedClass.classType)} tone="muted" />
+        <div className="space-y-5">
+          <div className="space-y-1">
+            <p className="text-[20px] font-semibold text-p-text">
+              {formatClassWhen(selectedClass.startsAt, selectedClass.endsAt)}
+            </p>
+            <p className="text-[14px] text-p-text-secondary">
+              {selectedClass.court?.name || 'Sin cancha'}
+              {selectedClass.activityType?.name ? ` · ${selectedClass.activityType.name}` : ''}
+            </p>
+            <p className="text-[13px] text-p-text-muted">
+              {[
+                selectedClass.classType === 'GROUP' ? `Grupal, hasta ${selectedClass.capacity}` : 'Individual',
+                selectedClass.level,
+                selectedClass.pricePerStudent != null ? `${formatCurrency(selectedClass.pricePerStudent)} por alumno` : 'Sin precio',
+                selectedClass.visibility === 'PUBLIC' ? 'Se ve en la app' : 'Solo la anotás vos',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
           </div>
 
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-p-text-muted">Datos clave</p>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <SummaryBlock label="Profesor" value={selectedClass.teacher?.displayName || 'Sin profesor'} />
-              <SummaryBlock label="Horario" value={formatDateRange(selectedClass.startsAt, selectedClass.endsAt)} />
-              <SummaryBlock label="Cancha" value={selectedClass.court?.name || 'Sin cancha asignada'} />
-              <SummaryBlock label="Cupo usado" value={`${activeEnrollmentCount}/${selectedClass.capacity}`} />
+          <div className="rounded-2xl border border-p-border bg-p-surface-2 p-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-[14px] font-semibold text-p-text">Anotados</p>
+              <p className="text-[20px] font-semibold text-p-text">
+                {activeEnrollmentCount}
+                <span className="text-[14px] font-normal text-p-text-muted"> de {selectedClass.capacity}</span>
+              </p>
             </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-p-surface-3">
+              <div
+                className="h-full rounded-full bg-ink-900"
+                style={{ width: `${Math.min(100, Math.round((activeEnrollmentCount / Math.max(1, selectedClass.capacity)) * 100))}%` }}
+              />
+            </div>
+            <p className="mt-2 text-[13px] text-p-text-secondary">
+              {activeEnrollmentCount === 0
+                ? 'Todavía no anotaste a nadie.'
+                : activeEnrollmentCount >= selectedClass.capacity
+                  ? 'Clase completa.'
+                  : selectedClass.capacity - activeEnrollmentCount === 1
+                    ? 'Queda 1 lugar.'
+                    : `Quedan ${selectedClass.capacity - activeEnrollmentCount} lugares.`}
+              {waitlistedCount > 0 ? ` ${waitlistedCount} en espera.` : ''}
+              {cancelledEnrollmentCount > 0 ? ` ${cancelledEnrollmentCount} se bajaron.` : ''}
+            </p>
+            {activeEnrollmentCount > 0 && (
+              <p className="mt-1 text-[13px] text-p-text-secondary">
+                {moneySummary.owing > 0 ? (
+                  <>
+                    <span className="font-semibold text-[var(--error-fg)]">
+                      {moneySummary.owing === 1 ? '1 debe' : `${moneySummary.owing} deben`} {formatCurrency(moneySummary.owedAmount)}
+                    </span>
+                    {moneySummary.settled > 0 ? ` · ${moneySummary.settled} ya pagaron` : ''}
+                  </>
+                ) : moneySummary.settled > 0 ? (
+                  'Todos pagaron.'
+                ) : (
+                  'Nadie debe nada.'
+                )}
+                {moneySummary.collected > 0 ? ` · Cobrado ${formatCurrency(moneySummary.collected)}` : ''}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={onGoToStudents}
+              className="mt-3 text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+            >
+              {activeEnrollmentCount ? 'Ver alumnos y marcar asistencia →' : 'Anotar alumnos →'}
+            </button>
           </div>
 
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-p-text-muted">Operacion</p>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <SummaryBlock label="Actividad" value={selectedClass.activityType?.name || 'Sin actividad específica'} />
-              <SummaryBlock label="Nivel" value={selectedClass.level || 'Sin nivel definido'} />
-              <SummaryBlock label="En espera" value={String(waitlistedCount)} />
-              <SummaryBlock label="Precio" value={formatCurrency(selectedClass.pricePerStudent)} />
+          {selectedClass.description ? (
+            <div className="space-y-1">
+              <p className="text-[13px] font-semibold text-p-text">Notas</p>
+              <p className="whitespace-pre-line text-[13px] text-p-text-secondary">{selectedClass.description}</p>
             </div>
-          </div>
-
-          <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-p-text-muted">Detalles</p>
-            <div className="grid gap-3 md:grid-cols-2">
-              <SummaryBlock label="Cancelados" value={String(cancelledEnrollmentCount)} />
-              <SummaryBlock label="Descripción" value={selectedClass.description || 'Sin descripción'} />
-            </div>
-          </div>
-        </AdminDrawerSection>
+          ) : null}
+        </div>
       ) : null}
 
       {activeTabId === 'students' ? (
@@ -3545,18 +3796,18 @@ function ClassSessionDrawerContent({
             </AdminFeedbackBanner>
           ) : null}
 
-          <AdminDrawerSection title="Alumnos" className={drawerSectionCardClass}>
+          <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-[13px] text-p-text-secondary">
-                Resolvé asistencia, cobro y créditos sin perder de vista al alumno.
+                Marcá quién vino. Tocá &ldquo;Ver&rdquo; para cobrar o usar un pack.
               </p>
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-2 sm:flex-nowrap sm:justify-end">
                   <AdminSegmentedControl
                     options={[
-                      { value: 'active', label: 'Activos' },
+                      { value: 'active', label: 'Anotados' },
+                      { value: 'cancelled', label: 'Se bajaron' },
                       { value: 'all', label: 'Todos' },
-                      { value: 'cancelled', label: 'Cancelados' },
                     ]}
                     value={enrollmentFilter}
                     onChange={(value) => onEnrollmentFilterChange(value as EnrollmentFilter)}
@@ -3565,14 +3816,6 @@ function ClassSessionDrawerContent({
                     className="w-fit"
                   />
                 </AdminFilterToolbar>
-                <button
-                  type="button"
-                  onClick={onAddEnrollment}
-                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800"
-                >
-                  <UserPlus size={14} />
-                  Agregar alumno
-                </button>
               </div>
             </div>
 
@@ -3581,7 +3824,7 @@ function ClassSessionDrawerContent({
                 <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-p-border border-t-p-accent" />
               </div>
             ) : filteredEnrollments.length ? (
-              <div className="space-y-3">
+              <div className="divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface">
                 {filteredEnrollments.map((enrollment) => (
                   <ClassEnrollmentListItem
                     key={enrollment.id}
@@ -3599,8 +3842,8 @@ function ClassSessionDrawerContent({
               </div>
             ) : (
               <AcademyEmptyState
-                title="Todavía no hay alumnos en esta clase"
-                description="Agregá el primer alumno para empezar a marcar asistencia, revisar créditos y cobrar desde un solo lugar."
+                title={enrollmentFilter === 'cancelled' ? 'Nadie se bajó' : 'Todavía no hay alumnos en esta clase'}
+                description={enrollmentFilter === 'cancelled' ? undefined : 'Anotá al primero para marcar asistencia y cobrar desde acá.'}
                 action={(
                   <button
                     type="button"
@@ -3613,7 +3856,7 @@ function ClassSessionDrawerContent({
                 )}
               />
             )}
-          </AdminDrawerSection>
+          </div>
         </>
       ) : null}
     </>
@@ -3654,110 +3897,203 @@ function ClassEnrollmentListItem({
       ? 'Crédito aplicado'
       : 'Usar crédito';
 
+  const cancelled = enrollment.enrollmentStatus === 'CANCELLED';
+  const attended = enrollment.attendanceStatus === 'ATTENDED';
+  const owedAmount = Math.max(0, Number(enrollment.priceAtEnrollment || 0) - Number(enrollment.paidAmount || 0));
+  const owes =
+    !cancelled &&
+    enrollment.paymentStatus !== 'PAID' &&
+    enrollment.paymentStatus !== 'COVERED_BY_CREDIT' &&
+    enrollment.paymentStatus !== 'REFUNDED' &&
+    owedAmount > 0;
+  const paymentText =
+    enrollment.paymentStatus === 'COVERED_BY_CREDIT'
+      ? 'Pagó con pack'
+      : enrollment.paymentStatus === 'PAID'
+        ? 'Pagó'
+        : enrollment.paymentStatus === 'REFUNDED'
+          ? 'Se le devolvió'
+          : owes
+            ? `Debe ${formatCurrency(owedAmount)}`
+            : 'Sin cargo';
+  const showCreditHint = !creditSummary.muted && !creditAlreadyApplied && enrollment.paymentStatus !== 'PAID';
+
   return (
-    <div className="rounded-2xl border border-p-border bg-p-surface p-4">
-      <div className="space-y-4">
-        <div className="min-w-0 space-y-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-[14px] font-semibold text-p-text">{enrollment.snapshotName}</p>
-              {enrollment.billingResponsibleClient ? (
-                <AcademyStatusBadge label={`Responsable: ${enrollment.billingResponsibleClient.name}`} tone="neutral" />
-              ) : null}
-            </div>
-            <p className="mt-1 text-[12px] text-p-text-muted">
-              {personSecondaryLine({ email: enrollment.snapshotEmail, phone: enrollment.snapshotPhone })}
-            </p>
-            {linkedStudentUser ? (
-              <p className="mt-1 text-[12px] text-p-text-muted">Usuario: {linkedStudentUser}</p>
-            ) : null}
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-3">
-            <LabeledBadge
-              label="Inscripción"
-              badge={(
-                <AcademyStatusBadge
-                  label={academyEnrollmentLabel(enrollment.enrollmentStatus)}
-                  tone={academyEnrollmentTone(enrollment.enrollmentStatus)}
-                />
-              )}
-            />
-            <LabeledBadge
-              label="Asistencia"
-              badge={(
-                <AcademyStatusBadge
-                  label={attendanceStatusLabel(enrollment.attendanceStatus)}
-                  tone={academyAttendanceTone(enrollment.attendanceStatus)}
-                />
-              )}
-            />
-            <LabeledBadge
-              label="Estado de pago"
-              badge={(
-                <AcademyStatusBadge
-                  label={paymentStatusLabel(enrollment.paymentStatus)}
-                  tone={academyPaymentTone(enrollment.paymentStatus)}
-                />
-              )}
-            />
-          </div>
-
-          <div className={`grid gap-3 ${enrollment.paymentStatus === 'COVERED_BY_CREDIT' ? 'md:grid-cols-1' : 'md:grid-cols-2'}`}>
-            {enrollment.paymentStatus !== 'COVERED_BY_CREDIT' ? (
-              <CompactInfoLine label="Precio de la clase" value={formatCurrency(enrollment.priceAtEnrollment)} />
-            ) : null}
-            <CompactInfoLine label="Créditos" value={creditSummary.label} muted={creditSummary.muted} />
-          </div>
-
-          {enrollment.notes ? (
-            <p className="text-[12px] leading-relaxed text-p-text-secondary">{enrollment.notes}</p>
-          ) : null}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 border-t border-p-border pt-3">
-          {enrollment.enrollmentStatus !== 'CANCELLED' ? (
-            <button
-              type="button"
-              onClick={() => onQuickSetAttendance(enrollment.attendanceStatus === 'ATTENDED' ? 'PENDING' : 'ATTENDED')}
-              disabled={quickAttendanceBusy}
-              className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {quickAttendanceBusy
-                ? 'Guardando...'
-                : enrollment.attendanceStatus === 'ATTENDED'
-                  ? 'Marcar pendiente'
-                  : 'Marcar presente'}
-            </button>
-          ) : null}
+    <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[14px] font-semibold text-p-text">{enrollment.snapshotName}</p>
+        <p className="mt-0.5 text-[12px] text-p-text-muted">
+          {cancelled ? (
+            'Se bajó de la clase'
+          ) : (
+            <>
+              <span className={owes ? 'font-semibold text-[var(--error-fg)]' : ''}>{paymentText}</span>
+              {enrollment.enrollmentStatus === 'WAITLISTED' ? ' · En espera' : ''}
+              {!attended && enrollment.attendanceStatus !== 'PENDING'
+                ? ` · ${attendanceStatusLabel(enrollment.attendanceStatus)}`
+                : ''}
+              {showCreditHint ? ` · ${creditSummary.label}` : ''}
+            </>
+          )}
+          {enrollment.billingResponsibleClient ? ` · Paga ${enrollment.billingResponsibleClient.name}` : ''}
+          {linkedStudentUser ? ` · Usa la app` : ''}
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {!cancelled && (
+          <button
+            type="button"
+            onClick={() => onQuickSetAttendance(attended ? 'PENDING' : 'ATTENDED')}
+            disabled={quickAttendanceBusy}
+            aria-pressed={attended}
+            className={`inline-flex h-8 items-center justify-center rounded-lg border px-3 text-[12px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+              attended
+                ? 'border-p-positive bg-p-positive-bg text-p-positive'
+                : 'border-p-border bg-p-surface text-p-text hover:border-p-border-strong hover:bg-p-surface-2'
+            }`}
+          >
+            {quickAttendanceBusy ? 'Guardando...' : attended ? 'Vino ✓' : 'Marcar que vino'}
+          </button>
+        )}
+        {!cancelled && !creditActionDisabled && (
           <button
             type="button"
             onClick={onQuickUseCredit}
-            disabled={creditActionDisabled}
-            className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2"
           >
-            {creditActionLabel}
+            {creditActionLabel === 'Usar crédito' ? 'Usar pack' : creditActionLabel}
           </button>
-          <button
-            type="button"
-            onClick={onManage}
-            className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2"
-          >
-            <Pencil size={13} />
-            Gestionar
-          </button>
+        )}
+        <button
+          type="button"
+          onClick={onManage}
+          className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2"
+        >
+          Ver
+        </button>
+        {!cancelled && (
           <button
             type="button"
             onClick={onCancel}
-            disabled={busy || enrollment.enrollmentStatus === 'CANCELLED'}
-            className="inline-flex h-8 items-center justify-center gap-1 rounded-lg border border-p-error bg-p-error-bg px-2.5 text-[11px] font-semibold text-[var(--error-fg)] transition hover:bg-[var(--error-fg)] hover:text-ink-50 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={busy}
+            title="Sacar de la clase"
+            aria-label={`Sacar a ${enrollment.snapshotName} de la clase`}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-p-text-muted transition hover:bg-p-error-bg hover:text-[var(--error-fg)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <XCircle size={13} />
-            Cancelar
+            <XCircle size={15} />
           </button>
-        </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function ClassListRow({
+  classSession,
+  selected,
+  onOpen,
+}: {
+  classSession: AdminClassSession;
+  selected: boolean;
+  onOpen: () => void;
+}) {
+  const enrolled = classSession.enrolledCount ?? null;
+  const full = enrolled != null && enrolled >= classSession.capacity;
+  const cancelled = classSession.status === 'CANCELLED';
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-p-surface-2 lg:px-5 ${
+          selected ? 'bg-p-surface-2' : ''
+        } ${cancelled ? 'opacity-60' : ''}`}
+      >
+        <div className="w-[92px] flex-none">
+          <p className={`text-[13px] font-semibold text-p-text ${cancelled ? 'line-through' : ''}`}>
+            {formatClassDay(classSession.startsAt)}
+          </p>
+          <p className="text-[12px] text-p-text-muted">
+            {formatClassTime(classSession.startsAt)}–{formatClassTime(classSession.endsAt)}
+          </p>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-semibold text-p-text">
+            {classSession.activityType?.name || 'Clase'}
+            <span className="font-normal text-p-text-secondary"> con {classSession.teacher?.displayName || 'sin profesor'}</span>
+          </p>
+          <p className="truncate text-[12px] text-p-text-muted">
+            {[
+              classSession.court?.name || 'Sin cancha',
+              classSession.classType === 'GROUP' ? 'Grupal' : 'Individual',
+              classSession.level,
+              cancelled ? 'Cancelada' : classSession.status === 'DRAFT' ? 'Borrador' : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        </div>
+        {enrolled != null && !cancelled ? (
+          <div className="flex-none text-right">
+            <p className={`text-[14px] font-semibold ${full ? 'text-p-positive' : 'text-p-text'}`}>
+              {enrolled}/{classSession.capacity}
+            </p>
+            <p className="text-[11px] text-p-text-muted">{full ? 'completa' : 'anotados'}</p>
+          </div>
+        ) : null}
+      </button>
+    </li>
+  );
+}
+
+function FormBlock({
+  title,
+  optional = false,
+  hint,
+  error,
+  children,
+}: {
+  title: string;
+  optional?: boolean;
+  hint?: string;
+  error?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-[14px] font-semibold text-p-text">
+        {title}
+        {optional ? <span className="font-normal text-p-text-muted"> (opcional)</span> : null}
+      </p>
+      {children}
+      {hint ? <p className="text-[12px] text-p-text-secondary">{hint}</p> : null}
+      {error ? <p className="text-[12px] text-[var(--error-fg)]">{error}</p> : null}
+    </div>
+  );
+}
+
+function ChoiceChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-semibold transition ${
+        active
+          ? 'border-ink-900 bg-ink-900 text-ink-50'
+          : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong hover:text-p-text'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

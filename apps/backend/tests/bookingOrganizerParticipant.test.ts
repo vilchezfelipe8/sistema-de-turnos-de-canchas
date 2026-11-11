@@ -1,8 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BookingService } from '../src/services/BookingService';
+import { PricingService } from '../src/services/PricingService';
 import { prisma } from '../src/prisma';
 
+const withPlayerSlotStub = (tx: any) => {
+  // Reservas por cancha: sin lugares por jugador.
+  if (tx && !tx.bookingPlayerSlot) {
+    tx.bookingPlayerSlot = { findMany: async () => [], findFirst: async () => null, count: async () => 0 };
+  }
+  return tx;
+};
 type TxMock = {
   booking: {
     findMany: (args: any) => Promise<any[]>;
@@ -125,9 +133,9 @@ function buildServiceHarness() {
       fixedSlots: [{ start: '10:00', duration: 60 }]
     }
   });
-  service.pricingService = {
+  service.pricingService = Object.assign(new PricingService(), {
     calculateCourtPrice: async () => 10000
-  };
+  });
   service.eventService = {
     bookingCreated: async () => null,
     bookingParticipantAdded: async () => null,
@@ -232,7 +240,7 @@ function createBookingParticipantRepo(state?: {
 
 async function withTransactionMock(tx: TxMock, run: () => Promise<void>) {
   const originalTransaction = (prisma as any).$transaction;
-  (prisma as any).$transaction = async (fn: any) => fn(tx);
+  (prisma as any).$transaction = async (fn: any) => fn(withPlayerSlotStub(tx));
   try {
     await run();
   } finally {
@@ -644,7 +652,7 @@ test('remove participant no permite borrar organizer y elimina participant norma
     return null;
   };
   (prisma as any).$transaction = async (fn: any) =>
-    fn({
+    fn(withPlayerSlotStub({
       bookingParticipant: {
         update: async ({ where, data }: any) => {
           updatedRows.push({ where, data });
@@ -654,7 +662,7 @@ test('remove participant no permite borrar organizer y elimina participant norma
       auditLog: {
         create: async () => ({ id: 'audit-4' })
       }
-    });
+    }));
 
   try {
     await assert.rejects(

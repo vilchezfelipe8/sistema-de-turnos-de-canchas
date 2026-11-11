@@ -319,7 +319,20 @@ export class BookingController {
                         duplicateResolution: z.enum(['CREATE_NEW']).optional()
                     })
                 ]).optional(),
-                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
+                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional()),
+                // Modalidad (clubes con precio por jugador)
+                activityFormatId: z.string().trim().min(1).max(64).optional(),
+                initialParticipants: z.array(z.object({
+                    email: z.preprocess(
+                        (v) => typeof v === 'string' && v.trim().length === 0 ? undefined : v,
+                        z.string().trim().email().optional()
+                    ),
+                    dni: optionalTrimmedString(),
+                    name: optionalTrimmedString(),
+                    inviteToken: z.string().trim().max(1000).optional()
+                }).refine((participant) => Boolean(participant.email || participant.dni || participant.inviteToken), {
+                    message: 'Ingresá el email o el DNI del jugador.'
+                })).max(20).optional()
             });
 
             const dataToValidate = {
@@ -332,7 +345,7 @@ export class BookingController {
                 return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
-            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, ownerSelection, applyDiscount } = parsed.data;
+            let { courtId, startDateTime, date: dateStr, slotTime, activityId, durationMinutes, clientId, client, ownerSelection, applyDiscount, activityFormatId, initialParticipants } = parsed.data;
             clientId = clientId ? sanitizeString(clientId, 64) : undefined;
             if (ownerSelection?.kind === 'clubClient') {
                 clientId = sanitizeString(String(ownerSelection.clientId || ''), 64) || clientId;
@@ -479,9 +492,18 @@ export class BookingController {
                 {
                     applyDiscount: useAdminClientMode && canApplyDiscountOverride ? applyDiscount : false,
                     actorUserId: Number(user?.userId || 0) || null,
+                    activityFormatId: activityFormatId || null,
                     clientId: clientId || null,
                     clientDraft: useAdminClientMode && adminClientDraft?.name ? adminClientDraft : null,
-                    ownerUserSelection: useAdminClientMode ? adminOwnerUserSelection : null
+                    ownerUserSelection: useAdminClientMode ? adminOwnerUserSelection : null,
+                    initialParticipants: useAdminClientMode
+                        ? []
+                        : (initialParticipants || []).map((participant) => ({
+                            email: participant.email ? sanitizeString(participant.email, 254) : null,
+                            dni: participant.dni ? sanitizeString(participant.dni, 20) : null,
+                            name: participant.name ? sanitizeString(participant.name, 120) : null,
+                            inviteToken: participant.inviteToken || null
+                        }))
                 }
             );
 
@@ -533,7 +555,8 @@ export class BookingController {
                 clientPhoneCountryCode: optionalTrimmedString(),
                 clientPhoneNumberLocal: optionalTrimmedString(),
                 clientDni: optionalTrimmedString(),
-                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional())
+                applyDiscount: z.preprocess((v) => v === undefined ? undefined : (v === true || v === 'true'), z.boolean().optional()),
+                activityFormatId: z.string().trim().min(1).max(64).optional()
             });
 
             const parsed = quoteSchema.safeParse(req.body ?? {});
@@ -554,7 +577,8 @@ export class BookingController {
                 clientPhoneCountryCode,
                 clientPhoneNumberLocal,
                 clientDni,
-                applyDiscount
+                applyDiscount,
+                activityFormatId
             } = parsed.data;
 
             const courtCountry = await prisma.court.findUnique({
@@ -632,7 +656,8 @@ export class BookingController {
                 clientEmail,
                 clientPhone: normalizedClientPhone || undefined,
                 clientDni,
-                applyDiscount: canApplyDiscountOverride ? applyDiscount : false
+                applyDiscount: canApplyDiscountOverride ? applyDiscount : false,
+                activityFormatId: activityFormatId || null
             });
 
             return res.json({
@@ -690,7 +715,9 @@ export class BookingController {
                     executeNow: z.boolean().optional(),
                     reasonType: z.enum(['FULL', 'PARTIAL_COMMERCIAL', 'PARTIAL_SERVICE_FAILURE', 'PARTIAL_PRICING_ERROR', 'OTHER']).optional(),
                     executionNotes: z.string().trim().max(500).optional()
-                }).optional()
+                }).optional(),
+                // Motivo para los jugadores (se muestra en el aviso de cancelación).
+                reasonText: z.string().trim().max(120).optional()
             });
             const parsed = cancelSchema.safeParse(req.body);
             if (!parsed.success) {
@@ -700,6 +727,7 @@ export class BookingController {
             const user = (req as any).user;
             const clubId = (req as any).clubId;
             const result = await this.bookingService.cancelBooking(Number(bookingId), user?.userId, clubId, {
+                playerReasonText: parsed.data.reasonText || null,
                 refund: parsed.data.refund
                     ? {
                         amount: parsed.data.refund.amount,
@@ -864,7 +892,11 @@ export class BookingController {
                 return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para iniciar el pago online.');
             }
 
-            const checkout = await this.bookingService.createPlayerMercadoPagoCheckoutAttempt(bookingId, userId);
+            // scope: OWN_SHARE (por defecto, la parte propia) o ALL_SHARES (el titular paga todas).
+            // DEPOSIT: el titular paga solo la seña (modo "Con seña").
+            const rawScope = String(req.body?.scope || '').toUpperCase();
+            const scope = rawScope === 'ALL_SHARES' ? 'ALL_SHARES' : rawScope === 'DEPOSIT' ? 'DEPOSIT' : 'OWN_SHARE';
+            const checkout = await this.bookingService.createPlayerMercadoPagoCheckoutAttempt(bookingId, userId, scope);
             return res.status(201).json(checkout);
         } catch (error: any) {
             return sendAppError(res, error, 'No pudimos iniciar el pago online de la reserva.');
@@ -1003,7 +1035,9 @@ export class BookingController {
                         dni: optionalTrimmedString(),
                         forceCreateNew: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
                     })
-                ])
+                ]),
+                // Precio por jugador: lugar a ocupar (por defecto el primero libre)
+                slotIndex: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().min(2).max(30).optional())
             });
 
             const parsed = bodySchema.safeParse(req.body || {});
@@ -1038,7 +1072,8 @@ export class BookingController {
                 bookingId,
                 clubId,
                 actorUserId,
-                personSelection
+                personSelection,
+                slotIndex: parsed.data.slotIndex ?? null
             });
             return res.status(201).json({
                 message: 'Participante agregado.',
@@ -1086,9 +1121,15 @@ export class BookingController {
                 return sendAppError(res, badRequest('Seleccioná una reserva válida.', ErrorCodes.INVALID_INPUT));
             }
 
+            // Se invita por email, por DNI exacto de una cuenta existente o con el token de la búsqueda por nombre.
             const bodySchema = z.object({
-                email: z.string().trim().email(),
-                name: z.string().trim().min(1).max(120).optional()
+                email: z.string().trim().email().optional(),
+                dni: z.string().trim().min(6).max(20).optional(),
+                name: z.string().trim().min(1).max(120).optional(),
+                inviteToken: z.string().trim().max(1000).optional()
+            }).refine((value) => Boolean(value.email || value.dni || value.inviteToken), {
+                path: ['email'],
+                message: 'Ingresá el email o el DNI del jugador.'
             });
             const parsed = bodySchema.safeParse(req.body || {});
             if (!parsed.success) {
@@ -1103,8 +1144,10 @@ export class BookingController {
             const participant = await this.bookingService.invitePlayerBookingParticipant({
                 bookingId,
                 ownerUserId: userId,
-                invitedEmail: parsed.data.email,
-                invitedName: parsed.data.name || null
+                invitedEmail: parsed.data.email || null,
+                invitedDni: parsed.data.dni || null,
+                invitedName: parsed.data.name || null,
+                invitedUserToken: parsed.data.inviteToken || null
             });
             return res.status(201).json({
                 message: 'Invitación creada.',
@@ -1112,6 +1155,36 @@ export class BookingController {
             });
         } catch (error: any) {
             return sendAppError(res, error, 'No pudimos invitar al jugador.');
+        }
+    }
+
+    lookupPlayerForInvitation = async (req: Request, res: Response) => {
+        try {
+            const bodySchema = z.object({
+                email: z.string().trim().max(254).optional(),
+                dni: z.string().trim().min(6).max(20).optional()
+            }).refine((value) => Boolean(value.email || value.dni), {
+                path: ['email'],
+                message: 'Ingresá el email o el DNI del jugador.'
+            });
+            const parsed = bodySchema.safeParse(req.body || {});
+            if (!parsed.success) {
+                return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
+            }
+
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, ErrorCodes.AUTH_MISSING, 'Necesitás iniciar sesión para invitar jugadores.');
+            }
+
+            const result = await this.bookingService.lookupPlayerForInvitation({
+                userId,
+                dni: parsed.data.dni || null,
+                email: parsed.data.email || null
+            });
+            return res.json(result);
+        } catch (error: any) {
+            return sendAppError(res, error, 'No pudimos buscar al jugador.');
         }
     }
 
@@ -1277,7 +1350,8 @@ export class BookingController {
             durationMinutes: z.preprocess(
                 (v) => (v === undefined || v === '' ? undefined : Number(v)),
                 z.number().optional()
-            )
+            ),
+            activityFormatId: z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().optional())
 
             });
 
@@ -1287,7 +1361,7 @@ export class BookingController {
                 return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
 
-            const { date, activityId, clubSlug, clientId, clientEmail, clientPhone, clientDni, durationMinutes } = parsed.data;
+            const { date, activityId, clubSlug, clientId, clientEmail, clientPhone, clientDni, durationMinutes, activityFormatId } = parsed.data;
 
             // Blindaje matemático para que la fecha no se atrase un día por el UTC
             const [year, month, day] = String(date).split('-').map(Number);
@@ -1309,13 +1383,15 @@ export class BookingController {
                     userId: Number((req as any)?.user?.userId || 0) || null,
                     clientEmail: clientEmail || undefined,
                     clientPhone: clientPhone || undefined,
-                    clientDni: clientDni || undefined
+                    clientDni: clientDni || undefined,
+                    activityFormatId: activityFormatId || null
                 }
             );
 
             res.json({
                 date: date,
                 slotsWithCourts: availability.slotsWithCourts,
+                perPlayer: availability.perPlayer ?? null,
                 professorOverrideAvailable: availability.professorOverrideAvailable,
                 professorDurationOverrideMinutes: availability.professorDurationOverrideMinutes,
                 authState: resolveOptionalAuthState(req)
@@ -1343,6 +1419,20 @@ export class BookingController {
             res.json(bookings);
         } catch (error: any) {
             return sendAppError(res, error, 'Error interno al cargar agenda');
+        }
+    }
+
+    getAdminBookingRules = async (req: Request, res: Response) => {
+        try {
+            const date = String(req.query.date || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                return res.status(400).json({ error: "Falta el parámetro 'date' (ej: ?date=2025-10-25)" });
+            }
+            const clubId = Number((req as any).clubId);
+            const rules = await this.bookingService.getBookingRulesForDate(clubId, date);
+            res.json(rules);
+        } catch (error: any) {
+            return sendAppError(res, error, 'Error interno al cargar reglas de reserva');
         }
     }
 
@@ -1618,13 +1708,14 @@ export class BookingController {
                 allowOverlappingSeries: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
                 everyDays: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
                 repetitions: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().positive().optional()),
-                previewConflictsOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional()
+                previewConflictsOnly: z.preprocess((v) => v === true || v === 'true', z.boolean()).optional(),
+                activityFormatId: z.string().trim().min(1).max(64).optional()
             });
             const parsed = createFixedSchema.safeParse(req.body);
             if (!parsed.success) {
                 return sendZodControllerError(res, parsed.error, 'Revisá los campos marcados.');
             }
-            let { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, ownerSelection, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly } = parsed.data;
+            let { userId, courtId, activityId, startDateTime, durationMinutes, clientId, client, ownerSelection, allowOverlappingSeries, everyDays, repetitions, previewConflictsOnly, activityFormatId } = parsed.data;
             if (ownerSelection?.kind === 'clubClient') {
                 clientId = ownerSelection.clientId;
             }
@@ -1698,7 +1789,8 @@ export class BookingController {
                     durationMinutes,
                     everyDays,
                     repetitions,
-                    previewConflictsOnly: Boolean(previewConflictsOnly)
+                    previewConflictsOnly: Boolean(previewConflictsOnly),
+                    activityFormatId: activityFormatId || null
                 }
             );
             
@@ -1956,7 +2048,15 @@ export class BookingController {
                 parsed.data.endDate
             );
 
-            return res.json(report);
+            // Ocupación de canchas: si falla, el resto del informe igual sale.
+            let occupancy = null;
+            try {
+                occupancy = await this.bookingService.getOccupancyReport(clubId, report.scope.startDate, report.scope.endDate);
+            } catch (occupancyError) {
+                occupancy = null;
+            }
+
+            return res.json({ ...report, occupancy });
         } catch (error) {
             return sendAppError(res, error, 'No se pudieron cargar los informes.');
         }

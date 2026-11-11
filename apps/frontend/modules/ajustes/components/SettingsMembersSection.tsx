@@ -16,7 +16,7 @@ const OWNER_ROLE_OPTIONS: ClubMembershipRole[] = ['ADMIN', 'STAFF'];
 const ADMIN_ROLE_OPTIONS: ClubMembershipRole[] = ['STAFF'];
 
 const formatRole = (role: string) => {
-  if (role === 'OWNER') return 'Owner';
+  if (role === 'OWNER') return 'Dueño';
   if (role === 'ADMIN') return 'Admin';
   if (role === 'STAFF') return 'Staff';
   return role;
@@ -155,12 +155,12 @@ export default function SettingsMembersSection() {
   return (
     <div className="space-y-4">
       <AdminPanel
-        title="Staff y permisos"
-        description="Otorgá acceso operativo a usuarios existentes de Pique. No hay linking ni invitaciones automáticas."
+        title="Quién entra al panel"
+        description="Sumá a alguien de tu equipo con el email de su cuenta de Pique."
       >
         <div className="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_180px_auto]">
           <label className="block">
-            <span className="mb-1 block text-[12px] font-semibold text-p-text-secondary">Email del usuario</span>
+            <span className="mb-1 block text-[12px] font-semibold text-p-text-secondary">Email de su cuenta de Pique</span>
             <input
               type="email"
               value={inviteEmail}
@@ -197,7 +197,7 @@ export default function SettingsMembersSection() {
               className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
             >
               <UserPlus size={14} />
-              {inviteSubmitting ? 'Otorgando...' : 'Dar acceso'}
+              {inviteSubmitting ? 'Sumando...' : 'Darle acceso'}
             </button>
           </div>
         </div>
@@ -210,14 +210,14 @@ export default function SettingsMembersSection() {
 
         <div className="mt-3">
           <AdminFeedbackBanner tone="info" compact>
-            El usuario ya debe existir en Pique. Este flujo crea la membresía del club y deja auditoría.
+            La persona tiene que haberse creado una cuenta en Pique con ese email. Si todavía no la tiene, pedile que se registre en la app.
           </AdminFeedbackBanner>
         </div>
       </AdminPanel>
 
       <AdminPanel
-        title="Miembros activos"
-        description="Owner gestiona todos los roles. Admin solo puede administrar staff."
+        title="Tu equipo"
+        description="El dueño puede cambiar cualquier rol. Un admin solo puede sumar o sacar staff."
         bodyClassName="p-0"
       >
         {loading ? (

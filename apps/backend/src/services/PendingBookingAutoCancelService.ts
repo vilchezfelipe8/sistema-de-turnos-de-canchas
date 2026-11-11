@@ -17,6 +17,9 @@ import { featureFlags } from '../config/featureFlags';
 import { BookingCustomerWhatsappNotificationService } from './BookingCustomerWhatsappNotificationService';
 import { BookingStaffWhatsappNotificationService } from './BookingStaffWhatsappNotificationService';
 
+// Margen para un pago de Mercado Pago iniciado justo antes del vencimiento de la seña.
+const ONLINE_DEPOSIT_IN_FLIGHT_GRACE_MS = 15 * 60_000;
+
 const EPSILON = 0.009;
 
 type TxClient = Prisma.TransactionClient;
@@ -316,6 +319,48 @@ Si no se confirma antes de las *${limitTime}*, puede cancelarse automáticamente
     }
 
     return { scanned: candidates.length, warned };
+  }
+
+  /**
+   * Seña online obligatoria: libera las reservas hechas desde la app cuyo plazo para pagar la seña venció.
+   * Si hay un pago de Mercado Pago en curso reciente, espera (el webhook puede estar por confirmarla).
+   */
+  async processExpiredOnlineDepositHolds(input?: { now?: Date; limit?: number }) {
+    const now = input?.now ?? new Date();
+    const limit = Math.max(1, Math.min(input?.limit ?? 200, 2000));
+    const candidates = await prisma.booking.findMany({
+      where: { status: BookingStatus.PENDING, autoCancelledAt: null, onlineDepositDueAt: { lte: now } },
+      select: { id: true, clubId: true },
+      orderBy: { onlineDepositDueAt: 'asc' },
+      take: limit
+    });
+
+    let cancelled = 0;
+    for (const candidate of candidates) {
+      try {
+        const inFlight = await prisma.onlinePaymentAttempt.findFirst({
+          where: {
+            bookingId: candidate.id,
+            status: { in: ['CREATED', 'PENDING'] },
+            createdAt: { gte: new Date(now.getTime() - ONLINE_DEPOSIT_IN_FLIGHT_GRACE_MS) }
+          },
+          select: { id: true }
+        });
+        if (inFlight) continue;
+
+        await this.bookingService.cancelBooking(candidate.id, null, candidate.clubId, {
+          reason: 'ONLINE_DEPOSIT_EXPIRED',
+          triggeredBy: 'SYSTEM',
+          skipAccessValidation: true,
+          now
+        });
+        const after = await prisma.booking.findUnique({ where: { id: candidate.id }, select: { status: true } });
+        if (after?.status === BookingStatus.CANCELLED) cancelled += 1;
+      } catch (error) {
+        console.error('[ONLINE_DEPOSIT_HOLD] error liberando reserva sin seña', { bookingId: candidate.id, error });
+      }
+    }
+    return { scanned: candidates.length, cancelled };
   }
 
   async processPendingBookingAutoCancellations(input?: { now?: Date; limit?: number }) {

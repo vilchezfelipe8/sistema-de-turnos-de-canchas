@@ -139,6 +139,7 @@ export const mapCashShiftDto = (shift: any) => ({
   expectedCash: shift.expectedCash == null ? null : toNumber(shift.expectedCash),
   countedCash: shift.countedCash == null ? null : toNumber(shift.countedCash),
   difference: shift.difference == null ? null : toNumber(shift.difference),
+  digitalAmount: shift.digitalAmount == null ? null : toNumber(shift.digitalAmount),
   status: shift.status,
   cashRegister: shift.cashRegister
     ? {
@@ -159,6 +160,15 @@ export const mapCashShiftDto = (shift: any) => ({
   closePolicy: shift.closePolicy
     ? {
         strict: Boolean(shift.closePolicy.strict)
+      }
+    : undefined,
+  breakdown: shift.breakdown
+    ? {
+        cashIn: toNumber(shift.breakdown.cashIn),
+        cashOut: toNumber(shift.breakdown.cashOut),
+        transfer: toNumber(shift.breakdown.transfer),
+        card: toNumber(shift.breakdown.card),
+        other: toNumber(shift.breakdown.other)
       }
     : undefined,
   movements: Array.isArray(shift.movements) ? shift.movements.map(mapCashMovementDto) : undefined,

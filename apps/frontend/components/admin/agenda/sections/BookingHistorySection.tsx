@@ -16,8 +16,8 @@ export default function BookingHistorySection({
   className = '',
 }: BookingHistorySectionProps) {
   return (
-    <section className={`rounded-xl border border-p-border bg-p-surface-2 p-4 ${className}`.trim()}>
-      <p className="text-[18px] font-semibold text-p-text">{title}</p>
+    <section className={`${className}`.trim()}>
+      <p className="text-[15px] font-semibold text-p-text">{title}</p>
 
       {loading && groups.length > 0 && (
         <p className="mt-3 text-[12px] text-p-text-muted">Actualizando historial...</p>

@@ -24,10 +24,17 @@ export type AdminDashboardReport = {
       total: number;
     }>;
     byAccountSource: Array<{
-      sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+      sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
       label: string;
       count: number;
       total: number;
+    }>;
+    /** Cobrado y devuelto por día del rango (días sin movimiento en 0). */
+    byDay?: Array<{
+      date: string;
+      collected: number;
+      refunded: number;
+      count: number;
     }>;
   };
   bookings: {
@@ -43,7 +50,7 @@ export type AdminDashboardReport = {
     accounts: Array<{
       id: string;
       label: string;
-      sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+      sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
       sourceLabel: string;
       status: 'OPEN' | 'CLOSED' | 'VOIDED';
       clientName: string;
@@ -51,9 +58,15 @@ export type AdminDashboardReport = {
       paid: number;
       pending: number;
       ageDays: number;
+      /** Cancha de la reserva, si es una. */
+      courtName?: string | null;
+      /** Turno de la reserva o apertura de la cuenta. */
+      when?: string;
       createdAt: string;
     }>;
   };
+  /** Null si el rango es muy largo o no se pudo calcular. */
+  occupancy?: ReportsOccupancy | null;
   pos: {
     totals: {
       salesTotal: number;
@@ -82,6 +95,13 @@ export type AdminDashboardReport = {
       total: number;
     }>;
   };
+};
+
+export type ReportsOccupancy = {
+  totals: { openMinutes: number; bookedMinutes: number };
+  courts: Array<{ courtId: number; name: string; openMinutes: number; bookedMinutes: number }>;
+  /** weekday: 0 = domingo. Solo las horas en que el club abre. */
+  heatmap: Array<{ weekday: number; hour: number; openMinutes: number; bookedMinutes: number }>;
 };
 
 export class ReportsService {

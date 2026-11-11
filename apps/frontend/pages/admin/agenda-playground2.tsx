@@ -2,16 +2,20 @@ import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/router';
-import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, MoreVertical, Pencil, Plus, Repeat, Search, User, Users, Settings, X, BarChart3, Trophy, MessageSquare, ShoppingBag, FileText, GraduationCap, Lock, Trash2 } from 'lucide-react';
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, MoreVertical, Pencil, Plus, Repeat, Search, User, Users, Settings, X, BarChart3, Trophy, MessageSquare, ShoppingBag, FileText, GraduationCap, Lock, Minus, Trash2 } from 'lucide-react';
 import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
 import AdminDrawer, { AdminDrawerSection } from '../../components/admin/ui/AdminDrawer';
 import AgendaBookingBlock from '../../components/admin/agenda/AgendaBookingBlock';
+import AgendaMobileGrid from '../../components/admin/agenda/AgendaMobileGrid';
 import AgendaSelectionPreview from '../../components/admin/agenda/AgendaSelectionPreview';
 import AgendaSlotLayer from '../../components/admin/agenda/AgendaSlotLayer';
 import AgendaTimeGutter from '../../components/admin/agenda/AgendaTimeGutter';
 import AgendaToolbar from '../../components/admin/agenda/AgendaToolbar';
+import AgendaDaySummary, { computeAgendaDaySummary } from '../../components/admin/agenda/AgendaDaySummary';
+import AgendaFreeSlotFinder from '../../components/admin/agenda/AgendaFreeSlotFinder';
+import AgendaColorLegend from '../../components/admin/agenda/AgendaColorLegend';
 import BookingHoverCard from '../../components/admin/agenda/BookingHoverCard';
 import ChangeTitularModal, { type ChangeTitularCandidate } from '../../components/admin/agenda/ChangeTitularModal';
 import DuplicateClientDecisionModal from '../../components/admin/agenda/DuplicateClientDecisionModal';
@@ -69,6 +73,20 @@ import {
   toSelectionRange,
 } from '../../components/admin/agenda/utils/agendaDateUtils';
 import {
+  allowedDurationsFor,
+  bookableSlotMask,
+  defaultDurationFor,
+  formatDurationLabel,
+  isValidRulePlacement,
+  snapCreateSelection,
+  snapMoveStart,
+  startSlotsForDuration,
+  toRuleSlots,
+  type AgendaActivityBookingRules,
+  type AgendaBookingRules,
+  type AgendaRuleSlot,
+} from '../../components/admin/agenda/utils/agendaBookingRules';
+import {
   blockContentVisibility,
   bookingBadgeColor,
   bookingColor,
@@ -81,6 +99,7 @@ import {
   localizeLegacyUiText,
   normalizeBookingDisplayTitle,
   toUserSafeMessage,
+  isSettledPastBooking,
 } from '../../components/admin/agenda/utils/agendaDisplayUtils';
 import {
   formatSeriesDateLabel,
@@ -114,7 +133,9 @@ import {
   isOwnerLikeParticipantRef,
 } from '../../components/admin/agenda/utils/bookingValidation';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
-import { ClubAdminService } from '../../services/ClubAdminService';
+import { formatMoney } from '../../modules/cuentas/accountUtils';
+import { ClubAdminService, type AdminClassSession, type CourtBlockDto } from '../../services/ClubAdminService';
+import { AdminAppModal } from '../../components/admin/ui';
 import { addAdminBookingParticipant, cancelBooking, cancelFixedBooking, changeBookingClient, confirmBooking, createBooking, createFixedBooking, getAdminBookingHistory, getAdminBookingParticipants, getAdminSchedule, getBookingById, getBookingFinancialSummary, getBookingQuote, removeAdminBookingParticipant, rescheduleFixedBooking, type AdminBookingParticipantDto, type BookingHistoryEntryDto } from '../../services/BookingService';
 import AccountDrawer, {
   type AccountDrawerContext,
@@ -122,11 +143,13 @@ import AccountDrawer, {
 } from '../../modules/cuentas/components/AccountDrawer';
 import { listAccounts } from '../../services/AccountService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
-import { reportUiError } from '../../utils/uiError';
+import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { ADMIN_Z_INDEX_CLASS } from '../../utils/adminZIndex';
 import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
 import { showAdminToast } from '../../utils/adminToast';
-import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
+import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
+import type { AgendaPlayerSlotInfo } from '../../components/admin/agenda/AgendaPlayerSlotsSection';
+import AgendaPlayerSlotsSection from '../../components/admin/agenda/AgendaPlayerSlotsSection';
 import { normalizeApiError } from '../../utils/apiError';
 import { resolveBookingErrorBehavior } from '../../utils/bookingErrorMap';
 import BookingDrawerShell from '../../modules/admin/bookingDrawer/components/BookingDrawerShell';
@@ -134,6 +157,9 @@ import { bookingDrawerReducer, initialBookingDrawerState } from '../../modules/a
 
 const MAX_MANUAL_PARTICIPANT_PRICE = 100000;
 const DRAWER_CLOSE_RESET_DELAY_MS = 320;
+/** Refresco automático de la agenda (web y mobile). */
+const AGENDA_AUTO_REFRESH_MS = 30_000;
+const AGENDA_REFRESH_ON_FOCUS_MIN_GAP_MS = 10_000;
 
 const bookingKindOptions: Array<{
   value: BookingKind;
@@ -144,7 +170,7 @@ const bookingKindOptions: Array<{
   {
     value: 'regular',
     label: 'Reserva normal',
-    description: 'Para reservas individuales de un solo día y pista',
+    description: 'Para reservas individuales de un solo día y cancha',
     icon: CalendarDays,
   },
   {
@@ -168,7 +194,7 @@ const bookingKindOptions: Array<{
   {
     value: 'block',
     label: 'Bloqueo',
-    description: 'Para bloquear una pista y evitar nuevas reservas en ese rango.',
+    description: 'Para bloquear una cancha y evitar nuevas reservas en ese rango.',
     icon: Lock,
   },
 ];
@@ -201,6 +227,40 @@ const CUSTOM_DAY_OPTIONS = [
   { value: 6, short: 'Sa' },
   { value: 0, short: 'Do' },
 ];
+
+/** Teléfono argentino legible: 5493570000001 → +54 9 3570 00-0001. Otros formatos quedan igual. */
+function formatPhoneForDisplay(value: string): string {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!/^549\d{10}$/.test(digits)) return value;
+  const national = digits.slice(3);
+  const areaLength = national.startsWith('11') ? 2 : 4;
+  const area = national.slice(0, areaLength);
+  const rest = national.slice(areaLength);
+  return `+54 9 ${area} ${rest.slice(0, -4)}-${rest.slice(-4)}`;
+}
+
+/** Lo que cambia el precio de un jugador: si es socio vigente o si su cuota no está al día. */
+function describeMemberStatus(badges: unknown): { label: string; tone: 'positive' | 'warning' } | null {
+  const memberBadge = (Array.isArray(badges) ? badges : [])
+    .map((badge) => String(badge || ''))
+    .find((badge) => /^socio/i.test(badge));
+  if (!memberBadge) return null;
+  if (/no vigente/i.test(memberBadge)) return { label: 'Socio vencido · paga como no socio', tone: 'warning' };
+  if (/suspendido/i.test(memberBadge)) return { label: 'Socio suspendido · paga como no socio', tone: 'warning' };
+  return { label: memberBadge, tone: 'positive' };
+}
+
+/** Segunda línea de un resultado del buscador: contacto + lo que le sirve saber al que atiende. */
+function describeOwnerSuggestion(secondary: string | null | undefined, badges: unknown): string {
+  const labels = (Array.isArray(badges) ? badges : [])
+    .map((badge) => String(badge || ''))
+    .filter((badge) => badge && badge !== 'Cliente del club')
+    .map((badge) => (badge === 'Usuario Pique' ? 'Tiene la app' : badge));
+  const contact = secondary && secondary !== 'Cliente del club' && secondary !== 'Usuario Pique'
+    ? formatPhoneForDisplay(secondary)
+    : '';
+  return [contact, ...labels].filter(Boolean).join(' · ');
+}
 
 function PlaygroundCombo({
   value,
@@ -331,6 +391,17 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
   const ownerFallbackName = ownerName || 'Titular';
   const totalAmount = Number(hoverPayment?.totalAmount || 0);
   const paidAmount = Number(hoverPayment?.paidAmount || 0);
+  const perPlayer = Boolean(hoverPayment?.perPlayer);
+  const canonicalParticipantRef = (value: string) => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized.startsWith('booking-client:') || normalized.startsWith('participant-client:')) {
+      return `client:${normalized.split(':').slice(1).join(':')}`;
+    }
+    if (normalized.startsWith('booking-user:') || normalized.startsWith('participant-user:')) {
+      return `user:${normalized.split(':').slice(1).join(':')}`;
+    }
+    return normalized;
+  };
 
   const rawParticipants = Array.isArray(hoverPayment?.participants)
     ? hoverPayment?.participants
@@ -349,15 +420,21 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
         ref,
         name: resolvedName,
         isOwner,
+        assignedAmount: Number.isFinite(Number(rawParticipant?.assignedAmount))
+          ? Number(rawParticipant.assignedAmount)
+          : null,
+        paidAmount: Number.isFinite(Number(rawParticipant?.paidAmount))
+          ? Number(rawParticipant.paidAmount)
+          : null,
       };
     })
     .filter((participant) => participant.name.trim().length > 0);
 
   const dedupedParticipants = normalizedParticipants.reduce<typeof normalizedParticipants>((accumulator, participant) => {
-    const participantRefKey = String(participant.ref || '').trim().toLowerCase();
+    const participantRefKey = canonicalParticipantRef(participant.ref);
     const participantNameKey = String(participant.name || '').trim().toLowerCase();
     const existingIndex = accumulator.findIndex((current) => {
-      const currentRefKey = String(current.ref || '').trim().toLowerCase();
+      const currentRefKey = canonicalParticipantRef(current.ref);
       const currentNameKey = String(current.name || '').trim().toLowerCase();
       return (
         (participantRefKey && currentRefKey && participantRefKey === currentRefKey) ||
@@ -385,7 +462,7 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
         }];
 
   const findByRef = (ref: string) =>
-    participants.find((participant) => participant.ref && participant.ref === ref);
+    participants.find((participant) => participant.ref && canonicalParticipantRef(participant.ref) === canonicalParticipantRef(ref));
   const normalizeName = (value: string) =>
     String(value || '').trim().toLowerCase();
   const findByName = (name: string) => {
@@ -469,22 +546,45 @@ function resolveHoverParticipantsForBooking(booking: Booking) {
       Number((Number(coveredAmountByParticipantId.get(participantId) || 0) + amount).toFixed(2))
     );
   };
-  normalizedCoveredParticipants.forEach((covered) => {
-    const matched =
-      (covered.ref ? findByRef(covered.ref) : undefined) ||
-      (covered.name ? findByName(covered.name) : undefined) ||
-      (covered.ref && isOwnerLikeParticipantRef(covered.ref)
-        ? participants.find((participant) => participant.isOwner)
-        : undefined);
-    if (!matched) return;
-    addCoveredAmount(matched.id, covered.amount);
-  });
-  if (coveredAmountByParticipantId.size === 0 && latestCoveredParticipant) {
-    addCoveredAmount(latestCoveredParticipant.id, paidAmount);
+  if (perPlayer) {
+    participants.forEach((participant) => {
+      if (participant.paidAmount != null) addCoveredAmount(participant.id, participant.paidAmount);
+    });
+  } else {
+    normalizedCoveredParticipants.forEach((covered) => {
+      const matched =
+        (covered.ref ? findByRef(covered.ref) : undefined) ||
+        (covered.name ? findByName(covered.name) : undefined) ||
+        (covered.ref && isOwnerLikeParticipantRef(covered.ref)
+          ? participants.find((participant) => participant.isOwner)
+          : undefined);
+      if (!matched) return;
+      addCoveredAmount(matched.id, covered.amount);
+    });
+    if (coveredAmountByParticipantId.size === 0 && latestCoveredParticipant) {
+      addCoveredAmount(latestCoveredParticipant.id, paidAmount);
+    }
   }
 
   const assignedAmountByParticipantId = new Map<string, number>();
-  if (chargeMode === 'SHARED') {
+  if (perPlayer && participants.some((participant) => participant.assignedAmount != null)) {
+    participants.forEach((participant) => {
+      const amount = Number(participant.assignedAmount || 0);
+      if (Number.isFinite(amount) && amount > 0.009) {
+        assignedAmountByParticipantId.set(participant.id, Number(amount.toFixed(2)));
+      }
+    });
+    const assignedTotal = Array.from(assignedAmountByParticipantId.values())
+      .reduce((sum, amount) => sum + amount, 0);
+    const residualAmount = Number(Math.max(0, totalAmount - assignedTotal).toFixed(2));
+    const ownerParticipantId = participants.find((participant) => participant.isOwner)?.id || '';
+    if (ownerParticipantId && residualAmount > 0.009) {
+      assignedAmountByParticipantId.set(
+        ownerParticipantId,
+        Number((Number(assignedAmountByParticipantId.get(ownerParticipantId) || 0) + residualAmount).toFixed(2))
+      );
+    }
+  } else if (chargeMode === 'SHARED') {
     const activeParticipants = participants.filter((participant) => participant.name.trim().length > 0);
     const target = activeParticipants.length > 0
       ? activeParticipants
@@ -739,6 +839,7 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
       totalAmount: Number(Number(hoverPaymentRaw?.totalAmount ?? bookingPrice).toFixed(2)),
       paidAmount: Number(Number(hoverPaymentRaw?.paidAmount ?? paidAmount).toFixed(2)),
       remainingAmount: Number(Number(hoverPaymentRaw?.remainingAmount ?? remainingAmount).toFixed(2)),
+      perPlayer: Boolean(hoverPaymentRaw?.perPlayer),
       chargeMode: String(hoverPaymentRaw?.chargeMode || 'INDIVIDUAL'),
       chargeResponsibleRef: hoverPaymentRaw?.chargeResponsibleRef
         ? String(hoverPaymentRaw.chargeResponsibleRef)
@@ -756,6 +857,12 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
               ref: String(rawParticipant?.ref || '').trim(),
               name: String(rawParticipant?.name || '').trim(),
               isOwner: Boolean(rawParticipant?.isOwner),
+              assignedAmount: Number.isFinite(Number(rawParticipant?.assignedAmount))
+                ? Number(rawParticipant.assignedAmount)
+                : undefined,
+              paidAmount: Number.isFinite(Number(rawParticipant?.paidAmount))
+                ? Number(rawParticipant.paidAmount)
+                : undefined,
             }))
             .filter((participant: { ref: string; name: string }) => participant.ref || participant.name)
         : fallbackHoverParticipants,
@@ -781,6 +888,81 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
               Boolean(covered.ref || covered.name || (Number.isFinite(covered.amount) && covered.amount > 0.009))
             )
         : undefined,
+    },
+  };
+}
+
+// Los bloqueos de cancha conviven con las reservas en la grilla; su id lleva prefijo para no chocar
+// con ids numéricos de reservas.
+const COURT_BLOCK_ID_PREFIX = 'block-';
+
+function isCourtBlockBookingId(id: string | null | undefined) {
+  return String(id || '').startsWith(COURT_BLOCK_ID_PREFIX);
+}
+
+function courtBlockIdFromBookingId(id: string) {
+  return String(id || '').slice(COURT_BLOCK_ID_PREFIX.length);
+}
+
+function parseCourtBlockToBooking(block: CourtBlockDto): Booking | null {
+  const start = new Date(block.startDateTime);
+  const end = new Date(block.endDateTime);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  const baseMinutes = startHour * 60;
+  const startMinutes = start.getHours() * 60 + start.getMinutes();
+  const endMinutes = end.getHours() * 60 + end.getMinutes() || 24 * 60;
+  const startSlot = Math.max(0, Math.min(totalSlots - 1, Math.floor((startMinutes - baseMinutes) / slotMinutes)));
+  const endSlot = Math.max(startSlot + 1, Math.min(totalSlots, Math.ceil((endMinutes - baseMinutes) / slotMinutes)));
+  return {
+    id: `${COURT_BLOCK_ID_PREFIX}${block.id}`,
+    courtId: String(block.courtId),
+    startSlot,
+    endSlot,
+    title: String(block.title || '').trim() || 'Bloqueo',
+    state: 'blocked',
+    paymentState: 'unpaid',
+  };
+}
+
+// Clases de Academia: ocupan la cancha, se ven en la grilla pero se manejan desde Academia.
+const CLASS_SESSION_ID_PREFIX = 'class-';
+
+function isClassSessionBookingId(id: string | null | undefined) {
+  return String(id || '').startsWith(CLASS_SESSION_ID_PREFIX);
+}
+
+const CLASS_STATUSES_ON_AGENDA = new Set(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'DRAFT']);
+
+function parseClassSessionToBooking(row: AdminClassSession, localDate: string): Booking | null {
+  if (!row.courtId || !CLASS_STATUSES_ON_AGENDA.has(String(row.status))) return null;
+  const start = new Date(row.startsAt);
+  const end = new Date(row.endsAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  if (formatLocalDate(start) !== localDate) return null;
+  const baseMinutes = startHour * 60;
+  const startMinutes = start.getHours() * 60 + start.getMinutes();
+  const endMinutes = end.getHours() * 60 + end.getMinutes() || 24 * 60;
+  const startSlot = Math.max(0, Math.min(totalSlots - 1, Math.floor((startMinutes - baseMinutes) / slotMinutes)));
+  const endSlot = Math.max(startSlot + 1, Math.min(totalSlots, Math.ceil((endMinutes - baseMinutes) / slotMinutes)));
+  const activityName = row.activityType?.name || null;
+  const teacherName = row.teacher?.displayName || null;
+  return {
+    id: `${CLASS_SESSION_ID_PREFIX}${row.id}`,
+    courtId: String(row.courtId),
+    startSlot,
+    endSlot,
+    title: `${activityName ? `Clase de ${activityName}` : 'Clase'}${teacherName ? ` · ${teacherName}` : ''}`,
+    state: 'class',
+    paymentState: 'unpaid',
+    classInfo: {
+      classSessionId: String(row.id),
+      activityName,
+      teacherName,
+      enrolled: typeof row.enrolledCount === 'number' ? row.enrolledCount : null,
+      capacity: Number(row.capacity || 0),
+      startsAt: row.startsAt,
+      endsAt: row.endsAt,
+      status: String(row.status),
     },
   };
 }
@@ -965,6 +1147,13 @@ function allocatePaymentProportionallyByDebt(input: {
 
 export default function AdminAgendaPlaygroundPage() {
   const router = useRouter();
+  const [classPeekBooking, setClassPeekBooking] = useState<Booking | null>(null);
+  const [freeFinderOpen, setFreeFinderOpen] = useState(false);
+  /** Día cuyas reservas ya están en `bookings` (el buscador espera a que coincida). */
+  const [loadedScheduleDate, setLoadedScheduleDate] = useState('');
+  const [bookingRulesSettledDate, setBookingRulesSettledDate] = useState('');
+  /** Titular pedido por URL (?cliente=), pendiente de cargar cuando abre el drawer. */
+  const [pendingUrlOwner, setPendingUrlOwner] = useState<ParticipantSuggestion | null>(null);
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
 
   const [sportFilter, setSportFilter] = useState<SportFilter>('Todos');
@@ -978,6 +1167,7 @@ export default function AdminAgendaPlaygroundPage() {
   }, []);
 
   const [dragSelection, setDragSelection] = useState<DraftSelection | null>(null);
+  const createDragAnchorRef = useRef<{ courtId: string; slot: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [draggingBookingId, setDraggingBookingId] = useState<string | null>(null);
   const [draggingBookingMeta, setDraggingBookingMeta] = useState<DraggingBookingMeta | null>(null);
@@ -990,6 +1180,8 @@ export default function AdminAgendaPlaygroundPage() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedCourtId, setSelectedCourtId] = useState<string>('');
+  // Modalidad del turno en clubes con precio por jugador (Single / Dobles...).
+  const [bookingActivityFormatId, setBookingActivityFormatId] = useState<string>('');
   const [selectedStartSlot, setSelectedStartSlot] = useState(2);
   const [selectedEndSlot, setSelectedEndSlot] = useState(4);
   const [participants, setParticipants] = useState<Participant[]>(() => createInitialParticipants());
@@ -1050,6 +1242,30 @@ export default function AdminAgendaPlaygroundPage() {
   const [isWaitingQueuedPaymentConfirmation, setIsWaitingQueuedPaymentConfirmation] = useState(false);
   const [isDeletingBooking, setIsDeletingBooking] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
+  // Drawer de edición: horario/cancha plegados detrás de "Modificar" y acciones secundarias en "Más acciones".
+  const [simplifiedScheduleEditorOpen, setSimplifiedScheduleEditorOpen] = useState(false);
+  const [simplifiedMoreActionsOpen, setSimplifiedMoreActionsOpen] = useState(false);
+  const simplifiedMoreActionsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    setSimplifiedScheduleEditorOpen(false);
+    setSimplifiedMoreActionsOpen(false);
+  }, [editingBookingId, drawerOpen]);
+  useEffect(() => {
+    if (!simplifiedMoreActionsOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (simplifiedMoreActionsRef.current?.contains(event.target as Node)) return;
+      setSimplifiedMoreActionsOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSimplifiedMoreActionsOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [simplifiedMoreActionsOpen]);
   const [editingBaseline, setEditingBaseline] = useState<EditingBaseline | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState('');
@@ -1095,6 +1311,7 @@ export default function AdminAgendaPlaygroundPage() {
   const [recurringCreatedItems, setRecurringCreatedItems] = useState<RecurringCreatedItem[]>([]);
   const [recurringOverlapItems, setRecurringOverlapItems] = useState<RecurringOverlapItem[]>([]);
   const [recurringOverlapModalOpen, setRecurringOverlapModalOpen] = useState(false);
+  const [pendingRecurringEditBooking, setPendingRecurringEditBooking] = useState<Booking | null>(null);
   const [recurringCreateConfirmOpen, setRecurringCreateConfirmOpen] = useState(false);
   const [recurringPreviewSummary, setRecurringPreviewSummary] = useState<{
     generatedCount: number;
@@ -1122,6 +1339,17 @@ export default function AdminAgendaPlaygroundPage() {
     });
     setFormError('');
   }, []);
+  /** Slots de la grilla que ya pasaron: todo si el día es anterior, hasta la hora actual si es hoy. */
+  const pastSlotCount = useMemo(() => {
+    const now = new Date(nowTick);
+    const todayKey = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+    const selectedKey =
+      selectedDate.getFullYear() * 10000 + (selectedDate.getMonth() + 1) * 100 + selectedDate.getDate();
+    if (selectedKey < todayKey) return totalSlots;
+    if (selectedKey > todayKey) return 0;
+    const minutesFromStart = now.getHours() * 60 + now.getMinutes() - startHour * 60;
+    return Math.max(0, Math.min(totalSlots, Math.floor(minutesFromStart / slotMinutes)));
+  }, [nowTick, selectedDate]);
   const nowLineTop = useMemo(() => {
     const now = new Date(nowTick);
     const isSameDay =
@@ -1148,7 +1376,6 @@ export default function AdminAgendaPlaygroundPage() {
     participantName: string;
   }>({ open: false, participantId: null, participantName: '' });
   const [blockingErrorModalOpen, setBlockingErrorModalOpen] = useState(false);
-  const [bookingCreatedModalOpen, setBookingCreatedModalOpen] = useState(false);
   const [duplicateDecisionOpen, setDuplicateDecisionOpen] = useState(false);
   const [duplicateDecisionLoading, setDuplicateDecisionLoading] = useState(false);
   const [duplicateDecisionError, setDuplicateDecisionError] = useState('');
@@ -1191,6 +1418,12 @@ export default function AdminAgendaPlaygroundPage() {
     initialBookingDrawerState
   );
   const [recurringCourtsMenuOpen, setRecurringCourtsMenuOpen] = useState(false);
+  const [createCourtPickerOpen, setCreateCourtPickerOpen] = useState(false);
+  // "Jugador nuevo": se eligió crear uno en vez de un cliente existente (pide nombre y teléfono).
+  const [simplifiedNewPlayerAsGuest, setSimplifiedNewPlayerAsGuest] = useState(false);
+  const [simplifiedNewPlayerError, setSimplifiedNewPlayerError] = useState('');
+  // Precio por jugador: precio y condición de cada jugador asignado (por nombre), para la lista de Jugadores.
+  const [playerSlotInfo, setPlayerSlotInfo] = useState<AgendaPlayerSlotInfo[]>([]);
   const [selectedClubIdState, setSelectedClubIdState] = useState<number>(0);
   const [activeClubTimeZone, setActiveClubTimeZone] = useState<string>('');
   const [bookingHoverPreview, setBookingHoverPreview] = useState<{
@@ -1206,6 +1439,9 @@ export default function AdminAgendaPlaygroundPage() {
   const participantContactInputRef = useRef<HTMLInputElement | null>(null);
   const simplifiedOwnerInputContainerRef = useRef<HTMLDivElement | null>(null);
   const simplifiedOwnerPhoneInputRef = useRef<HTMLInputElement | null>(null);
+  const simplifiedOwnerNameInputRef = useRef<HTMLInputElement | null>(null);
+  // "Reservar y cobrar": al terminar de crear, abre el cobro de la reserva nueva.
+  const chargeAfterCreateRef = useRef(false);
   const simplifiedNewParticipantInputContainerRef = useRef<HTMLDivElement | null>(null);
   const simplifiedSidebarFooterRef = useRef<HTMLElement | null>(null);
   const agendaSurfaceRef = useRef<HTMLElement | null>(null);
@@ -1354,10 +1590,6 @@ export default function AdminAgendaPlaygroundPage() {
     setDuplicateDecisionCandidates([]);
     setDuplicateDecisionSelectedClientId('');
     duplicateDecisionActionsRef.current = null;
-  }, []);
-
-  const closeRecurringResultModal = useCallback(() => {
-    setRecurringOverlapModalOpen(false);
   }, []);
 
   const closeDeleteBookingFlow = useCallback(() => {
@@ -1620,6 +1852,15 @@ export default function AdminAgendaPlaygroundPage() {
     return buildDefaultParticipantsForBooking(booking);
   }, []);
   const openBookingInDrawer = useCallback((booking: Booking) => {
+    if (booking.state === 'class' && booking.classInfo) {
+      // Staff no entra a Academia: le mostramos la clase acá.
+      if (!hasAdminAccess(user)) {
+        setClassPeekBooking(booking);
+        return;
+      }
+      void router.push(`/admin/academia?tab=clases&clase=${encodeURIComponent(booking.classInfo.classSessionId)}`);
+      return;
+    }
     activeDrawerBookingIdRef.current =
       Number.isFinite(Number(booking.id)) && Number(booking.id) > 0 ? Number(booking.id) : null;
     bookingFinancialRequestSeqRef.current += 1;
@@ -1663,7 +1904,16 @@ export default function AdminAgendaPlaygroundPage() {
     setDrawerOpen(true);
     setScheduleInputsDirty(false);
     setFormError('');
-  }, [resetConsumptionsDraft, resolveParticipantsForBooking]);
+  }, [resetConsumptionsDraft, resolveParticipantsForBooking, router, user]);
+  const closeRecurringResultModal = useCallback(() => {
+    setRecurringOverlapModalOpen(false);
+    setPendingRecurringEditBooking((pendingBooking) => {
+      if (pendingBooking) {
+        openBookingInDrawer(pendingBooking);
+      }
+      return null;
+    });
+  }, [openBookingInDrawer]);
   const resetRecurringDraft = useCallback((baseDate: Date, fallbackCourtId?: string) => {
     const baseDay = baseDate.getDay();
     const firstCourtId =
@@ -1704,20 +1954,6 @@ export default function AdminAgendaPlaygroundPage() {
     return ['Todos', ...uniques] as SportFilter[];
   }, [effectiveCourts]);
 
-  const reloadSchedule = useCallback(async () => {
-    try {
-      const raw = await getAdminSchedule(formatLocalDate(selectedDate));
-      const mapped = (Array.isArray(raw) ? raw : [])
-        .map(parseScheduleSlotToBooking)
-        .filter((booking): booking is Booking => Boolean(booking));
-      setBookings(mapped);
-      return mapped;
-    } catch (error) {
-      reportUiError({ area: 'AgendaPlayground', action: 'loadSchedule' }, error);
-      return [];
-    }
-  }, [selectedDate]);
-
   const getClubSlug = useCallback(() => {
     try {
       const raw = localStorage.getItem('user');
@@ -1729,8 +1965,98 @@ export default function AdminAgendaPlaygroundPage() {
     }
   }, []);
 
+  // Reglas del club para el día (inicios y duraciones válidas). Sin reglas cargadas, la grilla queda libre
+  // y el servidor valida al guardar.
+  const [bookingRules, setBookingRules] = useState<AgendaBookingRules | null>(null);
+  const selectedDateKey = formatLocalDate(selectedDate);
+  useEffect(() => {
+    const slug = getClubSlug();
+    if (!slug) return;
+    let cancelled = false;
+    setBookingRules(null);
+    ClubAdminService.getBookingRules(slug, selectedDateKey)
+      .then((rules) => {
+        if (!cancelled) setBookingRules(rules);
+      })
+      .catch((error) => {
+        reportUiError({ area: 'AgendaPlayground', action: 'loadBookingRules' }, error);
+      })
+      .finally(() => {
+        if (!cancelled) setBookingRulesSettledDate(selectedDateKey);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [getClubSlug, selectedDateKey]);
+
+  const courtBookingRules = useMemo(() => {
+    const byCourt = new Map<string, {
+      rule: AgendaActivityBookingRules | null;
+      ruleSlots: AgendaRuleSlot[];
+      mask: boolean[];
+      activityId: number | null;
+    }>();
+    if (!bookingRules) return byCourt;
+    for (const court of effectiveCourts) {
+      const activityId = Number(court.activityTypeId || 0) || null;
+      const rule = activityId
+        ? bookingRules.activities.find((item) => item.activityId === activityId) || null
+        : null;
+      const ruleSlots = toRuleSlots(rule);
+      byCourt.set(court.id, { rule, ruleSlots, mask: bookableSlotMask(ruleSlots), activityId });
+    }
+    return byCourt;
+  }, [bookingRules, effectiveCourts]);
+
+  const scheduleRequestSeqRef = useRef(0);
+  const reloadSchedule = useCallback(async () => {
+    const requestSeq = ++scheduleRequestSeqRef.current;
+    try {
+      const localDate = formatLocalDate(selectedDate);
+      const slug = getClubSlug();
+      // Los bloqueos se piden en paralelo; si fallan, la agenda igual carga las reservas.
+      const [raw, blocks, classSessions] = await Promise.all([
+        getAdminSchedule(localDate),
+        slug
+          ? ClubAdminService.listCourtBlocks(slug, localDate).catch((error) => {
+              reportUiError({ area: 'AgendaPlayground', action: 'loadCourtBlocks' }, error);
+              return [] as CourtBlockDto[];
+            })
+          : Promise.resolve([] as CourtBlockDto[]),
+        slug
+          ? ClubAdminService.getClassSessions(slug).catch((error) => {
+              reportUiError({ area: 'AgendaPlayground', action: 'loadClassSessions' }, error);
+              return [] as AdminClassSession[];
+            })
+          : Promise.resolve([] as AdminClassSession[]),
+      ]);
+      const mapped = [
+        ...(Array.isArray(raw) ? raw : [])
+          .map(parseScheduleSlotToBooking)
+          .filter((booking): booking is Booking => Boolean(booking)),
+        ...blocks
+          .map(parseCourtBlockToBooking)
+          .filter((booking): booking is Booking => Boolean(booking)),
+        ...classSessions
+          .map((row) => parseClassSessionToBooking(row, localDate))
+          .filter((booking): booking is Booking => Boolean(booking)),
+      ];
+      // Si mientras tanto salió otro pedido (cambio de fecha, refresco automático), gana el más nuevo.
+      if (requestSeq === scheduleRequestSeqRef.current) {
+        setBookings(mapped);
+        setLoadedScheduleDate(localDate);
+      }
+      return mapped;
+    } catch (error) {
+      reportUiError({ area: 'AgendaPlayground', action: 'loadSchedule' }, error);
+      return [];
+    }
+  }, [getClubSlug, selectedDate]);
+
   const resetSimplifiedNewParticipantDraft = useCallback(() => {
     setSimplifiedNewParticipantOpen(false);
+    setSimplifiedNewPlayerAsGuest(false);
+    setSimplifiedNewPlayerError('');
     setSimplifiedNewParticipantName('');
     setSimplifiedNewParticipantContact('');
     setSimplifiedNewParticipantSourceTypeDraft('guest');
@@ -1762,6 +2088,11 @@ export default function AdminAgendaPlaygroundPage() {
     }
     resetDrawerParticipantVisualState();
   }, [resetDrawerParticipantVisualState]);
+
+  // Cada panel arranca con "Cambiar cancha" cerrado.
+  useEffect(() => {
+    setCreateCourtPickerOpen(false);
+  }, [drawerOpen, editingBookingId]);
 
   const loadAdminParticipantsForBooking = useCallback(async (bookingId: number) => {
     const items = await getAdminBookingParticipants(bookingId);
@@ -1951,18 +2282,37 @@ export default function AdminAgendaPlaygroundPage() {
     const participant = participants.find((item) => item.id === safeParticipantId);
     if (!participant || participant.isOwner) return;
 
+    const removedName = participant.name.trim() || 'Jugador';
     if (persistedEditingBookingId && participant.bookingParticipantId) {
-      await removePersistedParticipantFromBooking(
-        persistedEditingBookingId,
-        participant.bookingParticipantId
-      );
-      showAgendaToast('Participante eliminado.', 'success');
+      const bookingId = persistedEditingBookingId;
+      try {
+        await removePersistedParticipantFromBooking(bookingId, participant.bookingParticipantId);
+      } catch (error) {
+        reportUiError({ area: 'AgendaPlayground', action: 'removeParticipant' }, error);
+        showAgendaToast(extractErrorMessage(error, 'No se pudo quitar al jugador.'), 'error');
+        return;
+      }
+      showAdminToast(`${removedName} quitado de la reserva.`, 'success', {
+        label: 'Deshacer',
+        onClick: () => {
+          void addParticipantToExistingBooking(bookingId, participant, {
+            successMessage: `${removedName} volvió a la reserva.`,
+          }).catch((error) => {
+            reportUiError({ area: 'AgendaPlayground', action: 'undoRemoveParticipant' }, error);
+            showAgendaToast(extractErrorMessage(error, 'No se pudo volver a agregar.'), 'error');
+          });
+        },
+      });
       return;
     }
 
     setParticipants((previous) => previous.filter((item) => item.id !== safeParticipantId));
-    showAgendaToast('Participante eliminado.', 'success');
+    showAdminToast(`${removedName} quitado.`, 'success', {
+      label: 'Deshacer',
+      onClick: () => setParticipants((previous) => [...previous, participant]),
+    });
   }, [
+    addParticipantToExistingBooking,
     participants,
     persistedEditingBookingId,
     removePersistedParticipantFromBooking,
@@ -2298,15 +2648,23 @@ export default function AdminAgendaPlaygroundPage() {
 
   const persistBookingMove = useCallback(
     async (bookingId: string, courtId: string, startSlot: number, endSlot: number) => {
-      const numericBookingId = Number(bookingId);
       const numericCourtId = Number(courtId);
-      if (!Number.isFinite(numericBookingId) || numericBookingId <= 0) return;
       if (!Number.isFinite(numericCourtId) || numericCourtId <= 0) return;
       const slug = getClubSlug();
       if (!slug) return;
 
       const durationMinutes = Math.max(15, (endSlot - startSlot) * slotMinutes);
       const startDateTime = buildStartDateTimeFromSlot(selectedDate, startSlot);
+      if (isCourtBlockBookingId(bookingId)) {
+        await ClubAdminService.updateCourtBlock(slug, courtBlockIdFromBookingId(bookingId), {
+          courtId: numericCourtId,
+          startDateTime: startDateTime.toISOString(),
+          endDateTime: new Date(startDateTime.getTime() + durationMinutes * 60000).toISOString(),
+        });
+        return;
+      }
+      const numericBookingId = Number(bookingId);
+      if (!Number.isFinite(numericBookingId) || numericBookingId <= 0) return;
       await ClubAdminService.rescheduleBooking(slug, numericBookingId, {
         courtId: numericCourtId,
         startDateTime: startDateTime.toISOString(),
@@ -2525,10 +2883,74 @@ export default function AdminAgendaPlaygroundPage() {
     void reloadSchedule();
   }, [authChecked, user, reloadSchedule]);
 
+  // Refresco automático: no corre con la pestaña oculta, ni mientras se arrastra/selecciona
+  // en la grilla, ni con el panel de reserva o la cuenta abiertos (para no pisar ediciones).
+  const autoRefreshBlockedRef = useRef(false);
+  autoRefreshBlockedRef.current =
+    drawerOpen || accountDrawerOpen || isDragging || Boolean(draggingBookingId) || Boolean(dragSelection);
+  useEffect(() => {
+    if (!authChecked || !user) return;
+    let inFlight = false;
+    let lastRunAt = Date.now();
+    const runRefresh = async () => {
+      if (inFlight || autoRefreshBlockedRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      inFlight = true;
+      lastRunAt = Date.now();
+      try {
+        await reloadSchedule();
+      } finally {
+        inFlight = false;
+      }
+    };
+    const intervalId = window.setInterval(() => void runRefresh(), AGENDA_AUTO_REFRESH_MS);
+    const handleReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastRunAt < AGENDA_REFRESH_ON_FOCUS_MIN_GAP_MS) return;
+      void runRefresh();
+    };
+    document.addEventListener('visibilitychange', handleReturn);
+    window.addEventListener('focus', handleReturn);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleReturn);
+      window.removeEventListener('focus', handleReturn);
+    };
+  }, [authChecked, user, reloadSchedule]);
+
   useEffect(() => {
     if (!drawerOpen) return;
     setBookingHoverPreview(null);
   }, [drawerOpen, resetConsumptionsDraft, setExpandedParticipantId, setParticipantMenuId]);
+
+  /** Lleva la grilla a la hora actual (hoy) o al principio del día (otro día). */
+  const scrollAgendaToNow = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const container = agendaScrollContainerRef.current;
+    if (!container) return;
+    const target = nowLineTop != null ? Math.max(0, nowLineTop - slotHeight * slotsPerHour) : 0;
+    container.scrollTo({ top: target, behavior });
+  }, [nowLineTop]);
+  const selectedDayKeyForScroll = formatLocalDate(selectedDate);
+  const lastAutoScrolledDayRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Solo al abrir la agenda o cambiar de día: no mover la grilla mientras el usuario trabaja.
+    if (lastAutoScrolledDayRef.current === selectedDayKeyForScroll) return;
+    if (!agendaScrollContainerRef.current) return;
+    lastAutoScrolledDayRef.current = selectedDayKeyForScroll;
+    const rafId = window.requestAnimationFrame(() => scrollAgendaToNow('auto'));
+    return () => window.cancelAnimationFrame(rafId);
+  });
+  const goToToday = useCallback(() => {
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+    const isAlreadyToday = formatLocalDate(today) === formatLocalDate(selectedDate);
+    if (isAlreadyToday) {
+      scrollAgendaToNow('smooth');
+      return;
+    }
+    setSelectedDate(today);
+    setFormError('');
+  }, [scrollAgendaToNow, selectedDate]);
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -2580,7 +3002,6 @@ export default function AdminAgendaPlaygroundPage() {
       setDeleteSeriesScopeModalOpen(false);
       setDeleteParticipantConfirm({ open: false, participantId: null, participantName: '' });
       setBlockingErrorModalOpen(false);
-      setBookingCreatedModalOpen(false);
       setSeriesEditPreviewLoading(false);
       setSeriesEditPreviewScope(null);
       setSeriesEditPreviewSummary(null);
@@ -2846,6 +3267,17 @@ export default function AdminAgendaPlaygroundPage() {
         const safeStart = bookingDropPreview.startSlot;
         const safeEnd = bookingDropPreview.endSlot;
         const targetCourtId = bookingDropPreview.courtId;
+        if (targetCourtId === meta.courtId && safeStart === meta.startSlot) {
+          // Volvió a su lugar (o no había otro turno válido): no hay nada que guardar.
+          setDraggingBookingId(null);
+          setDraggingBookingMeta(null);
+          draggingBookingMetaRef.current = null;
+          dragGrabOffsetSlotsRef.current = 0;
+          lastValidDropPreviewRef.current = null;
+          setBookingDropPreview(null);
+          pendingBookingPointerRef.current = null;
+          return;
+        }
         const dropHasConflict = bookings.some((booking) => {
           if (String(booking.id) === String(meta.bookingId)) return false;
           if (booking.courtId !== targetCourtId) return false;
@@ -2886,12 +3318,16 @@ export default function AdminAgendaPlaygroundPage() {
           )
         );
         void persistBookingMove(meta.bookingId, targetCourtId, safeStart, safeEnd)
-          .then(() =>
-            refreshPersistedBookingView(Number(meta.bookingId), {
+          .then(async () => {
+            if (isCourtBlockBookingId(meta.bookingId)) {
+              await reloadSchedule();
+              return;
+            }
+            await refreshPersistedBookingView(Number(meta.bookingId), {
               schedule: true,
               history: true,
-            })
-          )
+            });
+          })
           .catch(async (error) => {
             reportUiError({ area: 'AgendaPlayground', action: 'persistBookingMove' }, error);
             applyBookingError(error, 'No se pudo guardar el movimiento del turno.', { forceNotice: true });
@@ -3004,7 +3440,7 @@ export default function AdminAgendaPlaygroundPage() {
   }, [visibleBookings]);
 
   const openQuickCreateBooking = useCallback(
-    (preferredCourtId?: string) => {
+    (preferredCourtId?: string, preferredRange?: { startSlot: number; endSlot: number }) => {
       const fallbackCourtId =
         (preferredCourtId && effectiveCourts.some((court) => court.id === preferredCourtId) ? preferredCourtId : '') ||
         (selectedCourtId && effectiveCourts.some((court) => court.id === selectedCourtId) ? selectedCourtId : '') ||
@@ -3033,14 +3469,50 @@ export default function AdminAgendaPlaygroundPage() {
         suggestedStartSlot + 1,
         Math.min(totalSlots, suggestedStartSlot + slotSpan)
       );
+      const hasPreferredRange =
+        Boolean(preferredRange) &&
+        Number.isFinite(preferredRange?.startSlot) &&
+        Number.isFinite(preferredRange?.endSlot) &&
+        Number(preferredRange?.endSlot) > Number(preferredRange?.startSlot);
+      // Sin rango elegido: proponer el próximo turno válido y libre de esa cancha.
+      const quickRules = courtBookingRules.get(fallbackCourtId);
+      let ruleSuggestion: AgendaRuleSlot | null = null;
+      if (!hasPreferredRange && quickRules?.rule) {
+        const defaultDuration = defaultDurationFor(quickRules.rule);
+        const durations = allowedDurationsFor(quickRules.rule, null);
+        ruleSuggestion =
+          quickRules.ruleSlots
+            .filter(
+              (slot) =>
+                durations.includes(slot.durationMinutes) &&
+                slot.startSlot >= suggestedStartSlot &&
+                !hasOverlapForRange({
+                  courtId: fallbackCourtId,
+                  startSlot: slot.startSlot,
+                  endSlot: slot.endSlot,
+                  ignoreBookingId: null,
+                })
+            )
+            .sort(
+              (left, right) =>
+                left.startSlot - right.startSlot ||
+                Number(right.durationMinutes === defaultDuration) - Number(left.durationMinutes === defaultDuration)
+            )[0] ?? null;
+      }
+      const nextStartSlot = hasPreferredRange
+        ? Math.max(0, Math.min(totalSlots - 1, Number(preferredRange?.startSlot)))
+        : ruleSuggestion?.startSlot ?? suggestedStartSlot;
+      const nextEndSlot = hasPreferredRange
+        ? Math.max(nextStartSlot + 1, Math.min(totalSlots, Number(preferredRange?.endSlot)))
+        : ruleSuggestion?.endSlot ?? suggestedEndSlot;
 
       setEditingBookingId(null);
       setEditingBaseline(null);
       setBookingKind('regular');
       setBlockingTitle('');
       setSelectedCourtId(fallbackCourtId);
-      setSelectedStartSlot(suggestedStartSlot);
-      setSelectedEndSlot(suggestedEndSlot);
+      setSelectedStartSlot(nextStartSlot);
+      setSelectedEndSlot(nextEndSlot);
       resetRecurringDraft(selectedDate, fallbackCourtId);
       setParticipants(createInitialParticipants());
       setSimplifiedSidebarSection('DETAILS');
@@ -3061,7 +3533,9 @@ export default function AdminAgendaPlaygroundPage() {
       setFormError('');
     },
     [
+      courtBookingRules,
       effectiveCourts,
+      hasOverlapForRange,
       selectedCourtId,
       selectedDate,
       selectedEndSlot,
@@ -3131,19 +3605,13 @@ export default function AdminAgendaPlaygroundPage() {
         return { recurrenceDays, frequencyDays };
       }
 
-      const customTotalReservations = Math.max(1, Math.floor(customEndAfterReservations || 0));
-      if (!Number.isFinite(customTotalReservations) || customTotalReservations <= 0) {
-        return {
-          recurrenceDays: [],
-          frequencyDays: 0,
-          error: 'Indicá cuántas repeticiones querés generar.',
-        };
-      }
-
+      // "Durante N semanas": cada día elegido se repite N / (cada cuántas semanas) veces.
+      const durationWeeks = Math.max(1, Math.floor(recurringRepetitions || 0));
+      const everyWeeks = Math.max(1, Math.floor(customRepeatEveryWeeks || 0));
       return {
         recurrenceDays,
         frequencyDays,
-        repetitionsPerDay: Math.max(1, Math.ceil(customTotalReservations / recurrenceDays.length)),
+        repetitionsPerDay: Math.max(1, Math.ceil(durationWeeks / everyWeeks)),
       };
     }
 
@@ -3213,8 +3681,28 @@ export default function AdminAgendaPlaygroundPage() {
     }
     return `Se crearán ${perCourtCount} turnos.`;
   }, [recurringEstimatedOccurrencesPerCourt, recurringEstimatedOccurrencesTotal, selectedRecurringCourts.length]);
+  /** Fecha del último turno de la serie (null si no tiene fin). */
+  const recurringLastOccurrence = useMemo(() => {
+    const repetitions = Number(recurringExecutionPlan.repetitionsPerDay);
+    if (recurringExecutionPlan.error || !Number.isFinite(repetitions) || repetitions <= 0) return null;
+    const baseDate = new Date(selectedDate);
+    baseDate.setHours(12, 0, 0, 0);
+    let last: Date | null = null;
+    for (const day of recurringExecutionPlan.recurrenceDays) {
+      const candidate = getNextDateForDay(baseDate, day, slotToTime(selectedStartSlot));
+      candidate.setDate(candidate.getDate() + (repetitions - 1) * recurringExecutionPlan.frequencyDays);
+      if (!last || candidate.getTime() > last.getTime()) last = candidate;
+    }
+    return last;
+  }, [recurringExecutionPlan, selectedDate, selectedStartSlot]);
 
   const selectionMinutes = Math.max((selectedEndSlot - selectedStartSlot) * slotMinutes, slotMinutes);
+  // Precio por jugador: una modalidad con duración fija (ej. Single 60, Dobles 120) ajusta el fin del turno.
+  const handleBookingFormatDurationChange = useCallback((durationMinutes: number | null) => {
+    if (!durationMinutes) return;
+    const span = Math.max(1, Math.round(durationMinutes / slotMinutes));
+    setSelectedEndSlot(selectedStartSlot + span);
+  }, [selectedStartSlot]);
   const selectionStartDateTime = useMemo(
     () => buildSelectionDateTime(selectedDate, selectedStartSlot),
     [selectedDate, selectedStartSlot]
@@ -3246,17 +3734,16 @@ export default function AdminAgendaPlaygroundPage() {
   const shouldBlockSaveByQuote = hasBlockingQuoteError && (!editingBookingId || hasScheduleChanges);
   const hasConflict = useMemo(() => {
     if (!selectedCourtId) return false;
-    const ignoreBookingId = editingBookingId && !hasScheduleChanges ? editingBookingId : null;
+    // La reserva que se está editando nunca choca consigo misma (ej. acortarla de 2 h a 1 h 30).
     return hasOverlapForRange({
       courtId: selectedCourtId,
       startSlot: selectedStartSlot,
       endSlot: selectedEndSlot,
-      ignoreBookingId,
+      ignoreBookingId: editingBookingId || null,
     });
   }, [
     editingBookingId,
     hasOverlapForRange,
-    hasScheduleChanges,
     selectedCourtId,
     selectedEndSlot,
     selectedStartSlot,
@@ -3365,7 +3852,16 @@ export default function AdminAgendaPlaygroundPage() {
   const shouldShowSeriesScopeHint = Boolean(
     editingBooking?.fixedBookingId && hasScheduleChanges && !pendingSeriesScopeSave
   );
-  const hasDeferredEditChanges = Boolean(editingBookingId ? hasScheduleChanges : selectedCourtId);
+  // En un bloqueo también cuenta cambiar el título ("Bloqueo" por defecto equivale a vacío).
+  const editingBlockBaselineTitle = (() => {
+    const raw = String(editingBaseline?.title || '');
+    return normalizeBookingDisplayTitle(raw, '') === 'Bloqueo' ? '' : raw.trim();
+  })();
+  const hasBlockTitleChange =
+    bookingKind === 'block' && Boolean(editingBookingId) && blockingTitle.trim() !== editingBlockBaselineTitle;
+  const hasDeferredEditChanges = Boolean(
+    editingBookingId ? hasScheduleChanges || hasBlockTitleChange : selectedCourtId
+  );
   const primaryActionDisabled = Boolean(
     isSubmittingBooking ||
     isDeletingBooking ||
@@ -3373,7 +3869,11 @@ export default function AdminAgendaPlaygroundPage() {
     hasBlockingActionError ||
     !hasDeferredEditChanges
   );
-  const primaryActionLabel = editingBookingId ? 'Guardar cambios' : 'Crear reserva';
+  const primaryActionLabel = editingBookingId
+    ? 'Guardar cambios'
+    : bookingKind === 'block'
+      ? 'Bloquear'
+      : 'Crear reserva';
   const primaryActionMeta = editingBookingId
     ? `${slotToTime(selectedStartSlot)} - ${slotToTime(selectedEndSlot)}`
     : (selectedCourt?.name || 'Sin cancha');
@@ -3474,10 +3974,66 @@ export default function AdminAgendaPlaygroundPage() {
     return { x: nextX, y: nextY };
   }, []);
 
+  const freeFinderDay = useMemo<'today' | 'tomorrow' | 'other'>(() => {
+    const today = new Date(nowTick);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    if (formatLocalDate(today) === selectedDateKey) return 'today';
+    if (formatLocalDate(tomorrow) === selectedDateKey) return 'tomorrow';
+    return 'other';
+  }, [nowTick, selectedDateKey]);
+
+  const handleFreeFinderDayChange = useCallback((day: 'today' | 'tomorrow') => {
+    const next = new Date();
+    if (day === 'tomorrow') next.setDate(next.getDate() + 1);
+    next.setHours(12, 0, 0, 0);
+    setSelectedDate(next);
+    setFormError('');
+  }, []);
+
+  // Resumen del día para la toolbar de escritorio (mismo cálculo que la grilla de celular).
+  const desktopDaySummary = useMemo(() => {
+    const courtMasks = new Map<string, boolean[]>();
+    courtBookingRules.forEach((value, courtId) => {
+      if (value?.rule) courtMasks.set(courtId, value.mask);
+    });
+    return computeAgendaDaySummary({ bookings: visibleBookings, courts: visibleCourts, courtMasks, pastSlotCount });
+  }, [courtBookingRules, visibleBookings, visibleCourts, pastSlotCount]);
+
+  // Grilla de celular: mismas reglas por cancha (turnos válidos, duraciones y horarios reservables).
+  const mobileCourtRules = useMemo(() => {
+    const map = new Map<string, { ruleSlots: AgendaRuleSlot[]; mask: boolean[]; durations: number[] }>();
+    courtBookingRules.forEach((value, courtId) => {
+      if (!value?.rule) return;
+      map.set(courtId, {
+        ruleSlots: value.ruleSlots,
+        mask: value.mask,
+        durations: allowedDurationsFor(value.rule, null),
+      });
+    });
+    return map;
+  }, [courtBookingRules]);
+
+  // Ajusta lo que se arrastra en la grilla a un turno que el club acepta (inicio + duración válidos).
+  const snapCreateForCourt = (courtId: string, anchorSlot: number, pointerSlot: number) => {
+    const courtRules = courtBookingRules.get(courtId);
+    if (!courtRules?.rule) return undefined;
+    return snapCreateSelection({
+      ruleSlots: courtRules.ruleSlots,
+      durations: allowedDurationsFor(courtRules.rule, null),
+      anchorSlot,
+      pointerSlot,
+      isFree: (startSlot, endSlot) =>
+        startSlot >= pastSlotCount &&
+        !hasOverlapForRange({ courtId, startSlot, endSlot, ignoreBookingId: null }),
+    });
+  };
+
   const handleSlotMouseDown = (event: React.MouseEvent<HTMLDivElement>, courtId: string, slot: number) => {
     event.preventDefault();
     if (draggingBookingMetaRef.current) return;
     setBookingHoverPreview(null);
+    createDragAnchorRef.current = null;
     const startsOnConflict = hasOverlapForRange({
       courtId,
       startSlot: slot,
@@ -3485,6 +4041,24 @@ export default function AdminAgendaPlaygroundPage() {
       ignoreBookingId: null,
     });
     if (startsOnConflict) return;
+    if (slot < pastSlotCount) {
+      showAgendaToast('Ese horario ya pasó.', 'info');
+      return;
+    }
+    const snapped = snapCreateForCourt(courtId, slot, slot);
+    if (snapped === null) {
+      // Horario grisado: no se puede reservar. Si el horario es válido pero no entra un turno, avisar.
+      if (courtBookingRules.get(courtId)?.mask[slot]) {
+        showAgendaToast('No entra un turno completo en ese hueco.');
+      }
+      return;
+    }
+    if (snapped) {
+      createDragAnchorRef.current = { courtId, slot };
+      setIsDragging(true);
+      setDragSelection({ courtId, startSlot: snapped.startSlot, endSlot: snapped.endSlot - 1 });
+      return;
+    }
     setIsDragging(true);
     setDragSelection({ courtId, startSlot: slot, endSlot: slot });
   };
@@ -3494,6 +4068,30 @@ export default function AdminAgendaPlaygroundPage() {
       const durationSlots = Math.max(1, Number(draggingBookingMetaRef.current.durationSlots || 1));
       const offsetSlots = Math.max(0, Math.min(durationSlots - 1, Number(dragGrabOffsetSlotsRef.current || 0)));
       const desiredStart = slot - offsetSlots;
+      const targetRules = courtBookingRules.get(courtId);
+      if (targetRules?.rule) {
+        const originActivityId = courtBookingRules.get(draggingBookingMetaRef.current.courtId)?.activityId ?? null;
+        const movingBookingId = draggingBookingMetaRef.current.bookingId;
+        const snappedMove =
+          originActivityId && targetRules.activityId !== originActivityId
+            ? null
+            : snapMoveStart({
+                ruleSlots: targetRules.ruleSlots,
+                durationMinutes: durationSlots * slotMinutes,
+                desiredStartSlot: desiredStart,
+                isFree: (startSlot, endSlot) =>
+                  !hasOverlapForRange({ courtId, startSlot, endSlot, ignoreBookingId: movingBookingId }),
+              });
+        // Solo se acepta un inicio válido cercano; si no hay, la vista previa queda en el último lugar válido.
+        if (!snappedMove || Math.abs(snappedMove.startSlot - desiredStart) > durationSlots) {
+          if (lastValidDropPreviewRef.current) setBookingDropPreview(lastValidDropPreviewRef.current);
+          return;
+        }
+        const snappedCandidate = { courtId, startSlot: snappedMove.startSlot, endSlot: snappedMove.endSlot };
+        lastValidDropPreviewRef.current = snappedCandidate;
+        setBookingDropPreview(snappedCandidate);
+        return;
+      }
       const safeStart = Math.max(0, Math.min(totalSlots - durationSlots, desiredStart));
       const candidate = {
         courtId,
@@ -3517,6 +4115,14 @@ export default function AdminAgendaPlaygroundPage() {
       return;
     }
     if (!isDragging) return;
+    const createAnchor = createDragAnchorRef.current;
+    if (createAnchor) {
+      if (createAnchor.courtId !== courtId) return;
+      const snapped = snapCreateForCourt(courtId, createAnchor.slot, slot);
+      if (!snapped) return;
+      setDragSelection({ courtId, startSlot: snapped.startSlot, endSlot: snapped.endSlot - 1 });
+      return;
+    }
     setDragSelection((previous) => {
       if (!previous || previous.courtId !== courtId) return previous;
       const candidate = { ...previous, endSlot: slot };
@@ -3535,6 +4141,11 @@ export default function AdminAgendaPlaygroundPage() {
   const handleBookingMouseDown = (event: React.MouseEvent<HTMLDivElement>, booking: Booking) => {
     event.preventDefault();
     event.stopPropagation();
+    if (booking.state === 'class') {
+      setBookingHoverPreview(null);
+      setClassPeekBooking(booking);
+      return;
+    }
     const rect = event.currentTarget.getBoundingClientRect();
     const localY = Math.max(0, event.clientY - rect.top);
     const offsetSlots = Math.floor(localY / slotHeight);
@@ -3555,6 +4166,82 @@ export default function AdminAgendaPlaygroundPage() {
       })),
     []
   );
+
+  // Panel de reserva: solo inicios y fines que el club acepta para la cancha (y modalidad) elegida.
+  const drawerCourtRules = courtBookingRules.get(selectedCourtId) ?? null;
+  const drawerRuleSlots = drawerCourtRules?.rule ? drawerCourtRules.ruleSlots : null;
+  const drawerAllowedDurations = useMemo(
+    () => (drawerCourtRules?.rule ? allowedDurationsFor(drawerCourtRules.rule, bookingActivityFormatId || null) : []),
+    [bookingActivityFormatId, drawerCourtRules]
+  );
+  const drawerStartTimeOptions = useMemo(() => {
+    if (!drawerRuleSlots) {
+      return timeOptions.slice(0, -1).map((option) => ({ value: option.value, label: option.value }));
+    }
+    const starts = new Set<number>([selectedStartSlot]);
+    for (const duration of drawerAllowedDurations) {
+      for (const slot of startSlotsForDuration(drawerRuleSlots, duration)) starts.add(slot);
+    }
+    return Array.from(starts)
+      .sort((a, b) => a - b)
+      .map((slot) => ({ value: slotToTime(slot), label: slotToTime(slot) }));
+  }, [drawerAllowedDurations, drawerRuleSlots, selectedStartSlot, timeOptions]);
+  const drawerEndTimeOptions = useMemo(() => {
+    if (!drawerRuleSlots) {
+      return timeOptions.slice(1).map((option) => ({ value: option.value, label: option.value }));
+    }
+    const options = drawerRuleSlots
+      .filter(
+        (slot) => slot.startSlot === selectedStartSlot && drawerAllowedDurations.includes(slot.durationMinutes)
+      )
+      .sort((a, b) => a.endSlot - b.endSlot)
+      .map((slot) => ({
+        value: slotToTime(slot.endSlot),
+        label: `${slotToTime(slot.endSlot)} · ${formatDurationLabel(slot.durationMinutes)}`,
+      }));
+    if (!options.some((option) => option.value === slotToTime(selectedEndSlot))) {
+      options.push({ value: slotToTime(selectedEndSlot), label: slotToTime(selectedEndSlot) });
+    }
+    return options;
+  }, [drawerAllowedDurations, drawerRuleSlots, selectedEndSlot, selectedStartSlot, timeOptions]);
+  const drawerSelectionIsAllowed =
+    !drawerRuleSlots ||
+    (drawerAllowedDurations.includes((selectedEndSlot - selectedStartSlot) * slotMinutes) &&
+      isValidRulePlacement(drawerRuleSlots, selectedStartSlot, selectedEndSlot));
+
+  /** Duraciones que se pueden elegir con un botón para el inicio actual. */
+  const drawerDurationChoices = useMemo(() => {
+    if (!drawerRuleSlots) return [] as Array<{ durationMinutes: number; endSlot: number }>;
+    const byDuration = new Map<number, number>();
+    for (const slot of drawerRuleSlots) {
+      if (slot.startSlot !== selectedStartSlot || !drawerAllowedDurations.includes(slot.durationMinutes)) continue;
+      byDuration.set(slot.durationMinutes, slot.endSlot);
+    }
+    return Array.from(byDuration.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([durationMinutes, endSlot]) => ({ durationMinutes, endSlot }));
+  }, [drawerAllowedDurations, drawerRuleSlots, selectedStartSlot]);
+
+  /** Cambiar la hora de inicio mantiene la duración si sigue siendo válida; si no, toma la válida más parecida. */
+  const applyDrawerStartSlot = (nextStart: number) => {
+    const currentSpan = Math.max(1, selectedEndSlot - selectedStartSlot);
+    setSelectedStartSlot(nextStart);
+    if (drawerRuleSlots) {
+      const candidates = drawerRuleSlots.filter(
+        (slot) => slot.startSlot === nextStart && drawerAllowedDurations.includes(slot.durationMinutes)
+      );
+      const sameSpan = candidates.find((slot) => slot.endSlot - slot.startSlot === currentSpan);
+      const closest =
+        sameSpan ||
+        [...candidates].sort(
+          (a, b) =>
+            Math.abs(a.endSlot - a.startSlot - currentSpan) - Math.abs(b.endSlot - b.startSlot - currentSpan)
+        )[0];
+      setSelectedEndSlot(closest ? closest.endSlot : Math.min(totalSlots, nextStart + currentSpan));
+      return;
+    }
+    setSelectedEndSlot(Math.min(totalSlots, nextStart + currentSpan));
+  };
 
   const updateParticipant = useCallback((
     id: string,
@@ -3699,8 +4386,37 @@ export default function AdminAgendaPlaygroundPage() {
     setSimplifiedOwnerSuggestionsOpen(false);
     setSimplifiedOwnerSearchLoading(false);
     setSimplifiedOwnerSuggestions([]);
+    // Un cliente existente ya tiene sus datos: queda como titular sin un paso extra.
+    setSimplifiedOwnerAdded(true);
+    setSimplifiedEditingParticipantId(null);
     setFormError('');
   }, [updateParticipant]);
+
+  // Desde la ficha del cliente: /admin/agenda?cliente=<id>&nombre=...&tel=... abre una reserva nueva con él de titular.
+  const clientFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (clientFromUrlHandledRef.current || !router.isReady) return;
+    const clientId = String(router.query.cliente || '').trim();
+    if (!clientId) return;
+    // Esperar canchas, reservas y reglas del día: así la reserva propone un turno válido y libre.
+    if (effectiveCourts.length === 0) return;
+    if (loadedScheduleDate !== selectedDateKey || bookingRulesSettledDate !== selectedDateKey) return;
+    clientFromUrlHandledRef.current = true;
+    const name = String(router.query.nombre || '').trim();
+    const contact = String(router.query.tel || '').trim();
+    openQuickCreateBooking();
+    setPendingUrlOwner({
+      id: `client:${clientId}`,
+      label: name || 'Cliente',
+      name: name || 'Cliente',
+      contact,
+      sourceType: 'clubClient',
+      entityRef: `client:${clientId}`,
+      personKind: 'clubClient',
+    });
+    const { cliente: _cliente, nombre: _nombre, tel: _tel, ...rest } = router.query;
+    void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+  }, [router, effectiveCourts.length, loadedScheduleDate, bookingRulesSettledDate, selectedDateKey, openQuickCreateBooking]);
 
   const runSimplifiedNewParticipantSearch = useCallback(async (rawValue: string) => {
     setSimplifiedNewParticipantName(rawValue);
@@ -3928,6 +4644,86 @@ export default function AdminAgendaPlaygroundPage() {
     let recurringSummaryError = '';
     let recurringResultModalShouldOpen = false;
     let createdBookingId: string | null = null;
+    let firstCreatedRecurringBookingId: number | null = null;
+
+    // Bloqueo de cancha: no tiene titular ni cobro, se guarda directo en el servidor.
+    if (bookingKind === 'block') {
+      const numericCourtId = Number(selectedCourtId);
+      if (!Number.isFinite(numericCourtId) || numericCourtId <= 0) {
+        setBlockingFieldError('court', 'Seleccioná una cancha para bloquear.');
+        return;
+      }
+      if (selectedEndSlot <= selectedStartSlot) {
+        setBlockingFieldError('time', 'La hora de fin debe ser mayor a la de inicio.');
+        return;
+      }
+      const editingBlockId =
+        editingBookingId && isCourtBlockBookingId(editingBookingId)
+          ? courtBlockIdFromBookingId(editingBookingId)
+          : null;
+      const blockOverlapsSomething = bookings.some((booking) => {
+        if (editingBookingId && String(booking.id) === String(editingBookingId)) return false;
+        if (booking.courtId !== selectedCourtId) return false;
+        return selectedStartSlot < booking.endSlot && selectedEndSlot > booking.startSlot;
+      });
+      if (blockOverlapsSomething) {
+        setBlockingFieldError('time', 'Ese horario ya está ocupado en la cancha seleccionada.');
+        return;
+      }
+      const slug = getClubSlug();
+      if (!slug) {
+        setFormError('No se pudo determinar el club activo.');
+        return;
+      }
+      const startDateTime = buildStartDateTimeFromSlot(selectedDate, selectedStartSlot);
+      const endDateTime = new Date(
+        startDateTime.getTime() + (selectedEndSlot - selectedStartSlot) * slotMinutes * 60000
+      );
+      const normalizedTitle = blockingTitle.trim();
+      // Mismo criterio que openBookingInDrawer: "Bloqueo" es el título por defecto (campo vacío).
+      const baselineTitleRaw = String(editingBaseline?.title || '');
+      const baselineTitle =
+        normalizeBookingDisplayTitle(baselineTitleRaw, '') === 'Bloqueo' ? '' : baselineTitleRaw.trim();
+      const titleChanged = normalizedTitle !== baselineTitle;
+      if (editingBlockId && !hasScheduleChanges && !titleChanged) {
+        setDrawerOpen(false);
+        setFormError('');
+        setEditingBookingId(null);
+        setEditingBaseline(null);
+        return;
+      }
+      try {
+        setIsSubmittingBooking(true);
+        setFormError('');
+        if (editingBlockId) {
+          await ClubAdminService.updateCourtBlock(slug, editingBlockId, {
+            courtId: numericCourtId,
+            startDateTime: startDateTime.toISOString(),
+            endDateTime: endDateTime.toISOString(),
+            title: normalizedTitle || null,
+          });
+        } else {
+          await ClubAdminService.createCourtBlock(slug, {
+            courtId: numericCourtId,
+            startDateTime: startDateTime.toISOString(),
+            endDateTime: endDateTime.toISOString(),
+            title: normalizedTitle || null,
+          });
+        }
+        await reloadSchedule();
+        setDrawerOpen(false);
+        setEditingBookingId(null);
+        setEditingBaseline(null);
+        setBlockingTitle('');
+        showAgendaToast(editingBlockId ? 'Bloqueo actualizado.' : 'Bloqueo creado.', 'success');
+      } catch (error: any) {
+        reportUiError({ area: 'AgendaPlayground', action: editingBlockId ? 'updateCourtBlock' : 'createCourtBlock' }, error);
+        applyBookingError(error, editingBlockId ? 'No se pudo actualizar el bloqueo.' : 'No se pudo crear el bloqueo.');
+      } finally {
+        setIsSubmittingBooking(false);
+      }
+      return;
+    }
 
     const owner = participants.find((participant) => participant.isOwner);
 
@@ -4000,49 +4796,6 @@ export default function AdminAgendaPlaygroundPage() {
 
     if (!isRecurringKind && hasConflict && (!editingBookingId || hasScheduleChanges)) {
       setBlockingFieldError('time', 'Ya existe una reserva en ese rango horario para la cancha seleccionada.');
-      return;
-    }
-
-    if (bookingKind === 'block') {
-      if (editingBookingId) {
-        if (!hasScheduleChanges) {
-          setDrawerOpen(false);
-          setFormError('');
-          setEditingBookingId(null);
-          setEditingBaseline(null);
-          return;
-        }
-        try {
-          setIsSubmittingBooking(true);
-          await persistBookingMove(editingBookingId, selectedCourtId, selectedStartSlot, selectedEndSlot);
-          await reloadSchedule();
-          setDrawerOpen(false);
-          setFormError('');
-          setEditingBookingId(null);
-          setEditingBaseline(null);
-          showAgendaToast('Bloqueo actualizado.', 'success');
-          return;
-        } catch (error: any) {
-          applyBookingError(error, 'No se pudo actualizar el bloqueo.');
-          return;
-        } finally {
-          setIsSubmittingBooking(false);
-        }
-      }
-      const newBooking: Booking = {
-        id: `manual-${Date.now()}`,
-        courtId: selectedCourtId,
-        startSlot: selectedStartSlot,
-        endSlot: selectedEndSlot,
-        title: blockingTitle.trim() || 'Bloqueo',
-        state: 'blocked',
-        paymentState: 'unpaid',
-      };
-      setBookings((previous) => [...previous, newBooking]);
-      setDrawerOpen(false);
-      setFormError('');
-      setBlockingTitle('');
-      showAgendaToast('Bloqueo creado.', 'success');
       return;
     }
 
@@ -4248,6 +5001,7 @@ export default function AdminAgendaPlaygroundPage() {
                 const preview = await createFixedBooking(Number(court.id), activityId, firstOccurrence, {
                   durationMinutes: selectionMinutes,
                   everyDays: frequencyDays,
+                  ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
                   ...(Number.isFinite(repetitionsPerDay) ? { repetitions: repetitionsPerDay } : {}),
                   ...(ownerClientId
                     ? { clientId: ownerClientId }
@@ -4295,15 +5049,18 @@ export default function AdminAgendaPlaygroundPage() {
             return;
           }
 
-          setRecurringOverlapItems(previewOverlapDetails);
-          setRecurringPreviewSummary({
-            generatedCount: previewGeneratedCount,
-            skippedCount: previewSkippedCount,
-            courtsCount: selectedRecurringCourts.length,
-          });
-          setRecurringCreateConfirmOpen(true);
-          setFormError('');
-          return;
+          // Solo se pide confirmación si hay turnos que chocan: sin choques se crea directo.
+          if (previewSkippedCount > 0) {
+            setRecurringOverlapItems(previewOverlapDetails);
+            setRecurringPreviewSummary({
+              generatedCount: previewGeneratedCount,
+              skippedCount: previewSkippedCount,
+              courtsCount: selectedRecurringCourts.length,
+            });
+            setRecurringCreateConfirmOpen(true);
+            setFormError('');
+            return;
+          }
         }
 
         setRecurringOverlapItems([]);
@@ -4315,9 +5072,10 @@ export default function AdminAgendaPlaygroundPage() {
           dayOfWeek: number
         ) => {
           const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotTime);
-          const result = await createFixedBooking(Number(courtId), activityId, firstOccurrence, {
+          const requestPayload = {
             durationMinutes: selectionMinutes,
             everyDays: frequencyDays,
+            ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
             ...(Number.isFinite(repetitionsPerDay) ? { repetitions: repetitionsPerDay } : {}),
             ...(ownerClientId
               ? { clientId: ownerClientId }
@@ -4331,7 +5089,8 @@ export default function AdminAgendaPlaygroundPage() {
                     dni: ownerDni || undefined,
                   },
                 }),
-          });
+          };
+          const result = await createFixedBooking(Number(courtId), activityId, firstOccurrence, requestPayload);
           return result;
         };
 
@@ -4421,8 +5180,12 @@ export default function AdminAgendaPlaygroundPage() {
                   const createdEnd = createdEndRaw ? new Date(createdEndRaw) : null;
                   const hasCreatedStart = createdStart && !Number.isNaN(createdStart.getTime());
                   const hasCreatedEnd = createdEnd && !Number.isNaN(createdEnd.getTime());
+                  const createdItemBookingId = Number.isFinite(Number(item?.bookingId)) ? Number(item.bookingId) : undefined;
+                  if (firstCreatedRecurringBookingId === null && createdItemBookingId) {
+                    firstCreatedRecurringBookingId = createdItemBookingId;
+                  }
                   createdDetails.push({
-                    bookingId: Number.isFinite(Number(item?.bookingId)) ? Number(item.bookingId) : undefined,
+                    bookingId: createdItemBookingId,
                     courtName: String(item?.courtName || court.name || 'Cancha'),
                     requestedDateLabel: hasCreatedStart
                       ? formatSeriesDateLabel(createdStart as Date, activeClubTimeZone)
@@ -4503,7 +5266,17 @@ export default function AdminAgendaPlaygroundPage() {
           generatedCount === 0 &&
           skippedCount > 0 &&
           overlapDetails.length > 0;
-        const shouldOpenRecurringResultModal = generatedCount > 0 || hasOnlyOverlapSkips;
+        // Igual que la reserva suelta: el admin la crea confirmada, para poder cobrarla sin un paso extra.
+        for (const created of createdDetails) {
+          if (!created.bookingId) continue;
+          try {
+            await confirmBooking(Number(created.bookingId));
+          } catch (error) {
+            reportUiError({ area: 'AgendaPlayground', action: 'confirmRecurringOccurrence' }, error);
+          }
+        }
+        // El detalle solo hace falta si hubo turnos salteados o errores; si se creó todo, alcanza el aviso.
+        const shouldOpenRecurringResultModal = skippedCount > 0 || hasOnlyOverlapSkips;
         recurringResultModalShouldOpen = shouldOpenRecurringResultModal;
         if (hardErrors.length > 0) {
           recurringSummaryError = `Algunas canchas fallaron: ${hardErrors.join(' · ')}`;
@@ -4525,7 +5298,12 @@ export default function AdminAgendaPlaygroundPage() {
         );
         setRecurringOverlapModalOpen(shouldOpenRecurringResultModal);
         if (generatedCount > 0) {
-          showAgendaToast(`Reserva fija creada: ${generatedCount} turnos.`, 'success');
+          showAgendaToast(
+            skippedCount > 0
+              ? `Reserva fija creada: ${generatedCount} turnos (${skippedCount} salteados por choques).`
+              : `Reserva fija creada: ${generatedCount} turnos.`,
+            'success'
+          );
         }
       } else {
         const selectedActivityId = Number(selectedCourt?.activityTypeId || 0);
@@ -4536,6 +5314,7 @@ export default function AdminAgendaPlaygroundPage() {
         const bookingDate = new Date(selectedDate);
         const createdPayload: any = await createBooking(Number(selectedCourtId), selectedActivityId, bookingDate, slotTime, {
           durationMinutes: selectionMinutes,
+          ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
           ...(ownerClientId
             ? { clientId: ownerClientId }
             : ownerPersonSelection
@@ -4595,15 +5374,51 @@ export default function AdminAgendaPlaygroundPage() {
       if (isRecurringKind) {
         if (recurringSummaryError && !recurringResultModalShouldOpen) {
           setFormError(recurringSummaryError);
+          setEditingBookingId(null);
+          setEditingBaseline(null);
+          return;
         }
+        const firstCreatedBooking = firstCreatedRecurringBookingId
+          ? (Array.isArray(refreshedBookings) ? refreshedBookings : []).find(
+              (booking) => Number(booking.id) === firstCreatedRecurringBookingId
+            )
+          : null;
+        if (!recurringResultModalShouldOpen) {
+          // Se creó todo sin choques: no hay modal de resultado, se abre directo el primer turno.
+          if (firstCreatedBooking) {
+            openBookingInDrawer(firstCreatedBooking);
+          } else {
+            closeBookingDrawer({ clearFormError: true });
+          }
+          return;
+        }
+        setPendingRecurringEditBooking(firstCreatedBooking || null);
+        // No usamos closeBookingDrawer() acá: setear drawerOpen=false dispara el timer de
+        // limpieza que resetea recurringResult (y otros estados) y se comería el modal de
+        // resultado. Solo limpiamos lo necesario para que hasConflict no dispare un falso
+        // positivo contra la reserva recién creada, dejando el drawer/modal como están.
+        setSelectedCourtId('');
         setEditingBookingId(null);
         setEditingBaseline(null);
+        setFormError('');
         return;
       }
       if (createdBookingId) {
-        const createdBooking = (Array.isArray(refreshedBookings) ? refreshedBookings : []).find(
-          (booking) => String(booking.id) === String(createdBookingId)
-        );
+        const findCreatedBooking = (rows: unknown) =>
+          (Array.isArray(rows) ? rows : []).find(
+            (booking: Booking) => String(booking.id) === String(createdBookingId)
+          ) as Booking | undefined;
+        let createdBooking = findCreatedBooking(refreshedBookings);
+        // Una reserva que carga el club en el mostrador ya está confirmada: no tiene sentido
+        // dejarla pendiente y obligar a confirmarla antes de poder cobrarla.
+        if (createdBooking && createdBooking.state === 'pending') {
+          try {
+            await confirmBooking(Number(createdBooking.id));
+            createdBooking = findCreatedBooking(await reloadSchedule()) || { ...createdBooking, state: 'confirmed' };
+          } catch (confirmError) {
+            reportUiError({ area: 'AgendaPlayground', action: 'autoConfirmCreatedBooking' }, confirmError);
+          }
+        }
         if (createdBooking) {
           openBookingInDrawer(createdBooking);
           if (pendingParticipantDrafts.length > 0) {
@@ -4633,8 +5448,11 @@ export default function AdminAgendaPlaygroundPage() {
               forceDrawerSections: true,
             });
           }
-          setBookingCreatedModalOpen(true);
           showAgendaToast('Reserva creada.', 'success');
+          if (chargeAfterCreateRef.current) {
+            chargeAfterCreateRef.current = false;
+            await openAgendaAccountDrawer(Number(createdBooking.id), 'payment');
+          }
           return;
         }
       }
@@ -4670,6 +5488,7 @@ export default function AdminAgendaPlaygroundPage() {
                 {
                   durationMinutes: selectionMinutes,
                   clientId: selectedClientId,
+                  ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
                 }
               );
 
@@ -4729,6 +5548,7 @@ export default function AdminAgendaPlaygroundPage() {
                 slotTime,
                 {
                   durationMinutes: selectionMinutes,
+                  ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
                   client: {
                     name: ownerName,
                     phone: ownerPhone,
@@ -4826,7 +5646,7 @@ export default function AdminAgendaPlaygroundPage() {
       if (event.key === 'Escape') {
         setRecurringCourtsMenuOpen(false);
         setCustomRecurrenceModalOpen(false);
-        setRecurringOverlapModalOpen(false);
+        closeRecurringResultModal();
         setRecurringCreateConfirmOpen(false);
         setEditSeriesScopeModalOpen(false);
         setDeleteSeriesScopeModalOpen(false);
@@ -4857,6 +5677,13 @@ export default function AdminAgendaPlaygroundPage() {
       resetSimplifiedNewParticipantDraft();
     }
   }, [drawerOpen, editingBookingId, resetSimplifiedNewParticipantDraft]);
+
+  // Titular que vino desde la ficha del cliente: se carga después de que el drawer limpió su estado.
+  useEffect(() => {
+    if (!drawerOpen || editingBookingId || !pendingUrlOwner) return;
+    applySimplifiedOwnerSuggestion('owner', pendingUrlOwner);
+    setPendingUrlOwner(null);
+  }, [drawerOpen, editingBookingId, pendingUrlOwner, applySimplifiedOwnerSuggestion]);
 
   useEffect(() => {
     if (!drawerOpen || !editingBookingId) return;
@@ -4897,7 +5724,7 @@ export default function AdminAgendaPlaygroundPage() {
 
   const resolveSuggestionPlacement = useCallback((
     anchor: HTMLDivElement | null,
-    options?: { itemCount?: number; loading?: boolean }
+    options?: { itemCount?: number; loading?: boolean; extraRows?: number }
   ): SuggestionPlacement => {
     if (!anchor) return { openUp: false, maxHeight: 280 };
     const rect = anchor.getBoundingClientRect();
@@ -4908,7 +5735,8 @@ export default function AdminAgendaPlaygroundPage() {
     const spaceAbove = Math.max(0, rect.top - 12);
     const itemCount = Math.max(0, Number(options?.itemCount || 0));
     const loadingRows = options?.loading ? 1 : 0;
-    const estimatedContentHeight = Math.max(120, Math.min(280, (itemCount + loadingRows) * 44 + 12));
+    const extraRows = Math.max(0, Number(options?.extraRows || 0));
+    const estimatedContentHeight = Math.max(120, Math.min(380, (itemCount + loadingRows + extraRows) * 56 + 16));
     // Si con su alto natural tocaría el footer, abrir arriba.
     const openUp = spaceBelow < estimatedContentHeight;
     const available = openUp ? spaceAbove : spaceBelow;
@@ -4923,8 +5751,9 @@ export default function AdminAgendaPlaygroundPage() {
     }
     setSimplifiedOwnerSuggestionsPlacement(
       resolveSuggestionPlacement(simplifiedOwnerInputContainerRef.current, {
-        itemCount: simplifiedOwnerSuggestions.length,
+        itemCount: Math.min(8, simplifiedOwnerSuggestions.length),
         loading: simplifiedOwnerSearchLoading,
+        extraRows: 1,
       })
     );
   }, [
@@ -4969,6 +5798,69 @@ export default function AdminAgendaPlaygroundPage() {
     };
   }, [simplifiedNewParticipantSuggestionsOpen, simplifiedOwnerSuggestionsOpen]);
 
+  // Precio de la reserva nueva, visible desde que se elige el horario. Se recotiza al cambiar
+  // horario, cancha, modalidad o cliente (el cliente define el precio de socio). Un error de
+  // cotización no bloquea guardar: solo deja el precio sin mostrar.
+  const isCreatingRegularBooking = drawerOpen && !editingBookingId && bookingKind === 'regular';
+  const ownerQuoteClientId =
+    resolveParticipantClientId(participants.find((participant) => participant.isOwner) || participants[0] || null) || '';
+  const [createQuoteTotal, setCreateQuoteTotal] = useState<number | null>(null);
+  const [createQuoteLoading, setCreateQuoteLoading] = useState(false);
+  useEffect(() => {
+    if (!isCreatingRegularBooking || !selectedCourtId || selectedEndSlot <= selectedStartSlot) {
+      setCreateQuoteTotal(null);
+      setCreateQuoteLoading(false);
+      return;
+    }
+    const activityId = Number(selectedCourt?.activityTypeId || 0);
+    if (!Number.isFinite(activityId) || activityId <= 0) {
+      setCreateQuoteTotal(null);
+      return;
+    }
+    let cancelled = false;
+    setCreateQuoteLoading(true);
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const quote = await getBookingQuote({
+          courtId: Number(selectedCourtId),
+          activityId,
+          date: new Date(selectedDate),
+          slotTime: slotToTime(selectedStartSlot),
+          durationMinutes: selectionMinutes,
+          activityFormatId: bookingActivityFormatId || null,
+          ...(ownerQuoteClientId ? { clientId: ownerQuoteClientId } : {}),
+        });
+        if (!cancelled) setCreateQuoteTotal(roundMoney(Number(quote.finalPrice ?? quote.listPrice ?? 0)));
+      } catch {
+        if (!cancelled) setCreateQuoteTotal(null);
+      } finally {
+        if (!cancelled) setCreateQuoteLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    bookingActivityFormatId,
+    isCreatingRegularBooking,
+    ownerQuoteClientId,
+    selectedCourt?.activityTypeId,
+    selectedCourtId,
+    selectedDate,
+    selectedEndSlot,
+    selectedStartSlot,
+    selectionMinutes,
+    slotToTime,
+  ]);
+
+  // Al abrir "crear reserva", el cursor queda listo para buscar al cliente.
+  useEffect(() => {
+    if (!drawerOpen || editingBookingId) return;
+    const timeoutId = window.setTimeout(() => simplifiedOwnerNameInputRef.current?.focus(), 320);
+    return () => window.clearTimeout(timeoutId);
+  }, [drawerOpen, editingBookingId]);
+
   if (!authChecked || !user) return <RouteTransitionScreen message={authChecked ? 'Redirigiendo...' : 'Validando acceso...'} />;
   if (!hasOperatorAccess(user)) return <NotFound message="No tenés permiso para acceder al panel de administración." />;
   const recurringCourtSelectionLabel =
@@ -5004,6 +5896,7 @@ export default function AdminAgendaPlaygroundPage() {
   const ownerCanBeAdded = ownerHasName && (ownerHasLinkedSelection || ownerContactPhoneDraft.length > 0);
   const simplifiedSummaryOwnerLabel = ownerParticipant?.name.trim() || 'Titular sin asignar';
   const simplifiedSummaryCourtLabel = selectedCourt?.name || 'Cancha no definida';
+
   const sidebarTitle = (() => {
     if (simplifiedIsEditingReservation) {
       if (bookingKind === 'block') return 'Editar bloqueo';
@@ -5012,9 +5905,51 @@ export default function AdminAgendaPlaygroundPage() {
     }
 
     if (bookingKind === 'block') return 'Crear bloqueo';
-    if (bookingKind === 'recurringV2') return 'Crear serie recurrente';
-    if (useSimplifiedBookingSidebar) return `Crear reserva para ${simplifiedHeaderDateLabel}`;
+    if (bookingKind === 'recurringV2') return 'Nueva reserva fija';
+    if (useSimplifiedBookingSidebar) return 'Nueva reserva';
     return 'Crear reserva';
+  })();
+  const formatShortDayLabel = (date: Date) =>
+    date
+      .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+      .replace(/,/g, '')
+      .replace(/\./g, '');
+  const simplifiedCreateDateLabel = formatShortDayLabel(selectedDate);
+  const simplifiedEditDateLabel = simplifiedCreateDateLabel;
+  // Precio por jugador: el total se muestra como "4 × $10.000".
+  const createPlayerCount = Number(
+    drawerCourtRules?.rule?.formats.find((format) => format.id === bookingActivityFormatId)?.playerCount || 0
+  );
+  /** "Repetir todas las semanas": arranca con el día de la reserva, 8 semanas, en su cancha. */
+  const setCreateRepeatEnabled = (enabled: boolean) => {
+    setFormError('');
+    setRecurringResult(null);
+    if (!enabled) {
+      setBookingKind('regular');
+      return;
+    }
+    setRecurringFrequencyPreset('custom');
+    setCustomRecurrenceDays([selectedDate.getDay()]);
+    setCustomRepeatEveryWeeks(1);
+    setCustomEndAfterEnabled(true);
+    setRecurringRepetitions(8);
+    if (selectedCourtId) setRecurringCourtIds([selectedCourtId]);
+    setBookingKind('recurringV2');
+  };
+  const createRepeatSummary = (() => {
+    if (recurringExecutionPlan.error) return recurringExecutionPlan.error;
+    // Primer turno real: el más cercano entre todos los días elegidos.
+    const baseDate = new Date(selectedDate);
+    baseDate.setHours(12, 0, 0, 0);
+    const firstDate = recurringExecutionPlan.recurrenceDays
+      .map((day) => getNextDateForDay(baseDate, day, slotToTime(selectedStartSlot)))
+      .sort((a, b) => a.getTime() - b.getTime())[0] ?? recurringFirstOccurrence;
+    const first = formatShortDayLabel(firstDate);
+    if (!Number.isFinite(recurringEstimatedOccurrencesTotal) || !recurringLastOccurrence) {
+      return `Desde el ${first}, sin fecha de fin.`;
+    }
+    const count = Number(recurringEstimatedOccurrencesTotal);
+    return `Se crean ${count} ${count === 1 ? 'turno' : 'turnos'}: ${first} → ${formatShortDayLabel(recurringLastOccurrence)}.`;
   })();
   const ownerEntries = participants.filter((participant) => participant.isOwner);
   const otherEntries = participants.filter((participant) => !participant.isOwner);
@@ -5041,6 +5976,73 @@ export default function AdminAgendaPlaygroundPage() {
       simplifiedNewParticipantName.trim().length >= 2 &&
       simplifiedNewParticipantPhoneDraft.length >= 8
     );
+  /** Suma un jugador: a la reserva guardada (servidor) o al borrador si todavía se está creando. */
+  const submitSimplifiedPlayer = async (participantDraft: Participant) => {
+    const normalizedEntityRef = String(participantDraft.entityRef || '').trim();
+    const duplicateLinked = participants.some(
+      (participant) => !participant.isOwner && String(participant.entityRef || '').trim() === normalizedEntityRef
+    );
+    if (normalizedEntityRef && duplicateLinked) {
+      setSimplifiedNewPlayerError('Ese jugador ya está en la reserva.');
+      return;
+    }
+    setSimplifiedNewPlayerError('');
+    try {
+      if (persistedEditingBookingId) {
+        await addParticipantToExistingBooking(persistedEditingBookingId, participantDraft, {
+          successMessage: `${participantDraft.name} agregado.`,
+          onSuccess: () => {
+            resetSimplifiedNewParticipantDraft();
+            setFormError('');
+          },
+        });
+      } else {
+        setParticipants((previous) => [...previous, participantDraft]);
+        resetSimplifiedNewParticipantDraft();
+        setFormError('');
+      }
+    } catch (error: any) {
+      const normalized = normalizeApiError(error, 'No se pudo agregar el jugador.');
+      setSimplifiedNewPlayerError(toUserSafeMessage(normalized.message, 'No se pudo agregar el jugador.'));
+    }
+  };
+  const buildSimplifiedPlayerDraft = (fields: Partial<Participant> & { name: string }): Participant => ({
+    id: `player-${Date.now()}`,
+    contact: '',
+    dni: undefined,
+    paid: false,
+    isOwner: false,
+    sourceType: 'guest',
+    paymentMethod: 'CASH',
+    customPrice: null,
+    ...fields,
+  });
+  /** Cliente existente elegido del buscador: se agrega sin otro paso. */
+  const addSimplifiedPlayerFromSuggestion = (suggestion: ParticipantSuggestion) =>
+    submitSimplifiedPlayer(
+      buildSimplifiedPlayerDraft({
+        name: suggestion.name,
+        contact: String(suggestion.contact || '').trim(),
+        dni: suggestion.dni,
+        sourceType: suggestion.sourceType,
+        entityRef: String(suggestion.entityRef || '').trim() || undefined,
+        selectedUserId: suggestion.selectedUserId,
+        personKind: suggestion.personKind,
+        personKey: suggestion.personKey,
+        personSearchQuery: suggestion.personSearchQuery,
+        badges: suggestion.badges,
+      })
+    );
+  /** Jugador nuevo: nombre y teléfono cargados a mano. */
+  const submitSimplifiedNewPlayerDraft = () => {
+    if (!hasValidSimplifiedNewParticipantName) return;
+    return submitSimplifiedPlayer(
+      buildSimplifiedPlayerDraft({
+        name: simplifiedNewParticipantName.trim(),
+        contact: simplifiedNewParticipantContact.trim(),
+      })
+    );
+  };
   const simplifiedOwnerSuggestionsFloatingStyle = (() => {
     if (
       !simplifiedOwnerSuggestionsOpen ||
@@ -5098,11 +6100,9 @@ export default function AdminAgendaPlaygroundPage() {
     simplifiedRemainingAmount > 0.009;
 
   const simplifiedSectionTabs: Array<{ id: SimplifiedSidebarSection; label: string }> = [
-    { id: 'DETAILS', label: 'Detalle' },
-    ...(bookingKind === 'block'
-      ? []
-      : [{ id: 'CONSUMPTIONS' as const, label: 'Consumos' }]),
-    { id: 'BILLING', label: 'Participantes y cuenta' },
+    { id: 'DETAILS', label: 'Resumen' },
+    { id: 'BILLING', label: 'Jugadores' },
+    // Cuenta y consumos viven en Resumen: una pestaña aparte repetía la deuda y el botón de cobrar.
     { id: 'HISTORY', label: 'Historial' },
   ];
   const consumptionProductOptions: ComboOption[] = consumptionProducts.map((product) => ({
@@ -5110,8 +6110,8 @@ export default function AdminAgendaPlaygroundPage() {
     label: product.name,
     secondary:
       product.stock == null
-        ? `${product.price.toFixed(2)} $`
-        : `${product.price.toFixed(2)} $ · Stock ${Math.max(0, Math.floor(product.stock))}`,
+        ? `${formatMoney(product.price)}`
+        : `${formatMoney(product.price)} · Stock ${Math.max(0, Math.floor(product.stock))}`,
   }));
   const previewSeriesEditScope = async (scope: EditSeriesScope) => {
     const fixedBookingId = Number(editingBooking?.fixedBookingId || 0);
@@ -5263,8 +6263,9 @@ export default function AdminAgendaPlaygroundPage() {
         year: 'numeric',
       }),
       timeLabel: value.toLocaleTimeString('es-AR', {
-        hour: 'numeric',
+        hour: '2-digit',
         minute: '2-digit',
+        hourCycle: 'h23',
       }),
     });
     const formatTimelineDateTime = (value: unknown): string => {
@@ -5275,7 +6276,27 @@ export default function AdminAgendaPlaygroundPage() {
       return `${parsed.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })} ${parsed.toLocaleTimeString('es-AR', {
         hour: '2-digit',
         minute: '2-digit',
+        hourCycle: 'h23',
       })}`;
+    };
+    /** "sáb 7 nov 08:30–10:30 · Cancha 1": el turno completo, para ver qué cambió al reprogramar. */
+    const formatTimelineSlot = (state: any): string => {
+      const start = new Date(String(state?.startDateTime || ''));
+      const end = new Date(String(state?.endDateTime || ''));
+      if (!Number.isFinite(start.getTime())) return '';
+      const time = (value: Date) =>
+        value.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+      const day = start
+        .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+        .replace(/,/g, '')
+        .replace(/\./g, '');
+      const courtName = effectiveCourts.find((court) => Number(court.id) === Number(state?.courtId))?.name;
+      return [
+        `${day} ${time(start)}${Number.isFinite(end.getTime()) ? `–${time(end)}` : ''}`,
+        courtName || '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
     };
     const formatBillingModeLabel = (mode: unknown): string => {
       const normalized = String(mode || '').trim().toUpperCase();
@@ -5404,7 +6425,7 @@ export default function AdminAgendaPlaygroundPage() {
             ? formatResponsibleRefLabel(coveredRefRaw)
             : (payerLabel || 'Sin asignar'));
         title = Number.isFinite(amount) && amount > 0.009
-          ? `Pago recibido (${amount.toFixed(2)} $)`
+          ? `Pago recibido (${formatMoney(amount)})`
           : 'Pago recibido';
         const detailParts = [
           payerLabel ? `Pagador: ${payerLabel}` : '',
@@ -5417,7 +6438,7 @@ export default function AdminAgendaPlaygroundPage() {
       } else if (normalizedType === 'BOOKING_CREATED') {
         const amount = Number((payload as any)?.amount || 0);
         const detailParts = [
-          Number.isFinite(amount) && amount > 0.009 ? `Precio: ${amount.toFixed(2)} $` : '',
+          Number.isFinite(amount) && amount > 0.009 ? `Precio: ${formatMoney(amount)}` : '',
           'Origen: Administrador',
         ].filter(Boolean);
         title = 'Reserva creada';
@@ -5427,17 +6448,10 @@ export default function AdminAgendaPlaygroundPage() {
         title = 'Reserva cancelada';
         detail = source ? `Origen: ${source}` : 'Reserva cancelada.';
       } else if (normalizedType === 'BOOKING_RESCHEDULED') {
-        const previousStart = formatTimelineDateTime((previousState as any)?.startDateTime);
-        const nextStart = formatTimelineDateTime((nextState as any)?.startDateTime);
-        const previousCourtId = Number((previousState as any)?.courtId || (payload as any)?.previousCourtId || 0);
-        const courtId = Number((nextState as any)?.courtId || (payload as any)?.courtId || 0);
-        title = 'Reserva reprogramada';
-        const detailParts = [
-          previousStart ? `Desde: ${previousStart}` : '',
-          nextStart ? `Hasta: ${nextStart}` : '',
-          previousCourtId > 0 && courtId > 0 && previousCourtId !== courtId ? `Cancha ${previousCourtId} -> ${courtId}` : '',
-        ].filter(Boolean);
-        detail = detailParts.length > 0 ? detailParts.join(' - ') : 'Reserva reprogramada.';
+        const previousSlot = formatTimelineSlot(previousState);
+        const nextSlot = formatTimelineSlot(nextState);
+        title = 'Horario cambiado';
+        detail = previousSlot && nextSlot ? `${previousSlot} → ${nextSlot}` : 'Reserva reprogramada.';
       } else if (normalizedType === 'BOOKING_CONFIRMED' || normalizedType === 'CONFIRMED') {
         const source = formatTimelineSourceLabel(event.source || (payload as any)?.source);
         title = 'Reserva confirmada';
@@ -5499,7 +6513,7 @@ export default function AdminAgendaPlaygroundPage() {
         title = 'Consumo agregado';
         const detailParts = [
           quantity > 0 ? `${quantity} x ${productName}` : productName,
-          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${totalAmount.toFixed(2)} $` : '',
+          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${formatMoney(totalAmount)}` : '',
         ].filter(Boolean);
         detail = detailParts.length > 0 ? detailParts.join(' - ') : 'Consumo agregado.';
       } else if (normalizedType === 'BOOKING_CONSUMPTION_REMOVED' || normalizedType === 'PRODUCT_REMOVED') {
@@ -5509,7 +6523,7 @@ export default function AdminAgendaPlaygroundPage() {
         title = 'Consumo eliminado';
         const detailParts = [
           quantity > 0 ? `${quantity} x ${productName}` : productName,
-          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${totalAmount.toFixed(2)} $` : '',
+          Number.isFinite(totalAmount) && totalAmount > 0.009 ? `Total: ${formatMoney(totalAmount)}` : '',
         ].filter(Boolean);
         detail = detailParts.length > 0 ? detailParts.join(' - ') : 'Consumo eliminado.';
       } else if (normalizedType === 'BOOKING_NOTES_UPDATED') {
@@ -5559,11 +6573,32 @@ export default function AdminAgendaPlaygroundPage() {
   const showSimplifiedConsumptionsSection =
     simplifiedIsEditingReservation &&
     bookingKind !== 'block' &&
-    simplifiedSidebarSection === 'CONSUMPTIONS';
+    (simplifiedSidebarSection === 'DETAILS' || simplifiedSidebarSection === 'CONSUMPTIONS');
   const showSimplifiedBillingSection =
     !simplifiedIsEditingReservation || simplifiedSidebarSection === 'BILLING';
   const showSimplifiedHistorySection =
     simplifiedIsEditingReservation && simplifiedSidebarSection === 'HISTORY';
+  // El resumen de la cuenta (total, pagado, saldo y Cobrar) se ve en Resumen y en Cuenta.
+  const showSimplifiedAccountSummary =
+    simplifiedIsEditingReservation &&
+    (simplifiedSidebarSection === 'DETAILS' || simplifiedSidebarSection === 'CONSUMPTIONS');
+  // El editor de horario/cancha se abre solo si hay cambios sin guardar o errores, para no esconderlos.
+  const simplifiedScheduleEditorVisible =
+    simplifiedScheduleEditorOpen || hasScheduleChanges || Boolean(timeFieldError) || Boolean(courtFieldError);
+  const simplifiedHeaderTimeLabel = `${slotToTime(selectedStartSlot)}–${slotToTime(selectedEndSlot)}`;
+  const simplifiedHeaderShortDateLabel = (() => {
+    const label = selectionStartDateTime
+      .toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' })
+      .replace(',', '');
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  })();
+  const simplifiedHeaderDurationLabel = (() => {
+    const minutes = Math.max(0, (selectedEndSlot - selectedStartSlot) * slotMinutes);
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    if (hours === 0) return `${rest} min`;
+    return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
+  })();
   const cancelBookingPaidAmount = roundMoney(
     Number(bookingFinancial?.paid ?? editingBooking?.hoverPayment?.paidAmount ?? 0)
   );
@@ -5593,7 +6628,35 @@ export default function AdminAgendaPlaygroundPage() {
       } satisfies Parameters<typeof cancelBooking>[1],
     };
   };
+  const isEditingCourtBlock = isCourtBlockBookingId(editingBookingId);
+  const handleDeleteCourtBlock = async () => {
+    if (!editingBookingId || !isCourtBlockBookingId(editingBookingId)) return;
+    const slug = getClubSlug();
+    if (!slug) return;
+    setIsDeletingBooking(true);
+    setCancelBookingFlowError('');
+    try {
+      await ClubAdminService.deleteCourtBlock(slug, courtBlockIdFromBookingId(editingBookingId));
+      await reloadSchedule();
+      setDrawerOpen(false);
+      setEditingBookingId(null);
+      setEditingBaseline(null);
+      setBlockingTitle('');
+      closeDeleteBookingFlow();
+      showAgendaToast('Bloqueo eliminado.', 'success');
+    } catch (error: any) {
+      reportUiError({ area: 'AgendaPlayground', action: 'handleDeleteCourtBlock' }, error);
+      const normalized = normalizeApiError(error, 'No se pudo eliminar el bloqueo.');
+      setCancelBookingFlowError(toUserSafeMessage(normalized.message, 'No se pudo eliminar el bloqueo.'));
+    } finally {
+      setIsDeletingBooking(false);
+    }
+  };
   const handleDeleteBooking = async (scope?: EditSeriesScope) => {
+    if (isCourtBlockBookingId(editingBookingId)) {
+      await handleDeleteCourtBlock();
+      return;
+    }
     const bookingId = Number(editingBookingId || 0);
     const fixedBookingId = Number(editingBooking?.fixedBookingId || 0);
     if (!Number.isFinite(bookingId) || bookingId <= 0) return;
@@ -5650,6 +6713,11 @@ export default function AdminAgendaPlaygroundPage() {
   const openDeleteBookingFlow = () => {
     setCancelBookingFlowError('');
     setDeleteBookingFinalConfirmOpen(false);
+    if (isEditingCourtBlock) {
+      // Un bloqueo no tiene cobros ni serie: va directo a la confirmación.
+      setDeleteBookingConfirmOpen(true);
+      return;
+    }
     if (editingBooking?.fixedBookingId) {
       setSeriesDeletePreviewScope(null);
       setSeriesDeletePreviewSummary(null);
@@ -5699,11 +6767,46 @@ export default function AdminAgendaPlaygroundPage() {
           appearance: textfield;
         }
       `}</style>
-      <AdminPlaygroundShell activeItem="Calendario" user={user}>
+      <AdminPlaygroundShell activeItem="Calendario" user={user} mobileNavHidden={drawerOpen}>
 
           <section ref={agendaSurfaceRef} className="relative flex-1 h-full min-w-0 rounded-tl-[12px] overflow-hidden bg-p-surface-2">
             <div className="h-full min-w-0">
-              <div className="h-full flex flex-col p-4 lg:p-6 gap-4">
+              <div className="h-full lg:hidden">
+                <AgendaMobileGrid
+                  courts={visibleCourts}
+                  bookings={visibleBookings}
+                  availableSports={availableSports}
+                  sportFilter={sportFilter}
+                  selectedDate={selectedDate}
+                  onSportFilterChange={setSportFilter}
+                  onDateChange={(nextDate) => {
+                    setSelectedDate(nextDate);
+                    setFormError('');
+                  }}
+                  onMoveDate={moveDate}
+                  onOpenBooking={openBookingInDrawer}
+                  onCreateAt={(courtId, startSlot, endSlot) => openQuickCreateBooking(courtId, { startSlot, endSlot })}
+                  onCreateBooking={() => openQuickCreateBooking(visibleCourts[0]?.id)}
+                  onConfirmBooking={async (booking) => {
+                    const bookingId = Number(booking.id);
+                    if (!Number.isFinite(bookingId) || bookingId <= 0) return;
+                    try {
+                      await confirmBooking(bookingId);
+                      await reloadSchedule();
+                      showAgendaToast('Reserva confirmada.', 'success');
+                    } catch (error) {
+                      reportUiError({ area: 'AgendaPlayground', action: 'confirmBookingFromMobileGrid' }, error);
+                      const normalized = normalizeApiError(error, 'No se pudo confirmar la reserva.');
+                      showAgendaToast(toUserSafeMessage(normalized.message, 'No se pudo confirmar la reserva.'));
+                    }
+                  }}
+                  onChargeBooking={(booking) => void openAgendaAccountDrawer(Number(booking.id), 'payment')}
+                  courtRules={mobileCourtRules}
+                  pastSlotCount={pastSlotCount}
+                  onFindFreeSlot={() => setFreeFinderOpen(true)}
+                />
+              </div>
+              <div className="hidden h-full flex-col p-4 lg:flex lg:p-6 gap-4">
                 <AgendaToolbar
                   availableSports={availableSports}
                   sportFilter={sportFilter}
@@ -5718,6 +6821,10 @@ export default function AdminAgendaPlaygroundPage() {
                   }}
                   onMoveDate={moveDate}
                   onCreateBooking={() => openQuickCreateBooking(visibleCourts[0]?.id)}
+                  onGoToday={goToToday}
+                  summary={<AgendaDaySummary summary={desktopDaySummary} />}
+                  onFindFreeSlot={() => setFreeFinderOpen(true)}
+                  legend={<AgendaColorLegend />}
                 />
 
                 <div className="flex-1 rounded-2xl border border-p-border bg-p-surface overflow-hidden">
@@ -5752,6 +6859,12 @@ export default function AdminAgendaPlaygroundPage() {
                                   totalSlots={totalSlots}
                                   onSlotMouseDown={handleSlotMouseDown}
                                   onSlotMouseEnter={handleSlotMouseEnter}
+                                  bookableMask={
+                                    courtBookingRules.get(court.id)?.rule
+                                      ? courtBookingRules.get(court.id)?.mask
+                                      : null
+                                  }
+                                  pastSlotCount={pastSlotCount}
                                 >
 
                                   {(() => {
@@ -5778,7 +6891,13 @@ export default function AdminAgendaPlaygroundPage() {
                                       ? editingBooking?.title || 'Reserva'
                                       : bookingKind === 'block'
                                         ? (blockingTitle.trim() || 'Bloqueo')
-                                        : 'Reserva';
+                                        : ownerParticipant?.name.trim() || '';
+                                    const previewDraftLabel =
+                                      !isEditingMovedBookingPreview && bookingKind !== 'block'
+                                        ? bookingKind === 'recurringV2'
+                                          ? 'Nueva reserva fija'
+                                          : 'Nueva reserva'
+                                        : null;
                                     const previewState = isEditingMovedBookingPreview
                                       ? editingBooking?.state || 'pending'
                                       : bookingKind === 'block'
@@ -5803,6 +6922,7 @@ export default function AdminAgendaPlaygroundPage() {
                                         state={previewState}
                                         paymentState={previewPaymentState}
                                         isRecurring={previewIsRecurring}
+                                        draftLabel={previewDraftLabel}
                                       />
                                     );
                                   })()}
@@ -5861,9 +6981,21 @@ export default function AdminAgendaPlaygroundPage() {
                                         visibility={visibility}
                                         slotToTime={slotToTime}
                                         colorClass={bookingColor(booking.state)}
+                                        className={
+                                          isSettledPastBooking(booking, pastSlotCount)
+                                            ? 'opacity-50 transition-opacity hover:opacity-100'
+                                            : undefined
+                                        }
+                                        badgeLabel={
+                                          booking.state === 'class'
+                                            ? booking.classInfo?.enrolled != null
+                                              ? `Clase · ${booking.classInfo.enrolled}/${booking.classInfo.capacity}`
+                                              : 'Clase'
+                                            : undefined
+                                        }
                                         onMouseDown={(event) => handleBookingMouseDown(event, booking)}
                                         onMouseEnter={(event) => {
-                                          if (draggingBookingMetaRef.current || isDragging) return;
+                                          if (draggingBookingMetaRef.current || isDragging || booking.state === 'class') return;
                                           const next = resolveBookingHoverPosition(
                                             event.clientX,
                                             event.clientY,
@@ -5872,7 +7004,7 @@ export default function AdminAgendaPlaygroundPage() {
                                           setBookingHoverPreview({ booking, ...next });
                                         }}
                                         onMouseMove={(event) => {
-                                          if (draggingBookingMetaRef.current || isDragging) return;
+                                          if (draggingBookingMetaRef.current || isDragging || booking.state === 'class') return;
                                           const next = resolveBookingHoverPosition(
                                             event.clientX,
                                             event.clientY,
@@ -5893,7 +7025,12 @@ export default function AdminAgendaPlaygroundPage() {
                                         style={{
                                           top,
                                           height,
-                                          cursor: booking.state === 'completed' ? 'pointer' : draggingBookingId ? 'grabbing' : 'grab',
+                                          cursor:
+                                            booking.state === 'completed' || booking.state === 'class'
+                                              ? 'pointer'
+                                              : draggingBookingId
+                                                ? 'grabbing'
+                                                : 'grab',
                                           zIndex: isHovered ? 16 : 10,
                                         }}
                                       />
@@ -5911,6 +7048,63 @@ export default function AdminAgendaPlaygroundPage() {
               </div>
             </div>
 
+            <AgendaFreeSlotFinder
+              show={freeFinderOpen}
+              onClose={() => setFreeFinderOpen(false)}
+              sports={availableSports.filter((sport) => sport !== 'Todos')}
+              initialSport={sportFilter !== 'Todos' ? sportFilter : undefined}
+              courts={effectiveCourts}
+              bookings={bookings}
+              courtRules={mobileCourtRules}
+              pastSlotCount={pastSlotCount}
+              ready={loadedScheduleDate === selectedDateKey && bookingRulesSettledDate === selectedDateKey}
+              day={freeFinderDay}
+              dayLabel={selectedDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })}
+              onDayChange={handleFreeFinderDayChange}
+              onPick={(pick) => {
+                setFreeFinderOpen(false);
+                if (sportFilter !== 'Todos' && sportFilter !== pick.sport) setSportFilter(pick.sport as SportFilter);
+                openQuickCreateBooking(pick.courtId, { startSlot: pick.startSlot, endSlot: pick.endSlot });
+              }}
+            />
+
+            <AdminAppModal
+              show={Boolean(classPeekBooking)}
+              onClose={() => setClassPeekBooking(null)}
+              title={classPeekBooking?.classInfo?.activityName ? `Clase de ${classPeekBooking.classInfo.activityName}` : 'Clase'}
+              message={
+                classPeekBooking?.classInfo ? (
+                  <div className="space-y-2 text-[14px] text-p-text-secondary">
+                    <p className="text-[16px] font-semibold text-p-text">
+                      {slotToTime(classPeekBooking.startSlot)} a {slotToTime(classPeekBooking.endSlot)}
+                      {' · '}
+                      {effectiveCourts.find((court) => court.id === classPeekBooking.courtId)?.name || 'Cancha'}
+                    </p>
+                    {classPeekBooking.classInfo.teacherName ? <p>Con {classPeekBooking.classInfo.teacherName}</p> : null}
+                    {classPeekBooking.classInfo.enrolled != null ? (
+                      <p>
+                        {classPeekBooking.classInfo.enrolled} de {classPeekBooking.classInfo.capacity} anotados
+                      </p>
+                    ) : null}
+                    <p className="text-[13px] text-p-text-muted">
+                      {hasAdminAccess(user)
+                        ? 'La cancha queda ocupada por la clase. Alumnos, asistencia y cobros se manejan en Academia.'
+                        : 'La cancha queda ocupada por la clase. Alumnos, asistencia y cobros los maneja la administración.'}
+                    </p>
+                  </div>
+                ) : null
+              }
+              cancelText={hasAdminAccess(user) ? 'Cerrar' : ''}
+              confirmText={hasAdminAccess(user) ? 'Ver en Academia' : 'Cerrar'}
+              onConfirm={hasAdminAccess(user) ? () => {
+                const target = classPeekBooking;
+                setClassPeekBooking(null);
+                if (target?.classInfo) {
+                  void router.push(`/admin/academia?tab=clases&clase=${encodeURIComponent(target.classInfo.classSessionId)}`);
+                }
+              } : undefined}
+            />
+
             {bookingHoverPreview && !draggingBookingId && !draggingBookingMeta && !isDragging && (
               <BookingHoverCard
                 x={bookingHoverPreview.x}
@@ -5921,14 +7115,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {customRecurrenceModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => setCustomRecurrenceModalOpen(false))
                 }
               >
                 <div
-                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -5943,7 +7137,7 @@ export default function AdminAgendaPlaygroundPage() {
                   </div>
                   <div className="px-5 py-5 space-y-4">
                     <div>
-                      <p className="text-[13px] text-p-text-muted mb-2">Days</p>
+                      <p className="text-[13px] text-p-text-muted mb-2">Días</p>
                       <div className="flex flex-wrap gap-2">
                         {(() => {
                           const weekdays = [1, 2, 3, 4, 5];
@@ -6119,7 +7313,7 @@ export default function AdminAgendaPlaygroundPage() {
 
             {recurringCreateConfirmOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => {
@@ -6129,7 +7323,7 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -6221,14 +7415,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {recurringOverlapModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, closeRecurringResultModal)
                 }
               >
                 <div
-                  className="w-full max-w-[680px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[680px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -6334,7 +7528,7 @@ export default function AdminAgendaPlaygroundPage() {
 
             {editSeriesScopeModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => {
@@ -6346,7 +7540,7 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[640px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[640px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -6502,7 +7696,7 @@ export default function AdminAgendaPlaygroundPage() {
 
             {deleteSeriesScopeModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => {
@@ -6514,11 +7708,18 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[640px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-text">Cancelar serie</h3>
+                  <div className="flex items-start justify-between gap-3 px-5 pt-5">
+                    <div className="min-w-0">
+                      <h3 className="text-[20px] font-bold tracking-[-0.01em] text-p-text">Cancelar reserva fija</h3>
+                      <p className="mt-1 text-[14px] text-p-text-secondary">
+                        <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
+                        {' · '}
+                        {simplifiedEditDateLabel} {slotToTime(selectedStartSlot)}–{slotToTime(selectedEndSlot)} · {selectedCourt?.name || 'Cancha'}
+                      </p>
+                    </div>
                     <button
                       type="button"
                       onClick={() => {
@@ -6527,178 +7728,151 @@ export default function AdminAgendaPlaygroundPage() {
                         setSeriesDeletePreviewSummary(null);
                       }}
                       disabled={isDeletingBooking}
-                      className="h-8 w-8 rounded-full border border-p-border grid place-items-center text-p-text-muted hover:bg-p-surface-2 disabled:opacity-50"
+                      aria-label="Cerrar"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-p-border text-p-text-muted hover:bg-p-surface-2 disabled:opacity-50"
                     >
                       <X size={15} />
                     </button>
                   </div>
-                  <div className="px-5 py-5 space-y-4">
-                    {!seriesDeletePreviewScope ? (
-                      <>
-                        <p className="text-[13px] text-p-text-secondary">
-                          Elegí el alcance para previsualizar cuántas ocurrencias se cancelarán.
-                        </p>
-                        <div className="space-y-2">
+                  <div className="space-y-3 px-5 py-4">
+                    {/* Elegir alcance y ver el resultado en el mismo paso. */}
+                    <div className="space-y-1.5">
+                      {([
+                        { scope: 'THIS_OCCURRENCE', label: `Solo este turno (${simplifiedEditDateLabel})` },
+                        { scope: 'NEXT_OCCURRENCES', label: 'Este y los siguientes' },
+                        { scope: 'ALL_OCCURRENCES', label: 'Toda la serie (los que faltan)' },
+                      ] as Array<{ scope: EditSeriesScope; label: string }>).map((option) => {
+                        const active = seriesDeletePreviewScope === option.scope;
+                        return (
                           <button
+                            key={`series-cancel-${option.scope}`}
                             type="button"
-                            onClick={() => void previewSeriesDeleteScope('THIS_OCCURRENCE')}
+                            aria-pressed={active}
+                            onClick={() => void previewSeriesDeleteScope(option.scope)}
                             disabled={isDeletingBooking || seriesDeletePreviewLoading}
-                            className="w-full rounded-xl border border-p-border bg-p-surface px-4 py-3 text-left hover:bg-p-surface-2 disabled:opacity-50"
+                            className={`flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left text-[14px] transition disabled:opacity-60 ${
+                              active
+                                ? 'border-ink-900 bg-p-surface-2 font-semibold text-p-text'
+                                : 'border-p-border bg-p-surface text-p-text hover:bg-p-surface-2'
+                            }`}
                           >
-                            <p className="text-[14px] font-semibold text-p-text">Cancelar solo esta ocurrencia</p>
-                            <p className="mt-1 text-[12px] text-p-text-muted">Solo cancela este turno puntual.</p>
+                            <span
+                              className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
+                                active ? 'border-ink-900' : 'border-p-border-strong'
+                              }`}
+                            >
+                              {active && <span className="h-2 w-2 rounded-full bg-ink-900" />}
+                            </span>
+                            {option.label}
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => void previewSeriesDeleteScope('NEXT_OCCURRENCES')}
-                            disabled={isDeletingBooking || seriesDeletePreviewLoading}
-                            className="w-full rounded-xl border border-p-border bg-p-surface px-4 py-3 text-left hover:bg-p-surface-2 disabled:opacity-50"
-                          >
-                            <p className="text-[14px] font-semibold text-p-text">Cancelar esta y las siguientes</p>
-                            <p className="mt-1 text-[12px] text-p-text-muted">Aplica desde este turno en adelante dentro de la serie.</p>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void previewSeriesDeleteScope('ALL_OCCURRENCES')}
-                            disabled={isDeletingBooking || seriesDeletePreviewLoading}
-                            className="w-full rounded-xl border border-p-border bg-p-surface px-4 py-3 text-left hover:bg-p-surface-2 disabled:opacity-50"
-                          >
-                            <p className="text-[14px] font-semibold text-p-text">Cancelar toda la serie futura</p>
-                            <p className="mt-1 text-[12px] text-p-text-muted">Cancela todas las ocurrencias pendientes de la serie.</p>
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-[13px] text-p-text-secondary">
-                          Previsualización: {
-                            seriesDeletePreviewScope === 'THIS_OCCURRENCE'
-                              ? 'solo esta ocurrencia'
-                              : seriesDeletePreviewScope === 'NEXT_OCCURRENCES'
-                                ? 'esta y las siguientes'
-                                : 'toda la serie'
-                          }.
-                        </p>
-                        {seriesDeletePreviewLoading && !seriesDeletePreviewSummary && (
-                          <div className="rounded-xl border border-p-accent bg-p-positive-bg px-4 py-5">
-                            <div className="flex items-center justify-center">
-                              <span className="h-4 w-4 rounded-full border-2 border-p-accent border-t-p-accent animate-spin" />
-                            </div>
-                          </div>
-                        )}
-                        {seriesDeletePreviewSummary && (
-                          <div className="rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[13px] text-p-accent">
-                            <p>Se cancelarán <strong>{seriesDeletePreviewSummary.applicableCount}</strong> ocurrencias.</p>
-                            <p>Se omitirán <strong>{seriesDeletePreviewSummary.skippedCount}</strong> ocurrencias.</p>
-                          </div>
-                        )}
-                        {seriesDeleteHasPaidItems && (
-                          <div className={`rounded-xl border px-3 py-2 text-[12px] font-semibold ${
-                            seriesDeleteBlocksMassCancel
-                              ? 'border-p-error bg-p-error-bg text-p-error'
-                              : 'border-p-warning bg-p-warning-bg text-p-warning'
-                          }`}>
-                            {seriesDeleteBlocksMassCancel ? (
-                              <>
-                                <p>
-                                  Hay {seriesDeletePaidItems.length} ocurrencia(s) con pagos por {Number(seriesDeletePreviewSummary?.paidAmountTotal || 0).toFixed(2)} $.
-                                </p>
-                                <p className="mt-1 font-medium">
-                                  Para evitar cancelar cobros sin devolución, cancelá esas ocurrencias individualmente.
-                                </p>
-                              </>
-                            ) : (
-                              <p>
-                                Esta ocurrencia tiene pagos por {Number(seriesDeletePaidItems[0]?.paidAmount || 0).toFixed(2)} $. Vas a continuar con el flujo de devolución puntual.
+                        );
+                      })}
+                    </div>
+
+                    {seriesDeletePreviewScope && (
+                      <div className="text-[13px] text-p-text-secondary">
+                        {seriesDeletePreviewLoading && !seriesDeletePreviewSummary ? (
+                          <p className="text-p-text-muted">Calculando...</p>
+                        ) : seriesDeletePreviewSummary ? (
+                          <>
+                            <p>
+                              {(() => {
+                                const items = seriesDeletePreviewSummary.applicableItems;
+                                const count = seriesDeletePreviewSummary.applicableCount;
+                                if (count === 0) return 'No hay turnos para cancelar con esta opción.';
+                                const range =
+                                  items.length > 1
+                                    ? `: ${items[0].requestedDateLabel} → ${items[items.length - 1].requestedDateLabel}`
+                                    : items.length === 1
+                                      ? `: ${items[0].requestedDateLabel}`
+                                      : '';
+                                return `Se ${count === 1 ? 'cancela 1 turno' : `cancelan ${count} turnos`}${range}.`;
+                              })()}
+                            </p>
+                            {seriesDeletePreviewSummary.skippedCount > 0 && (
+                              <p className="mt-0.5 text-[12px] text-p-text-muted">
+                                {seriesDeletePreviewSummary.skippedCount} no se tocan (ya pasaron o están canceladas).
                               </p>
                             )}
-                          </div>
-                        )}
-                        {Boolean(seriesDeletePreviewSummary?.applicableItems.length) && (
-                          <div className="rounded-xl border border-p-border bg-p-surface">
-                            <div className="border-b border-p-border px-3 py-2 text-[12px] font-semibold text-p-text-secondary">
-                              Ocurrencias a cancelar ({seriesDeletePreviewSummary.applicableItems.length})
-                            </div>
-                            <div className="max-h-44 overflow-y-auto divide-y divide-p-border">
-                              {seriesDeletePreviewSummary.applicableItems.map((item, index) => (
-                                <div key={`delete-series-applicable-${index}`} className="px-3 py-2 text-[12px] text-p-text-secondary">
-                                  <p className="font-semibold text-p-text">{item.courtName}</p>
-                                  <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
-                                  {item.activityName && <p>{item.activityName}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {Boolean(seriesDeletePreviewSummary?.overlapItems.length) && (
-                          <div className="rounded-xl border border-p-border bg-p-surface-2">
-                            <div className="border-b border-p-border px-3 py-2 text-[12px] font-semibold text-p-text-secondary">
-                              Ocurrencias omitidas ({seriesDeletePreviewSummary.overlapItems.length})
-                            </div>
-                            <div className="max-h-44 overflow-y-auto divide-y divide-p-border">
-                              {seriesDeletePreviewSummary.overlapItems.map((item, index) => (
-                                <div key={`delete-series-skip-${index}`} className="px-3 py-2 text-[12px] text-p-text-secondary">
-                                  <p className="font-semibold text-p-text">{item.courtName}</p>
-                                  <p>{item.requestedDateLabel} · {item.requestedTimeLabel}</p>
-                                  {item.activityName && <p>{item.activityName}</p>}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSeriesDeletePreviewScope(null);
-                              setSeriesDeletePreviewSummary(null);
-                            }}
-                            disabled={isDeletingBooking}
-                            className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                          >
-                            Cambiar alcance
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const scope = seriesDeletePreviewSummary?.scope || seriesDeletePreviewScope;
-                              if (seriesDeleteBlocksMassCancel) return;
-                              if (seriesDeleteUsesIndividualRefund) {
-                                const paidAmount = Number(seriesDeletePaidItems[0]?.paidAmount || cancelBookingPaidAmount || 0);
-                                const bookingId = Number(editingBookingId || 0);
-                                void (async () => {
-                                  if (Number.isFinite(bookingId) && bookingId > 0) {
-                                    try {
-                                      await refreshBookingFinancial(bookingId);
-                                    } catch (error: any) {
-                                      applyBookingError(error, 'No se pudo cargar el impacto financiero de la reserva.');
-                                      return;
-                                    }
-                                  }
-                                  setCancelRefundAmountInput(paidAmount > 0.009 ? paidAmount.toFixed(2) : '');
-                                  setCancelRefundReasonType(paidAmount > 0.009 ? 'FULL' : 'OTHER');
-                                  setCancelRefundExecutionNotes('');
-                                  setCancelRefundExecuteNow(true);
-                                  setCancelBookingFlowError('');
-                                  setDeleteBookingFinalConfirmOpen(false);
-                                  setDeleteSeriesScopeModalOpen(false);
-                                  setSeriesDeletePreviewScope(null);
-                                  setSeriesDeletePreviewSummary(null);
-                                  setDeleteBookingConfirmOpen(true);
-                                })();
+                          </>
+                        ) : null}
+                      </div>
+                    )}
+
+                    {seriesDeleteHasPaidItems && (
+                      <p
+                        className={`rounded-lg px-3 py-2 text-[12px] font-semibold ${
+                          seriesDeleteBlocksMassCancel ? 'bg-p-error-bg text-p-error' : 'bg-p-warning-bg text-p-warning'
+                        }`}
+                      >
+                        {seriesDeleteBlocksMassCancel
+                          ? `${seriesDeletePaidItems.length === 1 ? 'Un turno tiene' : `${seriesDeletePaidItems.length} turnos tienen`} pagos (${formatMoney(Number(seriesDeletePreviewSummary?.paidAmountTotal || 0))}). Cancelalos de a uno para elegir cuánto devolver.`
+                          : `Este turno tiene ${formatMoney(Number(seriesDeletePaidItems[0]?.paidAmount || 0))} cobrado: en el siguiente paso elegís cuánto devolver.`}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-end gap-2 border-t border-p-border px-5 py-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteSeriesScopeModalOpen(false);
+                        setSeriesDeletePreviewScope(null);
+                        setSeriesDeletePreviewSummary(null);
+                      }}
+                      disabled={isDeletingBooking}
+                      className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const scope = seriesDeletePreviewSummary?.scope || seriesDeletePreviewScope;
+                        if (!scope || seriesDeleteBlocksMassCancel) return;
+                        if (seriesDeleteUsesIndividualRefund) {
+                          const paidAmount = Number(seriesDeletePaidItems[0]?.paidAmount || cancelBookingPaidAmount || 0);
+                          const bookingId = Number(editingBookingId || 0);
+                          void (async () => {
+                            if (Number.isFinite(bookingId) && bookingId > 0) {
+                              try {
+                                await refreshBookingFinancial(bookingId);
+                              } catch (error: any) {
+                                applyBookingError(error, 'No se pudo cargar el impacto financiero de la reserva.');
                                 return;
                               }
-                              setDeleteSeriesScopeModalOpen(false);
-                              void handleDeleteBooking(scope);
-                            }}
-                            disabled={isDeletingBooking || !seriesDeletePreviewSummary || seriesDeleteBlocksMassCancel}
-                            className="h-10 rounded-xl bg-p-error px-5 text-ink-50 text-sm font-bold hover:bg-p-error disabled:opacity-50"
-                          >
-                            {seriesDeleteUsesIndividualRefund ? 'Continuar devolución' : 'Confirmar cancelación'}
-                          </button>
-                        </div>
-                      </>
-                    )}
+                            }
+                            setCancelRefundAmountInput(paidAmount > 0.009 ? paidAmount.toFixed(2) : '');
+                            setCancelRefundReasonType(paidAmount > 0.009 ? 'FULL' : 'OTHER');
+                            setCancelRefundExecutionNotes('');
+                            setCancelRefundExecuteNow(true);
+                            setCancelBookingFlowError('');
+                            setDeleteBookingFinalConfirmOpen(false);
+                            setDeleteSeriesScopeModalOpen(false);
+                            setSeriesDeletePreviewScope(null);
+                            setSeriesDeletePreviewSummary(null);
+                            setDeleteBookingConfirmOpen(true);
+                          })();
+                          return;
+                        }
+                        setDeleteSeriesScopeModalOpen(false);
+                        void handleDeleteBooking(scope);
+                      }}
+                      disabled={
+                        isDeletingBooking ||
+                        !seriesDeletePreviewSummary ||
+                        seriesDeleteBlocksMassCancel ||
+                        (seriesDeletePreviewSummary?.applicableCount ?? 0) === 0
+                      }
+                      className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
+                    >
+                      {seriesDeleteUsesIndividualRefund
+                        ? 'Seguir con la devolución'
+                        : !seriesDeletePreviewSummary
+                          ? 'Elegí qué cancelar'
+                          : seriesDeletePreviewSummary.applicableCount === 1
+                            ? 'Cancelar 1 turno'
+                            : `Cancelar ${seriesDeletePreviewSummary.applicableCount} turnos`}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -6706,229 +7880,143 @@ export default function AdminAgendaPlaygroundPage() {
 
             {deleteBookingConfirmOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex justify-end p-3`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, closeDeleteBookingFlow)
+                  handleModalBackdropPointerUp(event, () => {
+                    if (!isDeletingBooking) closeDeleteBookingFlow();
+                  })
                 }
               >
+                {/* Un solo paso: este modal ya es la confirmación. */}
                 <div
-                  className="flex h-full w-full max-w-[560px] flex-col rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <div className="flex items-start justify-between gap-3 border-b border-p-border px-5 py-4">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-p-text-muted">Agenda</p>
-                      <h3 className="mt-1 text-[22px] font-bold tracking-[-0.01em] text-p-text">Cancelar reserva</h3>
-                      <p className="mt-1 text-[12px] text-p-text-muted">
-                        Revisá el impacto financiero antes de confirmar.
+                  <div className="flex items-start justify-between gap-3 px-5 pt-5">
+                    <div className="min-w-0">
+                      <h3 className="text-[20px] font-bold tracking-[-0.01em] text-p-text">
+                        {isEditingCourtBlock ? 'Eliminar el bloqueo' : 'Cancelar la reserva'}
+                      </h3>
+                      <p className="mt-1 text-[14px] text-p-text-secondary">
+                        <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
+                        {' · '}
+                        {simplifiedEditDateLabel} {slotToTime(selectedStartSlot)}–{slotToTime(selectedEndSlot)} · {selectedCourt?.name || 'Cancha'}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={closeDeleteBookingFlow}
                       disabled={isDeletingBooking}
-                      className="grid h-8 w-8 place-items-center rounded-full border border-p-border text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-50"
+                      aria-label="Cerrar"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-p-border text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-50"
                     >
                       <X size={15} />
                     </button>
                   </div>
 
-                  <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-                    <div className="rounded-xl border border-p-border bg-p-surface-2 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-p-text-muted">Reserva</p>
-                          <p className="mt-1 text-[15px] font-bold text-p-text">{editingBooking?.title || 'Reserva seleccionada'}</p>
-                          <p className="mt-0.5 text-[12px] text-p-text-muted">
-                            {selectedDate.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })} · {slotToTime(selectedStartSlot)} - {slotToTime(selectedEndSlot)}
-                          </p>
-                        </div>
-                        <div className="rounded-lg border border-p-border bg-p-surface px-3 py-2 text-right">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-p-text-muted">Cancha</p>
-                          <p className="mt-1 text-[13px] font-bold text-p-text">{selectedCourt?.name || 'Sin cancha'}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Total</p>
-                        <p className="mt-1 text-[17px] font-bold text-p-text">{Number(bookingFinancial?.total || totalPrice || 0).toFixed(2)} $</p>
-                      </div>
-                      <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Pagado</p>
-                        <p className="mt-1 text-[17px] font-bold text-p-positive">{cancelBookingPaidAmount.toFixed(2)} $</p>
-                      </div>
-                      <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Saldo</p>
-                        <p className="mt-1 text-[17px] font-bold text-p-text-muted">{Number(bookingFinancial?.remaining || 0).toFixed(2)} $</p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-p-border bg-p-surface p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Devolución</p>
-                          <p className="mt-1 text-[13px] text-p-text-muted">
-                            {cancelBookingHasPayments
-                              ? 'Se generará una devolución asociada a la cancelación.'
-                              : 'Esta reserva no tiene pagos registrados.'}
-                          </p>
-                        </div>
-                        {cancelBookingHasPayments && (
-                          <span className="rounded-full bg-p-positive-bg px-2.5 py-1 text-[11px] font-bold text-p-accent">
-                            Disponible {cancelBookingPaidAmount.toFixed(2)} $
-                          </span>
-                        )}
-                      </div>
-
-                      {isBookingFinancialLoading && (
-                        <div className="mt-3 rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[12px] font-semibold text-p-accent">
-                          Cargando impacto financiero...
-                        </div>
-                      )}
-
-                      {cancelBookingHasPayments && (
-                        <div className="mt-4 space-y-3">
-                          <div>
-                            <label className="text-[11px] font-semibold text-p-text-muted">Monto a devolver</label>
+                  <div className="space-y-3 px-5 py-4 text-[13px] text-p-text-secondary">
+                    <p>La cancha queda libre para otra reserva.</p>
+                    {isEditingCourtBlock ? null : isBookingFinancialLoading ? (
+                      <p className="text-p-text-muted">Revisando pagos...</p>
+                    ) : !cancelBookingHasPayments ? (
+                      <p>No tiene pagos: no hay nada que devolver.</p>
+                    ) : (
+                      <div className="space-y-3 border-t border-p-border pt-3">
+                        <p>
+                          Tiene <span className="font-semibold text-p-text">{formatMoney(cancelBookingPaidAmount)}</span> cobrado.
+                        </p>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="block">
+                            <span className="text-[12px] font-medium text-p-text-muted">Devolver</span>
                             <input
                               type="number"
                               min={0}
                               step="0.01"
+                              inputMode="decimal"
                               value={cancelRefundAmountInput}
                               onChange={(event) => {
                                 setCancelRefundAmountInput(event.target.value);
                                 setCancelBookingFlowError('');
                               }}
-                              className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text outline-none focus:border-p-accent"
+                              className="mt-1 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[15px] font-semibold tabular-nums text-p-text outline-none focus:border-p-border-strong"
                             />
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-semibold text-p-text-muted">Motivo</label>
+                          </label>
+                          <label className="block">
+                            <span className="text-[12px] font-medium text-p-text-muted">Motivo</span>
                             <select
                               value={cancelRefundReasonType}
                               onChange={(event) => setCancelRefundReasonType(event.target.value as CancelRefundReasonType)}
-                              className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text outline-none focus:border-p-accent"
+                              className="mt-1 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none focus:border-p-border-strong"
                             >
                               {cancelRefundReasonOptions.map((option) => (
                                 <option key={option.value} value={option.value}>{option.label}</option>
                               ))}
                             </select>
-                          </div>
-
-                          <div>
-                            <label className="text-[11px] font-semibold text-p-text-muted">Nota interna</label>
-                            <textarea
-                              value={cancelRefundExecutionNotes}
-                              onChange={(event) => setCancelRefundExecutionNotes(event.target.value)}
-                              rows={3}
-                              maxLength={500}
-                              placeholder="Detalle operativo de la devolución"
-                              className="mt-1 w-full resize-none rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] font-semibold text-p-text outline-none focus:border-p-accent"
-                            />
-                          </div>
-
-                          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-p-border bg-p-surface-2 px-3 py-2.5">
-                            <input
-                              type="checkbox"
-                              checked={cancelRefundExecuteNow}
-                              onChange={(event) => {
-                                setCancelRefundExecuteNow(event.target.checked);
-                                setCancelBookingFlowError('');
-                              }}
-                              className="h-4 w-4 accent-p-brand"
-                            />
-                            <span className="text-[12px] font-semibold text-p-text">Ejecutar devolución ahora</span>
                           </label>
                         </div>
-                      )}
-                    </div>
+                        <input
+                          value={cancelRefundExecutionNotes}
+                          onChange={(event) => setCancelRefundExecutionNotes(event.target.value)}
+                          maxLength={500}
+                          placeholder="Nota (opcional)"
+                          className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none focus:border-p-border-strong"
+                        />
+                        <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-p-text">
+                          <input
+                            type="checkbox"
+                            checked={cancelRefundExecuteNow}
+                            onChange={(event) => {
+                              setCancelRefundExecuteNow(event.target.checked);
+                              setCancelBookingFlowError('');
+                            }}
+                            className="h-4 w-4 accent-p-brand"
+                          />
+                          Devolver la plata ahora (sale de caja)
+                        </label>
+                      </div>
+                    )}
 
                     {cancelBookingFlowError && (
-                      <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] font-semibold text-p-error">
+                      <p className="rounded-lg bg-p-error-bg px-3 py-2 text-[12px] font-semibold text-p-error">
                         {cancelBookingFlowError}
-                      </div>
+                      </p>
                     )}
                   </div>
 
-                  <div className="border-t border-p-border px-5 py-4">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={closeDeleteBookingFlow}
-                        disabled={isDeletingBooking}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
-                      >
-                        <ChevronLeft size={14} />
-                        Volver
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const result = buildCancelBookingOptions();
-                          if (result.error) {
-                            setCancelBookingFlowError(result.error);
-                            return;
-                          }
-                          setCancelBookingFlowError('');
-                          setDeleteBookingFinalConfirmOpen(true);
-                        }}
-                        disabled={isDeletingBooking || isBookingFinancialLoading}
-                        className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
-                      >
-                        Cancelar reserva
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {deleteBookingFinalConfirmOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modalStacked} flex items-center justify-center bg-[var(--overlay)] p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => {
-                    if (!isDeletingBooking) setDeleteBookingFinalConfirmOpen(false);
-                  })
-                }
-              >
-                <div
-                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="border-b border-p-border px-5 py-4">
-                    <h3 className="text-[21px] font-bold tracking-[-0.01em] text-p-text">Confirmar cancelación</h3>
-                  </div>
-                  <div className="space-y-4 px-5 py-5">
-                    <p className="text-[14px] text-p-text-secondary">
-                      {cancelBookingHasPayments
-                        ? `Vas a cancelar esta reserva y devolver ${normalizedCancelRefundAmount.toFixed(2)} $.`
-                        : 'Vas a cancelar esta reserva sin generar devolución.'}
-                    </p>
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setDeleteBookingFinalConfirmOpen(false)}
-                        disabled={isDeletingBooking}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
-                      >
-                        <ChevronLeft size={14} />
-                        Volver
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void confirmCancelBookingFromDrawer()}
-                        disabled={isDeletingBooking}
-                        className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
-                      >
-                        {isDeletingBooking ? 'Cancelando...' : 'Confirmar'}
-                      </button>
-                    </div>
+                  <div className="flex items-center justify-end gap-2 border-t border-p-border px-5 py-4">
+                    <button
+                      type="button"
+                      onClick={closeDeleteBookingFlow}
+                      disabled={isDeletingBooking}
+                      className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+                    >
+                      Volver
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const result = buildCancelBookingOptions();
+                        if (result.error) {
+                          setCancelBookingFlowError(result.error);
+                          return;
+                        }
+                        setCancelBookingFlowError('');
+                        void handleDeleteBooking();
+                      }}
+                      disabled={isDeletingBooking || isBookingFinancialLoading}
+                      className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
+                    >
+                      {isDeletingBooking
+                        ? isEditingCourtBlock
+                          ? 'Eliminando...'
+                          : 'Cancelando...'
+                        : isEditingCourtBlock
+                          ? 'Eliminar bloqueo'
+                          : cancelBookingHasPayments && normalizedCancelRefundAmount > 0.009
+                          ? `Cancelar y devolver ${formatMoney(normalizedCancelRefundAmount)}`
+                          : 'Cancelar reserva'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -6936,14 +8024,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {seriesOperationResultOpen && seriesOperationResult && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, closeSeriesOperationResult)
                 }
               >
                 <div
-                  className="w-full max-w-[620px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[620px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -7012,7 +8100,7 @@ export default function AdminAgendaPlaygroundPage() {
 
             {deleteParticipantConfirm.open && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () =>
@@ -7021,7 +8109,7 @@ export default function AdminAgendaPlaygroundPage() {
                 }
               >
                 <div
-                  className="w-full max-w-[500px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
+                  className="w-full max-w-[500px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
@@ -7067,14 +8155,14 @@ export default function AdminAgendaPlaygroundPage() {
 
             {blockingErrorModalOpen && (
               <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
+                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
                 onPointerDown={handleModalBackdropPointerDown}
                 onPointerUp={(event) =>
                   handleModalBackdropPointerUp(event, () => setBlockingErrorModalOpen(false))
                 }
               >
                 <div
-                  className="w-full max-w-[560px] rounded-2xl border border-p-error bg-p-surface shadow-2xl"
+                  className="w-full max-w-[560px] rounded-2xl border border-p-error bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
                   onClick={(event) => event.stopPropagation()}
                 >
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-error">
@@ -7108,46 +8196,6 @@ export default function AdminAgendaPlaygroundPage() {
               </div>
             )}
 
-            {bookingCreatedModalOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-center justify-center p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => setBookingCreatedModalOpen(false))
-                }
-              >
-                <div
-                  className="w-full max-w-[520px] rounded-2xl border border-p-accent bg-p-surface shadow-2xl"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-accent">Reserva creada</h3>
-                    <button
-                      type="button"
-                      onClick={() => setBookingCreatedModalOpen(false)}
-                      className="h-8 w-8 rounded-full border border-p-border grid place-items-center text-p-text-muted hover:bg-p-surface-2"
-                    >
-                      <X size={15} />
-                    </button>
-                  </div>
-                  <div className="px-5 py-5 space-y-4">
-                    <p className="text-[14px] text-p-text-secondary">
-                      La reserva se creó correctamente y quedó abierta para edición.
-                    </p>
-                    <div className="flex items-center justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setBookingCreatedModalOpen(false)}
-                        className="h-10 rounded-xl bg-ink-900 px-5 text-ink-50 text-sm font-bold hover:bg-ink-900"
-                      >
-                        Entendido
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {drawerOpen && (
               <button
                 type="button"
@@ -7158,7 +8206,7 @@ export default function AdminAgendaPlaygroundPage() {
             )}
 
             <aside
-              className={`absolute inset-y-0 right-0 z-[60] w-full md:max-w-[670px] border-l border-p-border bg-p-surface shadow-2xl transition-transform duration-300 ${
+              className={`absolute inset-y-0 right-0 z-[60] w-full ${editingBookingId ? 'md:max-w-[670px]' : 'md:max-w-[540px]'} border-l border-p-border bg-p-surface shadow-2xl transition-transform duration-300 ${
                 drawerOpen ? 'translate-x-0' : 'translate-x-full'
               }`}
             >
@@ -7176,12 +8224,59 @@ export default function AdminAgendaPlaygroundPage() {
                     </div>
                   </div>
                 )}
-                <header className="border-b border-p-border px-6 py-5 flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <h2 className="text-[22px] font-semibold leading-snug tracking-tight text-p-text">
-                      {sidebarTitle}
-                    </h2>
-                    {!useSimplifiedBookingSidebar && (
+                <header className="border-b border-p-border px-4 py-3.5 lg:px-6 lg:py-5 flex items-start justify-between gap-3 lg:gap-4">
+                  <button
+                    type="button"
+                    onClick={() => closeBookingDrawer({ clearFormError: false })}
+                    aria-label="Volver al calendario"
+                    className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border border-p-border text-p-text-secondary hover:bg-p-surface-2 lg:hidden"
+                  >
+                    <ChevronLeft size={17} />
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-[18px] lg:text-[22px] font-semibold leading-snug tracking-tight text-p-text">
+                        {/* Reserva existente: lo primero que se lee es de quién es. */}
+                        {useSimplifiedBookingSidebar && simplifiedIsEditingReservation ? simplifiedSummaryOwnerLabel : sidebarTitle}
+                      </h2>
+                      {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
+                        <>
+                          {/* Confirmada es lo normal: solo se marca lo que pide atención o ya terminó. */}
+                          {editingBooking?.state !== 'confirmed' && (
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold ${reservationStatusTone}`}>
+                              {editingBooking?.state === 'pending' ? 'Sin confirmar' : reservationStatusLabel}
+                            </span>
+                          )}
+                          {simplifiedIsEditingRecurringSeries && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-p-surface-3 px-2.5 py-1 text-[11px] font-bold text-p-text-secondary">
+                              <Repeat size={11} />
+                              Fija
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-p-text-secondary">
+                        <span>
+                          {simplifiedEditDateLabel} · {simplifiedHeaderTimeLabel} · {simplifiedSummaryCourtLabel}
+                        </span>
+                        {!isCompletedReservationScheduleLocked && !simplifiedScheduleEditorVisible && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSimplifiedSidebarSection('DETAILS');
+                              setSimplifiedScheduleEditorOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                          >
+                            <Pencil size={12} />
+                            Cambiar
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {!useSimplifiedBookingSidebar && bookingKind !== 'block' && (
                     <div className="mt-4 flex flex-wrap items-center gap-2 relative">
                       <button
                         type="button"
@@ -7193,7 +8288,7 @@ export default function AdminAgendaPlaygroundPage() {
                         <ChevronDown size={14} />
                       </button>
                       {bookingKindMenuOpen && (
-                        <div className="absolute top-10 left-0 z-40 w-[420px] rounded-2xl border border-p-border bg-p-surface p-2 shadow-xl">
+                        <div className="absolute top-10 left-0 z-40 w-[420px] max-w-[calc(100vw-2rem)] rounded-2xl border border-p-border bg-p-surface p-2 shadow-xl">
                           <div className="space-y-1">
                             {bookingKindOptions.map((option) => (
                               <button
@@ -7234,7 +8329,7 @@ export default function AdminAgendaPlaygroundPage() {
                         />
                         <ChevronDown size={14} />
                       </label>
-                      {bookingKind !== 'block' && (
+                      {(
                         <>
                           {!isRecurringKind && (
                             <PlaygroundCombo
@@ -7253,14 +8348,11 @@ export default function AdminAgendaPlaygroundPage() {
                             value={slotToTime(selectedStartSlot)}
                             onChange={(nextValue) => {
                               const nextStart = timeToSlot(nextValue);
-                              setSelectedStartSlot(nextStart);
-                              if (nextStart >= selectedEndSlot) {
-                                setSelectedEndSlot(nextStart + 1);
-                              }
+                              applyDrawerStartSlot(nextStart);
                               setScheduleInputsDirty(true);
                               setFormError('');
                             }}
-                            options={timeOptions.slice(0, -1).map((option) => ({ value: option.value, label: option.value }))}
+                            options={drawerStartTimeOptions}
                             compact
                             className="min-w-[92px]"
                           />
@@ -7272,7 +8364,7 @@ export default function AdminAgendaPlaygroundPage() {
                               setScheduleInputsDirty(true);
                               setFormError('');
                             }}
-                            options={timeOptions.slice(1).map((option) => ({ value: option.value, label: option.value }))}
+                            options={drawerEndTimeOptions}
                             compact
                             className="min-w-[92px]"
                           />
@@ -7284,15 +8376,16 @@ export default function AdminAgendaPlaygroundPage() {
                   <button
                     type="button"
                     onClick={() => closeBookingDrawer({ clearFormError: false })}
-                    className="h-9 w-9 rounded-full border border-p-border text-p-text-muted grid place-items-center hover:bg-p-surface-2 shrink-0"
+                    aria-label="Cerrar panel"
+                    className="hidden h-9 w-9 rounded-full border border-p-border text-p-text-muted place-items-center hover:bg-p-surface-2 shrink-0 lg:grid"
                   >
                     <X size={16} />
                   </button>
                 </header>
 
                 {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
-                  <div className="border-b border-p-border px-6">
-                    <nav className="flex items-center gap-6 overflow-x-auto">
+                  <div className="border-b border-p-border px-4 lg:px-6">
+                    <nav className="flex items-center gap-5 lg:gap-6 overflow-x-auto">
                       {simplifiedSectionTabs.map((tab) => {
                         const isActive = simplifiedSidebarSection === tab.id;
                         return (
@@ -7300,7 +8393,7 @@ export default function AdminAgendaPlaygroundPage() {
                             key={`simplified-tab-${tab.id}`}
                             type="button"
                             onClick={() => setSimplifiedSidebarSection(tab.id)}
-                            className={`h-12 border-b-2 text-[13px] font-semibold uppercase tracking-[0.02em] whitespace-nowrap transition ${
+                            className={`h-12 border-b-2 text-[14px] font-semibold whitespace-nowrap transition ${
                               isActive
                                 ? 'border-p-accent text-p-accent'
                                 : 'border-transparent text-p-text-muted hover:text-p-text'
@@ -7314,424 +8407,84 @@ export default function AdminAgendaPlaygroundPage() {
                   </div>
                 )}
 
-                <div ref={drawerScrollContainerRef} className="flex-1 overflow-y-auto px-6 py-6">
+                <div ref={drawerScrollContainerRef} className="flex-1 overflow-y-auto px-3 py-3 lg:px-6 lg:py-6">
                   {useSimplifiedBookingSidebar ? (
-                    <section className="rounded-2xl border border-p-border bg-p-surface px-4 py-4">
+                    <section className="flex flex-col">
                       {showSimplifiedDetailsSection && (simplifiedIsEditingReservation ? (
                         <>
-                          <div className="rounded-xl border border-p-border bg-p-surface-2 p-4">
-                            <div className="flex items-center">
-                              <p className="text-[18px] font-semibold text-p-text">Reserva del usuario</p>
-                            </div>
-                            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3">
-                              <div>
-                                <p className="text-[12px] text-p-text-muted">Titular</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryOwnerLabel}</p>
+                          {/* Horario y cancha ya están en el encabezado; el editor aparece solo al tocar "Cambiar". */}
+                          {simplifiedScheduleEditorVisible && !isCompletedReservationScheduleLocked && (
+                            <div className="mb-6 rounded-xl border border-p-border p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-[15px] font-semibold text-p-text">Cambiar horario o cancha</p>
+                                {simplifiedScheduleEditorOpen && !hasScheduleChanges && !timeFieldError && !courtFieldError ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSimplifiedScheduleEditorOpen(false)}
+                                    className="text-[13px] font-semibold text-p-text-muted hover:text-p-text"
+                                  >
+                                    Cancelar
+                                  </button>
+                                ) : (
+                                  <span className="text-[12px] text-p-text-muted">Se aplica al guardar</span>
+                                )}
                               </div>
-                              <div>
-                                <p className="text-[12px] text-p-text-muted">Fecha</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryDateLabel}</p>
-                              </div>
-                              <div>
-                                <p className="text-[12px] text-p-text-muted">Origen</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">Administrador</p>
-                              </div>
-                              <div>
-                                <p className="text-[12px] text-p-text-muted">Horario</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryTimeLabel}</p>
-                              </div>
-                              <div>
-                                <p className="text-[12px] text-p-text-muted">Cancha</p>
-                                <p className="mt-0.5 text-[15px] font-medium text-p-text">{simplifiedSummaryCourtLabel}</p>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 max-w-[260px]">
-                            <p className="text-[12px] font-medium text-p-text-muted">Precio</p>
-                            <div className="mt-1 h-12 rounded-xl border border-p-border bg-p-surface px-3 flex items-center justify-between">
-                              <input
-                                type="number"
-                                readOnly
-                                value={isFinancialDisplayPending ? '' : Number(totalPrice.toFixed(2))}
-                                className="w-full bg-transparent text-[18px] font-semibold text-p-text outline-none"
-                              />
-                              <span className="ml-2 text-[18px] font-semibold text-p-text-muted">$</span>
-                            </div>
-                          </div>
-                          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
-                            <div className="block">
-                              <span className="text-[12px] font-medium text-p-text-muted">Hora de inicio</span>
-                              <PlaygroundCombo
-                                value={slotToTime(selectedStartSlot)}
-                                onChange={(nextValue) => {
-                                  const nextStart = timeToSlot(nextValue);
-                                  setSelectedStartSlot(nextStart);
-                                  if (nextStart >= selectedEndSlot) {
-                                    setSelectedEndSlot(nextStart + 1);
-                                  }
-                                  setScheduleInputsDirty(true);
-                                  setFormError('');
-                                }}
-                                options={timeOptions.slice(0, -1).map((option) => ({
-                                  value: option.value,
-                                  label: slotToTimeAmPm(option.slot),
-                                }))}
-                                disabled={isCompletedReservationScheduleLocked}
-                                className="mt-1"
-                              />
-                            </div>
-                            <div className="block">
-                              <span className="text-[12px] font-medium text-p-text-muted">Hora de fin</span>
-                              <PlaygroundCombo
-                                value={slotToTime(selectedEndSlot)}
-                                onChange={(nextValue) => {
-                                  const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
-                                  setSelectedEndSlot(nextEnd);
-                                  setScheduleInputsDirty(true);
-                                  setFormError('');
-                                }}
-                                options={timeOptions.slice(1).map((option) => ({
-                                  value: option.value,
-                                  label: slotToTimeAmPm(option.slot),
-                                }))}
-                                disabled={isCompletedReservationScheduleLocked}
-                                className="mt-1"
-                              />
-                            </div>
-                            {timeFieldError && (
-                              <div className="md:col-span-2">
-                                <p className="text-[12px] font-medium text-p-error">{timeFieldError}</p>
-                              </div>
-                            )}
-                            <div className="block md:col-span-2">
-                              <span className="text-[12px] font-medium text-p-text-muted">Cancha</span>
-                              <PlaygroundCombo
-                                value={selectedCourtId}
-                                onChange={(next) => {
-                                  setSelectedCourtId(next);
-                                  setScheduleInputsDirty(true);
-                                  setFormError('');
-                                }}
-                                options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
-                                disabled={isCompletedReservationScheduleLocked}
-                                className="mt-1"
-                              />
-                              {courtFieldError && (
-                                <p className="mt-1 text-[12px] font-medium text-p-error">{courtFieldError}</p>
-                              )}
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div
-                            data-booking-kind-menu-root="true"
-                            className="relative rounded-xl border border-p-border bg-p-positive-bg px-3 py-2.5 flex items-center justify-between"
-                          >
-                            <div className="inline-flex items-center gap-2 text-[15px] font-medium text-p-accent">
-                              <Clock3 size={16} />
-                              <span>{bookingKind === 'recurringV2' ? 'Serie recurrente' : 'Reserva regular'}</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setBookingKindMenuOpen((previous) => !previous)}
-                              className="text-[14px] font-semibold text-p-accent underline underline-offset-2 hover:text-p-accent"
-                            >
-                              Cambiar tipo
-                            </button>
-                            {bookingKindMenuOpen && (
-                              <div className="absolute right-0 top-[calc(100%+8px)] z-40 w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-p-border bg-p-surface p-2 shadow-xl">
-                                <div className="space-y-1">
-                                  {bookingKindOptions.map((option) => {
-                                    const isLockedForChange = lockedBookingKindChangeValues.has(option.value);
-
-                                    return (
-                                      <button
-                                        key={`simplified-booking-kind-${option.value}`}
-                                        type="button"
-                                        disabled={isLockedForChange}
-                                        onClick={() => {
-                                          if (isLockedForChange) return;
-                                          setBookingKind(option.value);
-                                          setBookingKindMenuOpen(false);
-                                          setFormError('');
-                                        }}
-                                        title={isLockedForChange ? 'No disponible desde Cambiar tipo' : undefined}
-                                        className={`w-full rounded-xl px-3 py-3 text-left transition ${
-                                          option.value === bookingKind
-                                            ? 'bg-p-positive-bg'
-                                            : isLockedForChange
-                                              ? 'cursor-not-allowed opacity-45'
-                                              : 'hover:bg-p-surface-2'
-                                        }`}
-                                      >
-                                        <span className="flex items-start gap-2">
-                                          <option.icon size={17} className="mt-[1px] text-p-text-secondary" />
-                                          <span>
-                                            <span className="block text-[16px] font-bold leading-none text-p-text">{option.label}</span>
-                                            <span className="block mt-1 text-[12px] leading-snug text-p-text-muted">{option.description}</span>
-                                          </span>
-                                        </span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          {dateFieldError && (
-                            <p className="mt-2 text-[12px] font-medium text-p-error">{dateFieldError}</p>
-                          )}
-
-                          {bookingKind === 'recurringV2' ? (
-                            <>
-                              <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
+                              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[132px_minmax(0,1fr)]">
                                 <div className="block">
-                                  <span className="text-[12px] font-medium text-p-text-muted">Día de repetición</span>
-                                  <PlaygroundCombo
-                                    value={String(recurringDayOfWeek)}
-                                    onChange={(nextValue) => {
-                                      setRecurringDayOfWeek(Number(nextValue));
-                                      setRecurringResult(null);
-                                      setFormError('');
-                                    }}
-                                    options={WEEKDAY_OPTIONS.map((option) => ({ value: String(option.value), label: option.label }))}
-                                    className="mt-1"
-                                  />
-                                </div>
-                                <div className="block">
-                                  <span className="text-[12px] font-medium text-p-text-muted">Frecuencia</span>
-                                  <PlaygroundCombo
-                                    value={recurringFrequencyPreset}
-                                    onChange={(nextValue) => {
-                                      const nextPreset = nextValue as RecurringFrequencyPreset;
-                                      setRecurringFrequencyPreset(nextPreset);
-                                      if (nextPreset === 'weekly') {
-                                        setRecurringEveryDays(7);
-                                      } else if (nextPreset === 'biweekly') {
-                                        setRecurringEveryDays(14);
-                                      } else if (nextPreset === 'custom') {
-                                        setCustomRepeatEveryWeeks(Math.max(1, Math.floor(recurringEveryDays / 7) || 1));
-                                        setCustomEndAfterReservations(Math.max(1, recurringRepetitions));
-                                        setCustomEndAfterEnabled(true);
-                                        setCustomRecurrenceDays((previous) => (previous.length > 0 ? previous : [recurringDayOfWeek]));
-                                        setCustomRecurrenceModalOpen(true);
-                                      }
-                                      setRecurringResult(null);
-                                      setFormError('');
-                                    }}
-                                    options={[
-                                      { value: 'weekly', label: 'Semanal' },
-                                      { value: 'biweekly', label: '2 semanas' },
-                                      { value: 'custom', label: 'Personalizado' },
-                                    ]}
-                                    className="mt-1"
-                                  />
-                                </div>
-                                <div className="block">
-                                  <span className="text-[12px] font-medium text-p-text-muted">Hora de inicio</span>
+                                  <span className="text-[12px] font-medium text-p-text-muted">Inicio</span>
                                   <PlaygroundCombo
                                     value={slotToTime(selectedStartSlot)}
                                     onChange={(nextValue) => {
-                                      const nextStart = timeToSlot(nextValue);
-                                      setSelectedStartSlot(nextStart);
-                                      if (nextStart >= selectedEndSlot) {
-                                        setSelectedEndSlot(nextStart + 1);
-                                      }
+                                      applyDrawerStartSlot(timeToSlot(nextValue));
                                       setScheduleInputsDirty(true);
                                       setFormError('');
                                     }}
-                                    options={timeOptions.slice(0, -1).map((option) => ({
-                                      value: option.value,
-                                      label: slotToTimeAmPm(option.slot),
-                                    }))}
+                                    options={drawerStartTimeOptions}
                                     className="mt-1"
                                   />
                                 </div>
                                 <div className="block">
-                                  <span className="text-[12px] font-medium text-p-text-muted">Hora de fin</span>
-                                  <PlaygroundCombo
-                                    value={slotToTime(selectedEndSlot)}
-                                    onChange={(nextValue) => {
-                                      const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
-                                      setSelectedEndSlot(nextEnd);
-                                      setScheduleInputsDirty(true);
-                                      setFormError('');
-                                    }}
-                                    options={timeOptions.slice(1).map((option) => ({
-                                      value: option.value,
-                                      label: slotToTimeAmPm(option.slot),
-                                    }))}
-                                    className="mt-1"
-                                  />
-                                </div>
-                                {timeFieldError && (
-                                  <div className="md:col-span-2">
-                                    <p className="text-[12px] font-medium text-p-error">{timeFieldError}</p>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="mt-4">
-                                <p className="text-[12px] font-medium text-p-text-muted">Canchas para la serie</p>
-                                <div ref={recurringCourtsMenuRef} className="relative mt-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => setRecurringCourtsMenuOpen((previous) => !previous)}
-                                    onKeyDown={(event) => {
-                                      if (event.key === 'ArrowDown') {
-                                        event.preventDefault();
-                                        setRecurringCourtsMenuOpen(true);
-                                      }
-                                    }}
-                                    aria-haspopup="listbox"
-                                    aria-expanded={recurringCourtsMenuOpen}
-                                    className={`h-11 w-full rounded-xl border px-3 text-left text-[15px] inline-flex items-center justify-between gap-2 bg-p-surface transition outline-none focus:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/30 focus-visible:ring-offset-0 ${
-                                      recurringCourtsMenuOpen
-                                        ? 'border-p-border ring-2 ring-lima-300/30 text-p-text'
-                                        : 'border-p-border text-p-text hover:border-p-border-strong'
-                                    }`}
-                                  >
-                                    <span className="truncate">{recurringCourtSelectionLabel || 'Seleccionar canchas'}</span>
-                                    <ChevronDown
-                                      size={15}
-                                      className={`text-p-text-muted transition-transform ${recurringCourtsMenuOpen ? 'rotate-180' : ''}`}
-                                    />
-                                  </button>
-                                  {recurringCourtsMenuOpen && (
-                                    <div className="absolute left-0 right-0 mt-2 rounded-xl border border-p-border bg-p-surface shadow-xl z-40 overflow-hidden">
-                                      <label className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[15px] text-p-text transition ${recurringAllCourtsSelected ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'}`}>
-                                        <input
-                                          type="checkbox"
-                                          className="peer sr-only"
-                                          checked={recurringAllCourtsSelected}
-                                          onChange={(event) => {
-                                            setRecurringCourtIds(event.target.checked ? effectiveCourts.map((court) => court.id) : []);
-                                            setRecurringResult(null);
-                                            setFormError('');
-                                          }}
-                                        />
-                                        <span className="grid h-7 w-7 place-items-center rounded-[10px] border border-p-border bg-p-surface text-[16px] leading-none text-p-accent peer-checked:border-p-accent peer-checked:bg-p-positive-bg">
-                                          {recurringAllCourtsSelected ? <Check size={14} strokeWidth={3} /> : null}
-                                        </span>
-                                        <span className="font-medium">Todas las canchas</span>
-                                      </label>
-                                      <div className="h-px bg-p-surface-3" />
-                                      <div className="max-h-56 overflow-y-auto">
-                                        {effectiveCourts.map((court) => {
-                                          const checked = recurringCourtIds.includes(court.id);
-                                          return (
-                                            <label
-                                              key={`recurring-court-${court.id}`}
-                                              className={`flex cursor-pointer items-center gap-2 px-3 py-2.5 text-[15px] text-p-text transition ${checked ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'}`}
-                                            >
-                                              <input
-                                                type="checkbox"
-                                                className="peer sr-only"
-                                                checked={checked}
-                                                onChange={(event) => {
-                                                  setRecurringCourtIds((previous) => {
-                                                    if (event.target.checked) {
-                                                      if (previous.includes(court.id)) return previous;
-                                                      return [...previous, court.id];
-                                                    }
-                                                    return previous.filter((id) => id !== court.id);
-                                                  });
-                                                  setRecurringResult(null);
-                                                  setFormError('');
-                                                }}
-                                              />
-                                              <span className="grid h-7 w-7 place-items-center rounded-[10px] border border-p-border bg-p-surface text-[16px] leading-none text-p-accent peer-checked:border-p-accent peer-checked:bg-p-positive-bg">
-                                                {checked ? <Check size={14} strokeWidth={3} /> : null}
-                                              </span>
-                                              <span className="truncate font-medium">{court.name}</span>
-                                            </label>
-                                          );
-                                        })}
-                                      </div>
+                                  <span className="text-[12px] font-medium text-p-text-muted">Duración</span>
+                                  {drawerDurationChoices.length > 0 ? (
+                                    <div className="mt-1 flex flex-wrap gap-2">
+                                      {drawerDurationChoices.map((choice) => {
+                                        const active = selectedEndSlot === choice.endSlot;
+                                        return (
+                                          <button
+                                            key={`edit-duration-${choice.durationMinutes}`}
+                                            type="button"
+                                            aria-pressed={active}
+                                            onClick={() => {
+                                              setSelectedEndSlot(choice.endSlot);
+                                              setScheduleInputsDirty(true);
+                                              setFormError('');
+                                            }}
+                                            className={`h-11 rounded-xl border px-4 text-[14px] font-semibold transition ${
+                                              active
+                                                ? 'border-ink-900 bg-ink-900 text-ink-50'
+                                                : 'border-p-border bg-p-surface text-p-text hover:border-p-border-strong'
+                                            }`}
+                                          >
+                                            {formatDurationLabel(choice.durationMinutes)}
+                                          </button>
+                                        );
+                                      })}
                                     </div>
+                                  ) : (
+                                    <PlaygroundCombo
+                                      value={slotToTime(selectedEndSlot)}
+                                      onChange={(nextValue) => {
+                                        setSelectedEndSlot(Math.max(timeToSlot(nextValue), selectedStartSlot + 1));
+                                        setScheduleInputsDirty(true);
+                                        setFormError('');
+                                      }}
+                                      options={drawerEndTimeOptions}
+                                      className="mt-1"
+                                    />
                                   )}
                                 </div>
                               </div>
-
-                              <div className="mt-4 rounded-xl border border-p-border bg-p-surface px-4 py-3">
-                                {recurringFrequencyPreset === 'custom' && (
-                                  <>
-                                    <div className="flex items-center justify-between gap-3">
-                                      <p className="text-[12px] font-medium text-p-text-muted">Repetición personalizada</p>
-                                      <button
-                                        type="button"
-                                        onClick={() => setCustomRecurrenceModalOpen(true)}
-                                        className="h-9 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-accent hover:bg-p-positive-bg"
-                                      >
-                                        Editar repetición
-                                      </button>
-                                    </div>
-                                    <div className="my-2 h-px bg-p-surface-3" />
-                                  </>
-                                )}
-                                <p className="text-[12px] text-p-text-muted">
-                                  Primera ocurrencia:{' '}
-                                  <strong className="ml-1 text-[14px] font-semibold text-p-text">
-                                    {recurringFirstOccurrence.toLocaleDateString('es-AR', {
-                                      weekday: 'long',
-                                      day: '2-digit',
-                                      month: 'short',
-                                    })}{' '}
-                                    · {slotToTime(selectedStartSlot)} - {slotToTime(selectedEndSlot)}
-                                  </strong>
-                                </p>
-                                <p className="mt-1 text-[12px] text-p-text-muted">
-                                  {recurringCadenceShortSummary} · {recurringCreationCountSummary}
-                                </p>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
-                              <div className="block">
-                                <span className="text-[12px] font-medium text-p-text-muted">Hora de inicio</span>
-                                <PlaygroundCombo
-                                  value={slotToTime(selectedStartSlot)}
-                                  onChange={(nextValue) => {
-                                    const nextStart = timeToSlot(nextValue);
-                                    setSelectedStartSlot(nextStart);
-                                    if (nextStart >= selectedEndSlot) {
-                                      setSelectedEndSlot(nextStart + 1);
-                                    }
-                                    setScheduleInputsDirty(true);
-                                    setFormError('');
-                                  }}
-                                  options={timeOptions.slice(0, -1).map((option) => ({
-                                    value: option.value,
-                                    label: slotToTimeAmPm(option.slot),
-                                  }))}
-                                  className="mt-1"
-                                />
-                              </div>
-                              <div className="block">
-                                <span className="text-[12px] font-medium text-p-text-muted">Hora de fin</span>
-                                <PlaygroundCombo
-                                  value={slotToTime(selectedEndSlot)}
-                                  onChange={(nextValue) => {
-                                    const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
-                                    setSelectedEndSlot(nextEnd);
-                                    setScheduleInputsDirty(true);
-                                    setFormError('');
-                                  }}
-                                  options={timeOptions.slice(1).map((option) => ({
-                                    value: option.value,
-                                    label: slotToTimeAmPm(option.slot),
-                                  }))}
-                                  className="mt-1"
-                                />
-                              </div>
-                              {timeFieldError && (
-                                <div className="md:col-span-2">
-                                  <p className="text-[12px] font-medium text-p-error">{timeFieldError}</p>
-                                </div>
-                              )}
-                              <div className="block">
+                              <div className="mt-3 block">
                                 <span className="text-[12px] font-medium text-p-text-muted">Cancha</span>
                                 <PlaygroundCombo
                                   value={selectedCourtId}
@@ -7743,202 +8496,221 @@ export default function AdminAgendaPlaygroundPage() {
                                   options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
                                   className="mt-1"
                                 />
-                                {courtFieldError && (
-                                  <p className="mt-1 text-[12px] font-medium text-p-error">{courtFieldError}</p>
-                                )}
                               </div>
+                              <p className="mt-2 text-[12px] text-p-text-muted">
+                                Queda: {slotToTime(selectedStartSlot)} a {slotToTime(selectedEndSlot)} · {simplifiedSummaryCourtLabel}
+                              </p>
+                              {timeFieldError && (
+                                <p className="mt-1 text-[12px] font-medium text-p-error">{timeFieldError}</p>
+                              )}
+                              {courtFieldError && (
+                                <p className="mt-1 text-[12px] font-medium text-p-error">{courtFieldError}</p>
+                              )}
                             </div>
                           )}
-
+                          {isCompletedReservationScheduleLocked && (
+                            <p className="mb-4 text-[12px] text-p-text-muted">Reserva completada: el horario ya no se puede cambiar.</p>
+                          )}
                         </>
-                      ))}
-
-                      {showSimplifiedConsumptionsSection && (
-                        <section className="rounded-xl border border-p-border bg-p-surface-2 p-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="text-[18px] font-semibold text-p-text">Consumos</p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-[11px] text-p-text-muted">Total consumos</p>
-                              <p className="text-[18px] font-semibold text-p-text">
-                                {bookingItemsAmount.toFixed(2)} $
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="mt-3 grid grid-cols-3 gap-2 text-[12px] text-p-text-muted">
-                            <div className="rounded-lg border border-p-border bg-p-surface px-2 py-1.5">
-                              <p>Items</p>
+                      ) : (
+                        <>
+                          {/* Cuándo: cancha y fecha vienen del clic en la grilla; acá solo se ajustan. */}
+                          <div className="mt-6">
+                            <div className="flex items-center justify-between gap-3">
                               <p className="text-[15px] font-semibold text-p-text">
-                                {bookingConsumptionItems.length}
+                                {simplifiedSummaryCourtLabel} · {simplifiedCreateDateLabel}
                               </p>
+                              <button
+                                type="button"
+                                onClick={() => setCreateCourtPickerOpen((previous) => !previous)}
+                                className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                              >
+                                {createCourtPickerOpen ? 'Listo' : 'Cambiar cancha'}
+                              </button>
                             </div>
-                            <div className="rounded-lg border border-p-border bg-p-surface px-2 py-1.5">
-                              <p>Pagado</p>
-                              <p className="text-[15px] font-semibold text-p-positive">
-                                {bookingConsumptionsPaid.toFixed(2)} $
-                              </p>
-                            </div>
-                            <div className="rounded-lg border border-p-border bg-p-surface px-2 py-1.5">
-                              <p>Pendiente</p>
-                              <p className="text-[15px] font-semibold text-p-warning">
-                                {bookingConsumptionsRemaining.toFixed(2)} $
-                              </p>
-                            </div>
-                          </div>
+                            {(createCourtPickerOpen || courtFieldError) && (
+                              <PlaygroundCombo
+                                value={selectedCourtId}
+                                onChange={(next) => {
+                                  setSelectedCourtId(next);
+                                  setRecurringCourtIds([next]);
+                                  setScheduleInputsDirty(true);
+                                  setFormError('');
+                                  setCreateCourtPickerOpen(false);
+                                }}
+                                options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
+                                className="mt-2"
+                              />
+                            )}
+                            {courtFieldError && (
+                              <p className="mt-1 text-[12px] font-medium text-p-error">{courtFieldError}</p>
+                            )}
+                            {dateFieldError && (
+                              <p className="mt-1 text-[12px] font-medium text-p-error">{dateFieldError}</p>
+                            )}
 
-                          <div className="mt-4 rounded-xl border border-p-border bg-p-surface p-3">
-                            <p className="text-[13px] font-semibold text-p-text">Agregar consumo</p>
-                            <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-[minmax(220px,1fr)_112px_auto]">
-                              <div>
-                                <span className="text-[12px] font-medium text-p-text-muted">Producto</span>
+                            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[132px_minmax(0,1fr)]">
+                              <div className="block">
+                                <span className="text-[12px] font-medium text-p-text-muted">Inicio</span>
                                 <PlaygroundCombo
-                                  value={consumptionProductDraft}
-                                  onChange={(value) => {
-                                    setConsumptionProductDraft(String(value || ''));
-                                    setBookingConsumptionError('');
+                                  value={slotToTime(selectedStartSlot)}
+                                  onChange={(nextValue) => {
+                                    applyDrawerStartSlot(timeToSlot(nextValue));
+                                    setScheduleInputsDirty(true);
+                                    setFormError('');
                                   }}
-                                  options={consumptionProductOptions}
-                                  variant="participant"
+                                  options={drawerStartTimeOptions}
                                   className="mt-1"
                                 />
                               </div>
-                              <label className="block">
-                                <span className="text-[12px] font-medium text-p-text-muted">Cantidad</span>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  step={1}
-                                  value={consumptionQuantityDraft}
-                                  onChange={(event) => {
-                                    setConsumptionQuantityDraft(event.target.value);
-                                    setBookingConsumptionError('');
-                                  }}
-                                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none"
-                                />
-                              </label>
-                              <div className="flex items-end">
-                                <button
-                                  type="button"
-                                  onClick={() => void handleAddConsumption()}
-                                  disabled={!canAddConsumption}
-                                  className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-3 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
-                                >
-                                  <Plus size={13} />
-                                  {consumptionAddInFlight ? 'Agregando...' : 'Agregar'}
-                                </button>
+                              <div className="block">
+                                <span className="text-[12px] font-medium text-p-text-muted">Duración</span>
+                                {drawerDurationChoices.length > 0 ? (
+                                  <div className="mt-1 flex flex-wrap gap-2">
+                                    {drawerDurationChoices.map((choice) => {
+                                      const active = selectedEndSlot === choice.endSlot;
+                                      return (
+                                        <button
+                                          key={`create-duration-${choice.durationMinutes}`}
+                                          type="button"
+                                          aria-pressed={active}
+                                          onClick={() => {
+                                            setSelectedEndSlot(choice.endSlot);
+                                            setScheduleInputsDirty(true);
+                                            setFormError('');
+                                          }}
+                                          className={`h-11 rounded-xl border px-4 text-[14px] font-semibold transition ${
+                                            active
+                                              ? 'border-ink-900 bg-ink-900 text-ink-50'
+                                              : 'border-p-border bg-p-surface text-p-text hover:border-p-border-strong'
+                                          }`}
+                                        >
+                                          {formatDurationLabel(choice.durationMinutes)}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <PlaygroundCombo
+                                    value={slotToTime(selectedEndSlot)}
+                                    onChange={(nextValue) => {
+                                      setSelectedEndSlot(Math.max(timeToSlot(nextValue), selectedStartSlot + 1));
+                                      setScheduleInputsDirty(true);
+                                      setFormError('');
+                                    }}
+                                    options={drawerEndTimeOptions}
+                                    className="mt-1"
+                                  />
+                                )}
                               </div>
                             </div>
-
-                            <label className="mt-2 inline-flex items-center gap-2 text-[12px] text-p-text-secondary">
-                              <input
-                                type="checkbox"
-                                checked={consumptionApplyDiscountDraft}
-                                onChange={(event) => setConsumptionApplyDiscountDraft(event.target.checked)}
-                                className="h-4 w-4 accent-p-brand"
-                              />
-                              Aplicar descuentos automáticos del cliente
-                            </label>
-
-                            <div className="mt-2 min-h-[20px]">
-                              {consumptionProductsLoading ? (
-                                <p className="text-[12px] text-p-text-muted">Cargando productos...</p>
-                              ) : consumptionProductsError ? (
-                                <p className="text-[12px] text-p-error">{consumptionProductsError}</p>
-                              ) : consumptionQuoteLoading ? (
-                                <p className="text-[12px] text-p-text-muted">Cotizando...</p>
-                              ) : consumptionQuoteError ? (
-                                <p className="text-[12px] text-p-error">{consumptionQuoteError}</p>
-                              ) : consumptionQuote ? (
-                                <p className="text-[12px] text-p-text-secondary">
-                                  Lista {consumptionQuote.listTotal.toFixed(2)} $ · Final {consumptionQuote.finalTotal.toFixed(2)} $
-                                  {consumptionQuote.hasDiscount && consumptionQuote.discountAmount > 0.009
-                                    ? ` · Descuento ${consumptionQuote.discountAmount.toFixed(2)} $`
-                                    : ''}
-                                </p>
-                              ) : selectedConsumptionProduct ? (
-                                <p className="text-[12px] text-p-text-secondary">
-                                  Subtotal estimado:{' '}
-                                  {roundMoney(selectedConsumptionProduct.price * selectedConsumptionQuantity).toFixed(2)} $
-                                </p>
-                              ) : null}
-                            </div>
+                            <p className="mt-2 text-[12px] text-p-text-muted">
+                              De {slotToTime(selectedStartSlot)} a {slotToTime(selectedEndSlot)}
+                            </p>
+                            {timeFieldError && (
+                              <p className="mt-1 text-[12px] font-medium text-p-error">{timeFieldError}</p>
+                            )}
                           </div>
 
-                          {bookingConsumptionError && (
-                            <AdminFeedbackBanner tone="error" compact className="mt-3">
-                              {bookingConsumptionError}
-                            </AdminFeedbackBanner>
-                          )}
-
-                          <div className="mt-4 rounded-xl border border-p-border bg-p-surface">
-                            <div className="border-b border-p-border px-3 py-2">
-                              <p className="text-[13px] font-semibold text-p-text">Consumos cargados</p>
-                            </div>
-                            {bookingConsumptionLoading ? (
-                              <div className="flex items-center justify-center py-6">
-                                <div className="h-5 w-5 rounded-full border-2 border-p-accent border-t-p-accent animate-spin" />
-                              </div>
-                            ) : bookingConsumptionItems.length === 0 ? (
-                              <p className="px-3 py-4 text-[12px] text-p-text-muted">Todavía no hay consumos cargados.</p>
-                            ) : (
-                              <div className="divide-y divide-p-border">
-                                {bookingConsumptionItems.map((item) => (
-                                  <div
-                                    key={`booking-consumption-${item.id}`}
-                                    className="grid grid-cols-[1fr_auto_auto] items-center gap-2 px-3 py-2.5"
-                                  >
-                                    <div className="min-w-0">
-                                      <p className="truncate text-[14px] font-semibold text-p-text">{item.description}</p>
-                                      <p className="text-[12px] text-p-text-muted">
-                                        {item.quantity} x {item.unitPrice.toFixed(2)} $ · Total {item.totalPrice.toFixed(2)} $
-                                      </p>
-                                    </div>
-                                    <span
-                                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                        item.remainingAmount <= 0.009
-                                          ? 'bg-p-positive-bg text-p-positive'
-                                          : item.paidAmount > 0.009
-                                            ? 'bg-p-warning-bg text-p-warning'
-                                            : 'bg-p-surface-3 text-p-text-secondary'
-                                      }`}
-                                    >
-                                      {item.remainingAmount <= 0.009
-                                        ? 'Pagado'
-                                        : item.paidAmount > 0.009
-                                          ? 'Parcial'
-                                          : 'Pendiente'}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleRemoveConsumption(item.id)}
-                                      disabled={consumptionRemovingId === item.id || item.paidAmount > 0.009}
-                                      className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-error px-2 text-[12px] font-semibold text-p-error hover:bg-p-error-bg disabled:opacity-45"
-                                    >
-                                      <X size={12} />
-                                      {consumptionRemovingId === item.id ? '...' : 'Quitar'}
-                                    </button>
-                                  </div>
-                                ))}
+                          {/* Repetir: una reserva que se repite es la misma reserva con una opción más. */}
+                          <div className="mt-6">
+                            <label className="inline-flex cursor-pointer items-center gap-2.5 text-[14px] font-medium text-p-text">
+                              <input
+                                type="checkbox"
+                                checked={isRecurringKind}
+                                onChange={(event) => setCreateRepeatEnabled(event.target.checked)}
+                                className="h-4 w-4 accent-p-brand"
+                              />
+                              Repetir todas las semanas
+                            </label>
+                            {isRecurringKind && (
+                              <div className="mt-3 space-y-3 border-l-2 border-p-border pl-4">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {CUSTOM_DAY_OPTIONS.map((day) => {
+                                    const active = customRecurrenceDays.includes(day.value);
+                                    return (
+                                      <button
+                                        key={`create-repeat-day-${day.value}`}
+                                        type="button"
+                                        aria-pressed={active}
+                                        onClick={() => {
+                                          setCustomRecurrenceDays((previous) =>
+                                            previous.includes(day.value)
+                                              ? previous.filter((value) => value !== day.value)
+                                              : [...previous, day.value]
+                                          );
+                                          setRecurringResult(null);
+                                          setFormError('');
+                                        }}
+                                        className={`h-9 w-10 rounded-lg border text-[13px] font-semibold transition ${
+                                          active
+                                            ? 'border-ink-900 bg-ink-900 text-ink-50'
+                                            : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong'
+                                        }`}
+                                      >
+                                        {day.short}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 text-[13px] text-p-text-secondary">
+                                  <PlaygroundCombo
+                                    value={String(customRepeatEveryWeeks)}
+                                    onChange={(next) => {
+                                      setCustomRepeatEveryWeeks(Number(next) || 1);
+                                      setRecurringResult(null);
+                                    }}
+                                    options={[
+                                      { value: '1', label: 'Todas las semanas' },
+                                      { value: '2', label: 'Cada 2 semanas' },
+                                    ]}
+                                    compact
+                                    className="min-w-[170px]"
+                                  />
+                                  <span>durante</span>
+                                  <PlaygroundCombo
+                                    value={customEndAfterEnabled ? String(recurringRepetitions) : 'none'}
+                                    onChange={(next) => {
+                                      if (next === 'none') {
+                                        setCustomEndAfterEnabled(false);
+                                      } else {
+                                        setCustomEndAfterEnabled(true);
+                                        setRecurringRepetitions(Number(next) || 8);
+                                      }
+                                      setRecurringResult(null);
+                                    }}
+                                    options={[
+                                      { value: '4', label: '4 semanas' },
+                                      { value: '8', label: '8 semanas' },
+                                      { value: '12', label: '12 semanas' },
+                                      { value: '16', label: '16 semanas' },
+                                      { value: '24', label: '24 semanas' },
+                                      { value: 'none', label: 'Sin fecha de fin' },
+                                    ]}
+                                    compact
+                                    className="min-w-[150px]"
+                                  />
+                                </div>
+                                <p className="text-[13px] text-p-text-secondary">{createRepeatSummary}</p>
                               </div>
                             )}
                           </div>
-                        </section>
-                      )}
 
-                      {showSimplifiedHistorySection && (
-                        <BookingHistorySection
-                          groups={simplifiedReservationHistoryTimeline}
-                          loading={bookingTimelineLoading}
-                          error={bookingTimelineError}
-                          className={showSimplifiedDetailsSection ? 'mt-2' : 'mt-0'}
-                        />
-                      )}
+                          {/* Bloquear es una acción aparte: no reserva ni cobra, solo deja la cancha no reservable. */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormError('');
+                              setBookingKind('block');
+                            }}
+                            className="self-start text-[13px] font-semibold text-p-text-secondary hover:text-p-text hover:underline underline-offset-2"
+                          >
+                            Bloquear este horario en vez de reservar
+                          </button>
+                        </>
+                      ))}
 
-                      {showSimplifiedBillingSection && (
-                      <>
-                      {simplifiedIsEditingReservation && (
+                      {showSimplifiedAccountSummary && (
                         <BookingAccountSummarySection
                           title="Cuenta"
                           statusLabel={simplifiedPaymentStatusLabel}
@@ -7965,13 +8737,197 @@ export default function AdminAgendaPlaygroundPage() {
                                 ? 'Confirmá la reserva para habilitar pagos.'
                                 : null
                           }
+                          className="mb-8"
                         />
                       )}
 
-                      <section className="mt-4">
-                        <div className="rounded-xl border border-p-border bg-p-surface-2 p-4">
+                      {showSimplifiedConsumptionsSection && (
+                        <section>
+                          {/* Encabezado: cuánto suman los consumos y cuánto falta cobrar de ellos. */}
+                          <div className="flex items-baseline justify-between gap-3">
+                            <p className="text-[15px] font-semibold text-p-text">Consumos</p>
+                            {bookingConsumptionItems.length > 0 && (
+                              <p className="text-[13px] tabular-nums text-p-text-muted">
+                                <span className="font-semibold text-p-text">{formatMoney(bookingItemsAmount)}</span>
+                                {bookingConsumptionsRemaining > 0.009
+                                  ? ` · debe ${formatMoney(bookingConsumptionsRemaining)}`
+                                  : ' · pagado'}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Agregar: producto, cantidad y listo. */}
+                          <div className="mt-3 flex flex-wrap items-end gap-2">
+                            <div className="min-w-[200px] flex-1">
+                              <PlaygroundCombo
+                                value={consumptionProductDraft}
+                                onChange={(value) => {
+                                  setConsumptionProductDraft(String(value || ''));
+                                  setBookingConsumptionError('');
+                                }}
+                                options={consumptionProductOptions}
+                                variant="participant"
+                              />
+                            </div>
+                            <div className="inline-flex h-11 items-center rounded-xl border border-p-border bg-p-surface">
+                              <button
+                                type="button"
+                                aria-label="Restar uno"
+                                onClick={() => setConsumptionQuantityDraft(String(Math.max(1, selectedConsumptionQuantity - 1)))}
+                                disabled={selectedConsumptionQuantity <= 1}
+                                className="grid h-full w-9 place-items-center text-p-text-secondary hover:text-p-text disabled:opacity-40"
+                              >
+                                <Minus size={14} />
+                              </button>
+                              <span className="w-7 text-center text-[14px] font-semibold tabular-nums text-p-text">
+                                {selectedConsumptionQuantity}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label="Sumar uno"
+                                onClick={() => setConsumptionQuantityDraft(String(selectedConsumptionQuantity + 1))}
+                                className="grid h-full w-9 place-items-center text-p-text-secondary hover:text-p-text"
+                              >
+                                <Plus size={14} />
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleAddConsumption()}
+                              disabled={!canAddConsumption}
+                              className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-4 text-[14px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+                            >
+                              <Plus size={14} />
+                              {consumptionAddInFlight ? 'Agregando...' : 'Agregar'}
+                            </button>
+                          </div>
+                          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[12px]">
+                            <span className="min-h-[18px] tabular-nums">
+                              {consumptionProductsLoading ? (
+                                <span className="text-p-text-muted">Cargando productos...</span>
+                              ) : consumptionProductsError ? (
+                                <span className="text-p-error">{consumptionProductsError}</span>
+                              ) : consumptionQuoteLoading ? (
+                                <span className="text-p-text-muted">Calculando...</span>
+                              ) : consumptionQuoteError ? (
+                                <span className="text-p-error">{consumptionQuoteError}</span>
+                              ) : consumptionQuote ? (
+                                <span className="text-p-text-secondary">
+                                  Suma {formatMoney(consumptionQuote.finalTotal)}
+                                  {consumptionQuote.hasDiscount && consumptionQuote.discountAmount > 0.009
+                                    ? ` (con ${formatMoney(consumptionQuote.discountAmount)} de descuento)`
+                                    : ''}
+                                </span>
+                              ) : selectedConsumptionProduct ? (
+                                <span className="text-p-text-secondary">
+                                  Suma {formatMoney(roundMoney(selectedConsumptionProduct.price * selectedConsumptionQuantity))}
+                                </span>
+                              ) : null}
+                            </span>
+                            <label className="inline-flex cursor-pointer items-center gap-1.5 text-p-text-muted">
+                              <input
+                                type="checkbox"
+                                checked={consumptionApplyDiscountDraft}
+                                onChange={(event) => setConsumptionApplyDiscountDraft(event.target.checked)}
+                                className="h-3.5 w-3.5 accent-p-brand"
+                              />
+                              Descuentos del cliente
+                            </label>
+                          </div>
+
+                          {bookingConsumptionError && (
+                            <AdminFeedbackBanner tone="error" compact className="mt-3">
+                              {bookingConsumptionError}
+                            </AdminFeedbackBanner>
+                          )}
+
+                          {/* Lista: una fila por consumo, sin cajas. */}
+                          <div className="mt-4 border-t border-p-border">
+                            {bookingConsumptionLoading ? (
+                              <div className="flex items-center justify-center py-6">
+                                <div className="h-5 w-5 rounded-full border-2 border-p-accent border-t-transparent animate-spin" />
+                              </div>
+                            ) : bookingConsumptionItems.length === 0 ? (
+                              <p className="py-4 text-[13px] text-p-text-muted">Todavía no hay consumos.</p>
+                            ) : (
+                              <div className="divide-y divide-p-border">
+                                {bookingConsumptionItems.map((item) => {
+                                  const isPaid = item.remainingAmount <= 0.009;
+                                  const isPartial = !isPaid && item.paidAmount > 0.009;
+                                  return (
+                                    <div
+                                      key={`booking-consumption-${item.id}`}
+                                      className="flex items-center gap-3 py-2.5"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate text-[14px] font-medium text-p-text">
+                                          {item.quantity > 1 ? `${item.quantity} × ` : ''}
+                                          {item.description}
+                                        </p>
+                                        <p
+                                          className={`text-[12px] ${
+                                            isPaid ? 'text-p-positive' : isPartial ? 'text-p-warning' : 'text-p-text-muted'
+                                          }`}
+                                        >
+                                          {isPaid
+                                            ? 'Pagado'
+                                            : isPartial
+                                              ? `Debe ${formatMoney(item.remainingAmount)}`
+                                              : 'Sin cobrar'}
+                                        </p>
+                                      </div>
+                                      <p className="text-[14px] font-semibold tabular-nums text-p-text">
+                                        {formatMoney(item.totalPrice)}
+                                      </p>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleRemoveConsumption(item.id)}
+                                        disabled={consumptionRemovingId === item.id || item.paidAmount > 0.009}
+                                        aria-label={`Quitar ${item.description}`}
+                                        title={item.paidAmount > 0.009 ? 'Tiene pagos: no se puede quitar' : 'Quitar'}
+                                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-error-bg hover:text-p-error disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-p-text-muted"
+                                      >
+                                        {consumptionRemovingId === item.id ? '…' : <Trash2 size={15} />}
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </section>
+                      )}
+
+                      {showSimplifiedHistorySection && (
+                        <BookingHistorySection
+                          groups={simplifiedReservationHistoryTimeline}
+                          loading={bookingTimelineLoading}
+                          error={bookingTimelineError}
+                          className={showSimplifiedDetailsSection ? 'mt-2' : 'mt-0'}
+                        />
+                      )}
+
+                      {showSimplifiedBillingSection && (
+                      <>
+                      <AgendaPlayerSlotsSection
+                        clubSlug={getClubSlug()}
+                        bookingId={persistedEditingBookingId ? Number(persistedEditingBookingId) : null}
+                        activityId={selectedCourt?.activityTypeId ? Number(selectedCourt.activityTypeId) : null}
+                        formatId={bookingActivityFormatId}
+                        onFormatChange={setBookingActivityFormatId}
+                        refreshKey={persistedAdminParticipants}
+                        canReprice={hasAdminAccess(user)}
+                        onFormatDurationChange={handleBookingFormatDurationChange}
+                        onSlotsLoaded={setPlayerSlotInfo}
+                      />
+
+                      {/* Al crear, lo primero es quién reserva: horario y cancha ya vienen del clic en la grilla. */}
+                      <section className={simplifiedIsEditingReservation ? '' : 'order-first'}>
+                        <div>
                           <div className="flex items-center justify-between gap-3">
-                            <p className="text-[18px] font-semibold text-p-text">Participantes</p>
+                            <p className={simplifiedIsEditingReservation ? 'text-[15px] font-semibold text-p-text' : 'text-[18px] font-semibold text-p-text'}>
+                              {simplifiedIsEditingReservation || simplifiedOwnerAdded ? 'Jugadores' : '¿Quién reserva?'}
+                            </p>
                             {simplifiedOwnerAdded && !simplifiedNewParticipantOpen && (
                                 <button
                                   type="button"
@@ -7993,7 +8949,7 @@ export default function AdminAgendaPlaygroundPage() {
                                   }}
                                   className="text-[14px] font-semibold text-p-accent hover:text-p-accent"
                                 >
-                                  + Nuevo participante
+                                  + Agregar jugador
                                 </button>
                             )}
                           </div>
@@ -8001,8 +8957,19 @@ export default function AdminAgendaPlaygroundPage() {
                             <p className="mt-2 mb-3 text-[12px] font-medium text-p-error">{participantsFieldError}</p>
                           )}
                           {simplifiedOwnerAdded && simplifiedNamedParticipants.length > 0 ? (
-                            <div className="mt-3 space-y-3">
+                            <div className="mt-2 divide-y divide-p-border">
                               {simplifiedNamedParticipants.map((participant, index) => {
+                                const participantClientId = String(participant.entityRef || '').trim().startsWith('client:')
+                                  ? String(participant.entityRef).trim().slice('client:'.length)
+                                  : '';
+                                const slotInfo =
+                                  (participantClientId
+                                    ? playerSlotInfo.find((info) => info.clientId && info.clientId === participantClientId)
+                                    : undefined) ||
+                                  playerSlotInfo.find(
+                                    (info) => info.name.trim().toLowerCase() === participant.name.trim().toLowerCase()
+                                  );
+                                const participantHasPayment = Boolean(slotInfo?.isFrozen || participant.paid);
                                 const participantOrdinal = participant.isOwner
                                   ? null
                                   : simplifiedNamedParticipants
@@ -8018,39 +8985,69 @@ export default function AdminAgendaPlaygroundPage() {
                                   <div
                                     key={`simplified-participant-${participant.id}`}
                                     data-participant-shell-id={participant.id}
-                                    className="rounded-xl border border-p-border bg-p-surface px-3 py-3"
+                                    className="py-2.5"
                                   >
-                                    <div className="grid grid-cols-[42px_minmax(0,1fr)_32px] gap-2 items-start">
-                                      <div className="h-10 w-10 rounded-full bg-p-surface-2 text-p-text-secondary text-[14px] font-semibold grid place-items-center">
+                                    <div className="grid grid-cols-[36px_minmax(0,1fr)_auto_auto] gap-2.5 items-center">
+                                      <div className="h-9 w-9 rounded-full bg-p-surface-2 text-p-text-secondary text-[13px] font-semibold grid place-items-center">
                                         {participant.name.trim().charAt(0).toUpperCase() || 'P'}
                                       </div>
-                                      <div>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="inline-flex items-center rounded-full bg-p-positive-bg px-2.5 py-1 text-[11px] font-semibold text-p-accent">
-                                            {participant.isOwner ? 'Titular' : `Participante ${participantOrdinal}`}
-                                          </span>
-                                        </div>
-                                        <p className="text-[15px] font-semibold text-p-text">{participant.name}</p>
+                                      <div className="min-w-0">
+                                        <p className="truncate text-[14px] font-semibold text-p-text">
+                                          {participant.name}
+                                          {participant.isOwner && (
+                                            <span className="ml-2 align-middle text-[11px] font-semibold text-p-accent">Titular</span>
+                                          )}
+                                        </p>
+                                        {slotInfo && (
+                                          <p className="text-[12px] text-p-text-muted">
+                                            {slotInfo.conditionLabel}
+                                            {slotInfo.isFrozen ? ' · pagado' : ''}
+                                          </p>
+                                        )}
                                       </div>
-                                      {showParticipantActions && (
-                                        <button
-                                          type="button"
-                                          onClick={(event) => {
-                                            event.stopPropagation();
-                                            if (expandedParticipantId === participant.id) {
-                                              setExpandedParticipantId(null);
-                                              return;
+                                      <span className="text-[14px] font-semibold tabular-nums text-p-text">
+                                        {slotInfo ? formatMoney(slotInfo.shareAmount) : ''}
+                                      </span>
+                                      <div className="flex items-center justify-self-end">
+                                        {/* Editar solo a quien se cargó a mano; un cliente existente se edita en Clientes. */}
+                                        {showParticipantActions && !participantIsLinkedRecord && (
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              setExpandedParticipantId((previous) =>
+                                                previous === participant.id ? null : participant.id
+                                              );
+                                            }}
+                                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-surface-2 hover:text-p-text"
+                                            aria-label={`Editar ${participant.name}`}
+                                            title="Editar nombre o teléfono"
+                                          >
+                                            <Pencil size={14} />
+                                          </button>
+                                        )}
+                                        {/* Quitar es un clic con "Deshacer"; el titular se cambia desde Más acciones. */}
+                                        {!participant.isOwner && (
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              if (participantHasPayment) return;
+                                              void removeParticipant(participant.id);
+                                            }}
+                                            disabled={participantHasPayment}
+                                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-error-bg hover:text-p-error disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-p-text-muted"
+                                            aria-label={`Quitar ${participant.name} de la reserva`}
+                                            title={
+                                              participantHasPayment
+                                                ? 'Tiene un pago: devolvelo antes de quitarlo'
+                                                : 'Quitar de la reserva'
                                             }
-                                            setParticipantMenuId((previous) =>
-                                              previous === participant.id ? null : participant.id
-                                            );
-                                          }}
-                                          className="h-8 w-8 justify-self-end rounded-full text-p-text-muted grid place-items-center hover:bg-p-surface-2"
-                                          title="Acciones del participante"
-                                        >
-                                          <MoreVertical size={15} />
-                                        </button>
-                                      )}
+                                          >
+                                            <X size={15} />
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                     {expandedParticipantId === participant.id && (
                                       <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -8165,63 +9162,18 @@ export default function AdminAgendaPlaygroundPage() {
                                         </div>
                                       </div>
                                     )}
-                                    {participantMenuId === participant.id && (
-                                      <div className="mt-2 rounded-xl border border-p-border bg-p-surface shadow-sm p-2 text-[12px] text-p-text-secondary">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (participantIsLinkedRecord) {
-                                              setParticipantMenuId(null);
-                                              return;
-                                            }
-                                            setExpandedParticipantId((previous) =>
-                                              previous === participant.id ? null : participant.id
-                                            );
-                                            setParticipantMenuId(null);
-                                          }}
-                                          className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-p-surface-2 disabled:opacity-50 disabled:hover:bg-transparent"
-                                          disabled={participantIsLinkedRecord}
-                                        >
-                                          {participantIsLinkedRecord
-                                            ? 'Participante vinculado (sin edición manual)'
-                                            : expandedParticipantId === participant.id
-                                            ? 'Finalizar edición'
-                                            : 'Editar participante (nombre/contacto)'}
-                                        </button>
-                                        <div className="mt-1 border-t border-p-border pt-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              if (participant.isOwner) return;
-                                              setDeleteParticipantConfirm({
-                                                open: true,
-                                                participantId: participant.id,
-                                                participantName: participant.name.trim() || 'este participante',
-                                              });
-                                              setParticipantMenuId(null);
-                                            }}
-                                            disabled={participant.isOwner}
-                                            className="w-full text-left rounded-lg px-2 py-1.5 text-p-error hover:bg-p-error-bg disabled:opacity-40"
-                                          >
-                                            Eliminar participante
-                                          </button>
-                                        </div>
-                                      </div>
-                                    )}
                                   </div>
                                 );
                               })}
                             </div>
                           ) : (
                             <>
-                              <p className="mt-3 text-[15px] font-semibold text-p-text">Agregar titular</p>
-                              <div className="mt-3 grid grid-cols-1 gap-2 text-[12px] font-medium text-p-text-muted">
-                                <span>Nombre del cliente</span>
-                              </div>
-                              <div className="mt-2 grid grid-cols-1 gap-3">
+                              <div className="mt-3 grid grid-cols-1 gap-3">
                                 <div ref={simplifiedOwnerInputContainerRef} className="relative">
                                 <div className="h-12 rounded-xl border border-p-border bg-p-surface px-3 flex items-center gap-2">
                                   <input
+                                    ref={simplifiedOwnerNameInputRef}
+                                    aria-label="Nombre del cliente"
                                     value={ownerParticipant?.name || ''}
                                     onChange={(event) => {
                                       if (!ownerParticipant) return;
@@ -8235,7 +9187,7 @@ export default function AdminAgendaPlaygroundPage() {
                                     onBlur={() => {
                                       window.setTimeout(() => setSimplifiedOwnerSuggestionsOpen(false), 120);
                                     }}
-                                    placeholder="Ingresá un nombre"
+                                    placeholder="Buscá por nombre, teléfono o DNI"
                                     className="w-full bg-transparent text-[15px] text-p-text outline-none"
                                   />
                                   {ownerHasTypedName ? (
@@ -8293,7 +9245,7 @@ export default function AdminAgendaPlaygroundPage() {
                                       className="overflow-y-auto overscroll-contain p-1"
                                     >
                                       {simplifiedOwnerSearchLoading && (
-                                        <p className="px-2 py-1 text-[11px] text-p-text-muted">Buscando...</p>
+                                        <p className="px-3 py-2 text-[13px] text-p-text-muted">Buscando...</p>
                                       )}
                                       {simplifiedOwnerSuggestions.slice(0, 8).map((suggestion) => (
                                         <button
@@ -8304,31 +9256,21 @@ export default function AdminAgendaPlaygroundPage() {
                                             if (!ownerParticipant) return;
                                             applySimplifiedOwnerSuggestion(ownerParticipant.id, suggestion);
                                           }}
-                                          className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-p-surface-2"
+                                          className="w-full text-left rounded-lg px-3 py-2 hover:bg-p-surface-2 focus:bg-p-surface-2 focus:outline-none"
                                         >
-                                          <span className="block text-[12px] font-semibold text-p-text">{suggestion.label}</span>
-                                          {Array.isArray(suggestion.badges) && suggestion.badges.length > 0 && (
-                                            <span className="mt-1 flex flex-wrap gap-1">
-                                              {suggestion.badges.map((badge) => (
-                                                <span
-                                                  key={`${suggestion.id}-${badge}`}
-                                                  className="inline-flex items-center rounded-full border border-p-border bg-p-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-p-text-muted"
-                                                >
-                                                  {badge}
-                                                </span>
-                                              ))}
+                                          <span className="block truncate text-[14px] font-semibold text-p-text">{suggestion.label}</span>
+                                          {(suggestion.secondary || (Array.isArray(suggestion.badges) && suggestion.badges.length > 0)) && (
+                                            <span className="mt-0.5 block truncate text-[12px] text-p-text-muted">
+                                              {describeOwnerSuggestion(suggestion.secondary, suggestion.badges)}
                                             </span>
-                                          )}
-                                          {suggestion.secondary && (
-                                            <span className="block text-[11px] text-p-text-muted">{suggestion.secondary}</span>
                                           )}
                                         </button>
                                       ))}
                                       {ownerHasTypedName && (
                                         <>
                                           {simplifiedOwnerSuggestions.length === 0 && !simplifiedOwnerSearchLoading && (
-                                            <p className="px-2 py-1 text-[11px] text-p-text-muted">
-                                              No encontramos personas con ese dato.
+                                            <p className="px-3 py-2 text-[13px] text-p-text-muted">
+                                              No hay clientes con ese dato.
                                             </p>
                                           )}
                                           <button
@@ -8354,11 +9296,11 @@ export default function AdminAgendaPlaygroundPage() {
                                               setFormError('');
                                               window.setTimeout(() => simplifiedOwnerPhoneInputRef.current?.focus(), 0);
                                             }}
-                                            className="mt-1 w-full rounded-lg border border-dashed border-p-border px-2 py-2 text-left hover:bg-p-surface-2"
+                                            className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-p-border px-3 py-2.5 text-left text-[14px] hover:bg-p-surface-2"
                                           >
-                                            <span className="block text-[12px] font-semibold text-p-text">Cargar nuevo titular</span>
-                                            <span className="block text-[11px] text-p-text-muted">
-                                              Usar &quot;{ownerParticipant.name.trim()}&quot;, cargar teléfono y, si querés, sumar email o DNI acá mismo.
+                                            <Plus size={15} className="shrink-0 text-p-accent" />
+                                            <span className="min-w-0 truncate text-p-text">
+                                              Cliente nuevo: <strong className="font-semibold">{ownerParticipant.name.trim()}</strong>
                                             </span>
                                           </button>
                                         </>
@@ -8368,6 +9310,10 @@ export default function AdminAgendaPlaygroundPage() {
                                   document.body
                                 )}
                                 </div>
+                                {/* Los datos de contacto solo hacen falta para un cliente nuevo. */}
+                                {ownerHasTypedName && !simplifiedOwnerSuggestionsOpen && (
+                                <>
+                                <p className="text-[12px] font-semibold text-p-text-secondary">Cliente nuevo</p>
                                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                                   <label className="block">
                                     <span className="text-[12px] font-medium text-p-text-muted">Teléfono</span>
@@ -8435,66 +9381,17 @@ export default function AdminAgendaPlaygroundPage() {
                                     />
                                   </label>
                                 </div>
-                                {!ownerHasLinkedSelection && ownerHasTypedName && ownerContactPhoneDraft.length === 0 && (
+                                {!ownerHasLinkedSelection && ownerContactPhoneDraft.length === 0 && (
                                   <p className="text-[12px] text-p-text-muted">
-                                    Si no existe, cargá el teléfono para crear el nuevo titular al guardar la reserva.
+                                    Cargá el teléfono para crearlo como cliente al guardar la reserva.
                                   </p>
+                                )}
+                                </>
                                 )}
                               </div>
                               {ownerFieldError && (
                                 <p className="mt-2 text-[12px] font-medium text-p-error">{ownerFieldError}</p>
                               )}
-
-                              <div className="mt-4 rounded-xl border border-p-border bg-p-surface px-4 py-3 flex items-center justify-between">
-                                <p className="text-[12px] text-p-text-muted">
-                                  Precio total:{' '}
-                                  <strong className="ml-1 text-[15px] font-semibold text-p-text">
-                                    {isFinancialDisplayPending ? '--' : `${Number(totalPrice.toFixed(2))} $`}
-                                  </strong>
-                                </p>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    showAgendaToast(
-                                      'Este total es estimado para crear la reserva. El registro de pagos se habilita al editar la reserva creada.'
-                                    )
-                                  }
-                                  className="grid h-7 w-7 place-items-center rounded-full text-p-text-muted transition hover:bg-p-surface-2"
-                                  aria-label="Información del precio total"
-                                  title="Cómo se usa el precio total"
-                                >
-                                  <CircleAlert size={16} />
-                                </button>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!ownerHasName) return;
-                                  setSimplifiedOwnerAdded(true);
-                                  setSimplifiedEditingParticipantId(null);
-                                  setSimplifiedOwnerSuggestionsOpen(false);
-                                  setSimplifiedOwnerSearchLoading(false);
-                                  setSimplifiedOwnerSuggestions([]);
-                                  setSimplifiedNewParticipantOpen(false);
-                                  setSimplifiedNewParticipantName('');
-                                  setSimplifiedNewParticipantContact('');
-                                  setSimplifiedNewParticipantSourceTypeDraft('guest');
-                                  setSimplifiedNewParticipantEntityRefDraft('');
-                                  setSimplifiedNewParticipantSuggestionsOpen(false);
-                                  setSimplifiedNewParticipantSearchLoading(false);
-                                  setSimplifiedNewParticipantSuggestions([]);
-                                  setFormError('');
-                                }}
-                                disabled={!ownerCanBeAdded}
-                                className={`mt-5 h-11 w-full rounded-xl text-[14px] leading-none font-semibold transition ${
-                                  ownerCanBeAdded
-                                    ? 'bg-ink-900 text-ink-50 hover:bg-ink-900'
-                                    : 'border border-p-border bg-p-surface-3 text-p-text-muted'
-                                }`}
-                              >
-                                Agregar titular
-                              </button>
                             </>
                           )}
 
@@ -8505,33 +9402,46 @@ export default function AdminAgendaPlaygroundPage() {
                               }`}
                             >
                               {simplifiedNewParticipantOpen && (
-                                <div className="mt-1 rounded-xl border border-p-border bg-p-surface p-4">
-                                  <p className="text-[15px] font-semibold text-p-text">Nuevo participante</p>
-                                  <div className="mt-3 space-y-2">
+                                <div className="py-1">
+                                  {/* Buscar y agregar: elegir un cliente lo suma directo; uno nuevo pide nombre y teléfono. */}
+                                  {!simplifiedNewPlayerAsGuest ? (
                                     <div ref={simplifiedNewParticipantInputContainerRef} className="relative">
-                                      <input
-                                        value={simplifiedNewParticipantName}
-                                        onChange={(event) => {
-                                          if (simplifiedNewParticipantHasLinkedSelection) return;
-                                          void runSimplifiedNewParticipantSearch(event.target.value);
-                                        }}
-                                        onFocus={() => {
-                                          if (simplifiedNewParticipantHasLinkedSelection) return;
-                                          if (simplifiedNewParticipantName.trim().length > 0) {
-                                            setSimplifiedNewParticipantSuggestionsOpen(true);
-                                          }
-                                        }}
-                                        onBlur={() => {
-                                          window.setTimeout(() => setSimplifiedNewParticipantSuggestionsOpen(false), 120);
-                                        }}
-                                        readOnly={simplifiedNewParticipantHasLinkedSelection}
-                                        placeholder="Nombre del participante"
-                                        className={`h-11 w-full rounded-xl border px-3 text-[15px] outline-none ${
-                                          simplifiedNewParticipantHasLinkedSelection
-                                            ? 'border-p-border bg-p-surface-2 text-p-text-secondary cursor-not-allowed'
-                                            : 'border-p-border bg-p-surface'
-                                        }`}
-                                      />
+                                      <div className="flex items-center gap-2">
+                                        <div className="relative flex-1">
+                                          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                                          <input
+                                            autoFocus
+                                            value={simplifiedNewParticipantName}
+                                            onChange={(event) => {
+                                              setSimplifiedNewPlayerError('');
+                                              void runSimplifiedNewParticipantSearch(event.target.value);
+                                            }}
+                                            onFocus={() => {
+                                              if (simplifiedNewParticipantName.trim().length > 0) {
+                                                setSimplifiedNewParticipantSuggestionsOpen(true);
+                                              }
+                                            }}
+                                            onBlur={() => {
+                                              window.setTimeout(() => setSimplifiedNewParticipantSuggestionsOpen(false), 120);
+                                            }}
+                                            onKeyDown={(event) => {
+                                              if (event.key === 'Escape') {
+                                                event.preventDefault();
+                                                resetSimplifiedNewParticipantDraft();
+                                              }
+                                            }}
+                                            placeholder="Buscá jugador por nombre, teléfono o DNI"
+                                            className="h-11 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[15px] outline-none focus:border-p-border-strong"
+                                          />
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={resetSimplifiedNewParticipantDraft}
+                                          className="h-11 px-2 text-[13px] font-semibold text-p-text-muted hover:text-p-text"
+                                        >
+                                          Cancelar
+                                        </button>
+                                      </div>
                                       {simplifiedNewParticipantSuggestionsOpen &&
                                         simplifiedNewParticipantSuggestionsFloatingStyle &&
                                         createPortal(
@@ -8547,41 +9457,37 @@ export default function AdminAgendaPlaygroundPage() {
                                             className="overflow-y-auto overscroll-contain p-1"
                                           >
                                             {simplifiedNewParticipantSearchLoading && (
-                                              <p className="px-2 py-1 text-[11px] text-p-text-muted">Buscando...</p>
+                                              <p className="px-3 py-2 text-[13px] text-p-text-muted">Buscando...</p>
                                             )}
-                                            {simplifiedNewParticipantSuggestions.slice(0, 8).map((suggestion) => (
-                                              <button
-                                                key={`new-suggestion-${suggestion.id}`}
-                                                type="button"
-                                                onMouseDown={(event) => event.preventDefault()}
-                                                onClick={() => applySimplifiedNewParticipantSuggestion(suggestion)}
-                                                className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-p-surface-2"
-                                              >
-                                                <span className="block text-[12px] font-semibold text-p-text">{suggestion.label}</span>
-                                                {Array.isArray(suggestion.badges) && suggestion.badges.length > 0 && (
-                                                  <span className="mt-1 flex flex-wrap gap-1">
-                                                    {suggestion.badges.map((badge) => (
-                                                      <span
-                                                        key={`${suggestion.id}-${badge}`}
-                                                        className="inline-flex items-center rounded-full border border-p-border bg-p-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-p-text-muted"
-                                                      >
-                                                        {badge}
+                                            {simplifiedNewParticipantSuggestions.slice(0, 8).map((suggestion) => {
+                                              const memberNote = describeMemberStatus(suggestion.badges);
+                                              return (
+                                                <button
+                                                  key={`new-suggestion-${suggestion.id}`}
+                                                  type="button"
+                                                  onMouseDown={(event) => event.preventDefault()}
+                                                  onClick={() => void addSimplifiedPlayerFromSuggestion(suggestion)}
+                                                  className="w-full text-left rounded-lg px-3 py-2 hover:bg-p-surface-2 focus:bg-p-surface-2 focus:outline-none"
+                                                >
+                                                  <span className="block truncate text-[14px] font-semibold text-p-text">{suggestion.label}</span>
+                                                  <span className="mt-0.5 block truncate text-[12px] text-p-text-muted">
+                                                    {describeOwnerSuggestion(suggestion.secondary, (suggestion.badges || []).filter((badge) => !/socio/i.test(String(badge))))}
+                                                    {memberNote ? (
+                                                      <span className={memberNote.tone === 'warning' ? 'text-p-warning' : 'text-p-positive'}>
+                                                        {' · '}
+                                                        {memberNote.label}
                                                       </span>
-                                                    ))}
+                                                    ) : null}
                                                   </span>
-                                                )}
-                                                {suggestion.secondary && (
-                                                  <span className="block text-[11px] text-p-text-muted">{suggestion.secondary}</span>
-                                                )}
-                                              </button>
-                                            ))}
+                                                </button>
+                                              );
+                                            })}
                                             {simplifiedNewParticipantName.trim().length > 0 && (
                                               <>
                                                 {simplifiedNewParticipantSuggestions.length === 0 && !simplifiedNewParticipantSearchLoading && (
-                                                  <p className="px-2 py-1 text-[11px] text-p-text-muted">
-                                                    No encontramos personas con ese dato.
-                                                  </p>
+                                                  <p className="px-3 py-2 text-[13px] text-p-text-muted">No hay clientes con ese dato.</p>
                                                 )}
+                                                <div className="my-1 h-px bg-p-border" />
                                                 <button
                                                   type="button"
                                                   onMouseDown={(event) => event.preventDefault()}
@@ -8596,13 +9502,14 @@ export default function AdminAgendaPlaygroundPage() {
                                                     setSimplifiedNewParticipantSuggestionsOpen(false);
                                                     setSimplifiedNewParticipantSearchLoading(false);
                                                     setSimplifiedNewParticipantSuggestions([]);
+                                                    setSimplifiedNewPlayerAsGuest(true);
                                                     setFormError('');
                                                   }}
-                                                  className="mt-1 w-full rounded-lg border border-dashed border-p-border px-2 py-2 text-left shadow-p-md hover:bg-p-surface-2 hover:shadow-p-md"
+                                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[14px] text-p-text hover:bg-p-surface-2"
                                                 >
-                                                  <span className="block text-[12px] font-semibold text-p-text">Crear nuevo cliente</span>
-                                                  <span className="block text-[11px] text-p-text-muted">
-                                                    Usar &quot;{simplifiedNewParticipantName.trim()}&quot;, cargar teléfono y, si querés, sumar email o DNI acá mismo.
+                                                  <Plus size={15} className="shrink-0 text-p-accent" />
+                                                  <span className="truncate">
+                                                    Jugador nuevo: <strong className="font-semibold">{simplifiedNewParticipantName.trim()}</strong>
                                                   </span>
                                                 </button>
                                               </>
@@ -8612,154 +9519,59 @@ export default function AdminAgendaPlaygroundPage() {
                                         document.body
                                       )}
                                     </div>
-                                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                                      <input
-                                        value={simplifiedNewParticipantPhoneDraft}
-                                        onChange={(event) => {
-                                          if (simplifiedNewParticipantHasLinkedSelection) return;
-                                          setSimplifiedNewParticipantContact(
-                                            buildParticipantContactFromFields(
-                                              event.target.value,
-                                              simplifiedNewParticipantEmailDraft
-                                            )
-                                          );
-                                        }}
-                                        readOnly={simplifiedNewParticipantHasLinkedSelection}
-                                        placeholder="Teléfono"
-                                        className={`h-11 w-full rounded-xl border px-3 text-[15px] outline-none ${
-                                          simplifiedNewParticipantHasLinkedSelection
-                                            ? 'border-p-border bg-p-surface-2 text-p-text-secondary cursor-not-allowed'
-                                            : 'border-p-border bg-p-surface'
-                                        }`}
-                                      />
-                                      <input
-                                        type="email"
-                                        value={simplifiedNewParticipantEmailDraft}
-                                        onChange={(event) => {
-                                          if (simplifiedNewParticipantHasLinkedSelection) return;
-                                          setSimplifiedNewParticipantContact(
-                                            buildParticipantContactFromFields(
-                                              simplifiedNewParticipantPhoneDraft,
-                                              event.target.value
-                                            )
-                                          );
-                                        }}
-                                        readOnly={simplifiedNewParticipantHasLinkedSelection}
-                                        placeholder="Email (opcional)"
-                                        className={`h-11 w-full rounded-xl border px-3 text-[15px] outline-none ${
-                                          simplifiedNewParticipantHasLinkedSelection
-                                            ? 'border-p-border bg-p-surface-2 text-p-text-secondary cursor-not-allowed'
-                                            : 'border-p-border bg-p-surface'
-                                        }`}
-                                      />
-                                    </div>
-                                  </div>
-                                  {simplifiedNewParticipantHasLinkedSelection && (
-                                    <div className="mt-2 flex items-center justify-between gap-2">
-                                      <div>
-                                        <p className="text-[12px] text-p-text-muted">
-                                          Registro asociado seleccionado. No se puede editar manualmente.
-                                        </p>
-                                        {Array.isArray(simplifiedNewParticipantBadgesDraft) && simplifiedNewParticipantBadgesDraft.length > 0 && (
-                                          <div className="mt-1 flex flex-wrap gap-1">
-                                            {simplifiedNewParticipantBadgesDraft.map((badge) => (
-                                              <span
-                                                key={`draft-badge-${badge}`}
-                                                className="inline-flex items-center rounded-full border border-p-border bg-p-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-p-text-muted"
-                                              >
-                                                {badge}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={resetSimplifiedNewParticipantDraft}
-                                        className="shrink-0 text-[12px] font-semibold text-p-accent hover:text-[var(--accent-hover)]"
-                                      >
-                                        Cambiar selección
-                                      </button>
-                                    </div>
-                                  )}
-                                  {simplifiedNewParticipantName.trim().length > 0 && !hasValidSimplifiedNewParticipantName && (
-                                    <p className="mt-2 text-[12px] text-p-text-muted">
-                                      Seleccioná una persona existente o cargá teléfono para crear un cliente nuevo.
-                                    </p>
-                                  )}
-                                  <div className="mt-3 flex items-center gap-3">
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        if (!hasValidSimplifiedNewParticipantName) return;
-                                        const normalizedEntityRef = simplifiedNewParticipantEntityRefDraft.trim();
-                                        const duplicateLinked = participants.some(
-                                          (participant) =>
-                                            !participant.isOwner &&
-                                            String(participant.entityRef || '').trim() === normalizedEntityRef
-                                        );
-                                        if (normalizedEntityRef && duplicateLinked) {
-                                          setFormError('Ese participante ya está agregado en esta reserva.');
-                                          return;
-                                        }
-                                        const participantDraft: Participant = {
-                                          id: `player-${Date.now()}`,
-                                          name: simplifiedNewParticipantName.trim(),
-                                          contact: simplifiedNewParticipantContact.trim(),
-                                          dni: undefined,
-                                          paid: false,
-                                          isOwner: false,
-                                          sourceType: simplifiedNewParticipantSourceTypeDraft,
-                                          entityRef: simplifiedNewParticipantEntityRefDraft || undefined,
-                                          selectedUserId: simplifiedNewParticipantSelectedUserIdDraft,
-                                          personKind: simplifiedNewParticipantPersonKindDraft,
-                                          personKey: simplifiedNewParticipantPersonKeyDraft,
-                                          personSearchQuery: simplifiedNewParticipantPersonSearchQueryDraft,
-                                          badges: simplifiedNewParticipantBadgesDraft,
-                                          paymentMethod: 'CASH',
-                                          customPrice: null,
-                                        };
-                                        try {
-                                          if (persistedEditingBookingId) {
-                                            const result = await addParticipantToExistingBooking(
-                                              persistedEditingBookingId,
-                                              participantDraft,
-                                              {
-                                                successMessage: 'Participante agregado correctamente.',
-                                                onSuccess: () => {
-                                                  resetSimplifiedNewParticipantDraft();
-                                                  setFormError('');
-                                                },
-                                              }
-                                            );
-                                            if (result === 'deferred') return;
-                                          } else {
-                                            setParticipants((previous) => [...previous, participantDraft]);
-                                            resetSimplifiedNewParticipantDraft();
-                                            setFormError('');
+                                  ) : (
+                                    <div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <input
+                                          value={simplifiedNewParticipantName}
+                                          onChange={(event) => setSimplifiedNewParticipantName(event.target.value)}
+                                          placeholder="Nombre"
+                                          className="h-11 min-w-[160px] flex-1 rounded-xl border border-p-border bg-p-surface px-3 text-[15px] outline-none focus:border-p-border-strong"
+                                        />
+                                        <input
+                                          autoFocus
+                                          inputMode="tel"
+                                          value={simplifiedNewParticipantPhoneDraft}
+                                          onChange={(event) =>
+                                            setSimplifiedNewParticipantContact(buildParticipantContactFromFields(event.target.value, ''))
                                           }
-                                        } catch (error: any) {
-                                          const normalized = normalizeApiError(error, 'No se pudo agregar el participante.');
-                                          setFormError(toUserSafeMessage(normalized.message, 'No se pudo agregar el participante.'));
-                                        }
-                                      }}
-                                      disabled={!hasValidSimplifiedNewParticipantName}
-                                      className={`h-10 min-w-[100px] rounded-xl px-4 text-[14px] font-semibold ${
-                                        hasValidSimplifiedNewParticipantName
-                                          ? 'bg-ink-900 text-ink-50 hover:bg-ink-900'
-                                          : 'bg-p-surface-3 text-p-text-muted'
-                                      }`}
-                                    >
-                                      Agregar
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={resetSimplifiedNewParticipantDraft}
-                                      className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[14px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                    >
-                                      Cancelar
-                                    </button>
-                                  </div>
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter' && hasValidSimplifiedNewParticipantName) {
+                                              event.preventDefault();
+                                              void submitSimplifiedNewPlayerDraft();
+                                            }
+                                            if (event.key === 'Escape') {
+                                              event.preventDefault();
+                                              resetSimplifiedNewParticipantDraft();
+                                            }
+                                          }}
+                                          placeholder="Teléfono"
+                                          className="h-11 w-[150px] rounded-xl border border-p-border bg-p-surface px-3 text-[15px] outline-none focus:border-p-border-strong"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => void submitSimplifiedNewPlayerDraft()}
+                                          disabled={!hasValidSimplifiedNewParticipantName}
+                                          className="h-11 rounded-xl bg-ink-900 px-4 text-[14px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+                                        >
+                                          Agregar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={resetSimplifiedNewParticipantDraft}
+                                          className="h-11 px-2 text-[13px] font-semibold text-p-text-muted hover:text-p-text"
+                                        >
+                                          Cancelar
+                                        </button>
+                                      </div>
+                                      <p className="mt-1.5 text-[12px] text-p-text-muted">
+                                        Con el teléfono queda guardado como cliente del club.
+                                      </p>
+                                    </div>
+                                  )}
+                                  {simplifiedNewPlayerError && (
+                                    <p className="mt-1.5 text-[12px] font-medium text-p-error">{simplifiedNewPlayerError}</p>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -8773,6 +9585,8 @@ export default function AdminAgendaPlaygroundPage() {
                     </section>
                   ) : (
                     <>
+                  {bookingKind === 'block' ? null : (
+                  <>
                   <section className="mb-6 rounded-xl border border-p-border bg-p-surface-2 px-4 py-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-[14px] font-semibold text-p-text">Checklist operativo</p>
@@ -8825,77 +9639,146 @@ export default function AdminAgendaPlaygroundPage() {
                       </div>
                     </div>
                   </section>
+                  </>
+                  )}
                   {bookingKind === 'block' ? (
                     <>
-                      <section className="pb-6 border-b border-p-border">
-                        <div className="grid grid-cols-2 gap-3">
-                          <label className="block">
-                            <span className="text-[13px] text-p-text-muted">Título (opcional)</span>
-                            <input
-                              value={blockingTitle}
-                              onChange={(event) => setBlockingTitle(event.target.value)}
-                              placeholder="Mantenimiento"
-                              className="mt-2 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[15px] text-p-text outline-none"
-                            />
-                          </label>
-                          <div className="block">
-                            <span className="text-[13px] text-p-text-muted">Cancha</span>
-                            <PlaygroundCombo
-                              value={selectedCourtId}
-                              onChange={(next) => {
-                                setSelectedCourtId(next);
-                                setScheduleInputsDirty(true);
-                              }}
-                              options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
-                              className="mt-2"
-                            />
+                      {/* Bloqueo: dónde, desde cuándo, cuánto y por qué. Nada más. */}
+                      <section className="space-y-5">
+                        <div>
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-[15px] font-semibold text-p-text">
+                              {selectedCourt?.name || 'Cancha'} · {simplifiedCreateDateLabel}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setCreateCourtPickerOpen((previous) => !previous)}
+                              className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                            >
+                              {createCourtPickerOpen ? 'Listo' : 'Cambiar'}
+                            </button>
                           </div>
+                          {createCourtPickerOpen && (
+                            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                              <PlaygroundCombo
+                                value={selectedCourtId}
+                                onChange={(next) => {
+                                  setSelectedCourtId(next);
+                                  setScheduleInputsDirty(true);
+                                  setFormError('');
+                                }}
+                                options={effectiveCourts.map((court) => ({ value: court.id, label: court.name }))}
+                              />
+                              <input
+                                type="date"
+                                aria-label="Día"
+                                value={formatLocalDate(selectedDate)}
+                                onChange={(event) => {
+                                  const next = new Date(`${event.target.value}T12:00:00`);
+                                  if (!Number.isNaN(next.getTime())) {
+                                    setSelectedDate(next);
+                                    setScheduleInputsDirty(true);
+                                    setFormError('');
+                                  }
+                                }}
+                                className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none focus:border-p-border-strong"
+                              />
+                            </div>
+                          )}
                         </div>
-                        <div className="mt-4 grid grid-cols-3 gap-3">
-                          <label className="block">
-                            <span className="text-[13px] text-p-text-muted">Fecha</span>
-                            <input
-                              type="date"
-                              value={formatLocalDate(selectedDate)}
-                              onChange={(event) => {
-                                const next = new Date(`${event.target.value}T12:00:00`);
-                                if (!Number.isNaN(next.getTime())) {
-                                  setSelectedDate(next);
-                                }
-                              }}
-                              className="mt-2 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[15px] text-p-text"
-                            />
-                          </label>
+
+                        <div className="grid grid-cols-2 gap-3">
                           <div className="block">
-                            <span className="text-[13px] text-p-text-muted">Hora de inicio</span>
+                            <span className="text-[12px] font-medium text-p-text-muted">Desde</span>
                             <PlaygroundCombo
                               value={slotToTime(selectedStartSlot)}
                               onChange={(nextValue) => {
                                 const nextStart = timeToSlot(nextValue);
+                                const length = Math.max(1, selectedEndSlot - selectedStartSlot);
                                 setSelectedStartSlot(nextStart);
-                                if (nextStart >= selectedEndSlot) {
-                                  setSelectedEndSlot(nextStart + 1);
-                                }
+                                setSelectedEndSlot(Math.min(totalSlots, nextStart + length));
                                 setScheduleInputsDirty(true);
+                                setFormError('');
                               }}
                               options={timeOptions.slice(0, -1).map((option) => ({ value: option.value, label: option.value }))}
-                              className="mt-2"
+                              className="mt-1"
                             />
                           </div>
                           <div className="block">
-                            <span className="text-[13px] text-p-text-muted">Hora de fin</span>
+                            <span className="text-[12px] font-medium text-p-text-muted">Hasta</span>
                             <PlaygroundCombo
                               value={slotToTime(selectedEndSlot)}
                               onChange={(nextValue) => {
-                                const nextEnd = Math.max(timeToSlot(nextValue), selectedStartSlot + 1);
-                                setSelectedEndSlot(nextEnd);
+                                setSelectedEndSlot(Math.max(timeToSlot(nextValue), selectedStartSlot + 1));
                                 setScheduleInputsDirty(true);
+                                setFormError('');
                               }}
-                              options={timeOptions.slice(1).map((option) => ({ value: option.value, label: option.value }))}
-                              className="mt-2"
+                              options={timeOptions
+                                .filter((option) => option.slot > selectedStartSlot)
+                                .map((option) => ({ value: option.value, label: option.value }))}
+                              className="mt-1"
                             />
                           </div>
                         </div>
+                        <div className="-mt-2 flex flex-wrap gap-2">
+                          {[
+                            { key: '60', label: '1 h', endSlot: selectedStartSlot + 60 / slotMinutes },
+                            { key: '120', label: '2 h', endSlot: selectedStartSlot + 120 / slotMinutes },
+                            { key: 'close', label: 'Hasta el cierre', endSlot: totalSlots },
+                          ]
+                            .filter((choice) => choice.endSlot <= totalSlots && choice.endSlot > selectedStartSlot)
+                            .map((choice) => {
+                              const active = selectedEndSlot === choice.endSlot;
+                              return (
+                                <button
+                                  key={`block-length-${choice.key}`}
+                                  type="button"
+                                  aria-pressed={active}
+                                  onClick={() => {
+                                    setSelectedEndSlot(choice.endSlot);
+                                    setScheduleInputsDirty(true);
+                                    setFormError('');
+                                  }}
+                                  className={`h-9 rounded-lg border px-3 text-[13px] font-semibold transition ${
+                                    active
+                                      ? 'border-ink-900 bg-ink-900 text-ink-50'
+                                      : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong'
+                                  }`}
+                                >
+                                  {choice.label}
+                                </button>
+                              );
+                            })}
+                        </div>
+
+                        <label className="block">
+                          <span className="text-[12px] font-medium text-p-text-muted">Motivo (opcional)</span>
+                          <input
+                            value={blockingTitle}
+                            onChange={(event) => setBlockingTitle(event.target.value)}
+                            placeholder="Mantenimiento, torneo, clase…"
+                            className="mt-1 h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[15px] text-p-text outline-none focus:border-p-border-strong"
+                          />
+                        </label>
+
+                        <p className="text-[13px] text-p-text-muted">
+                          Nadie puede reservar {selectedCourt?.name || 'la cancha'} de {slotToTime(selectedStartSlot)} a{' '}
+                          {slotToTime(selectedEndSlot)}.
+                        </p>
+
+                        {!editingBookingId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormError('');
+                              setCreateCourtPickerOpen(false);
+                              setBookingKind('regular');
+                            }}
+                            className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                          >
+                            Mejor crear una reserva
+                          </button>
+                        )}
                       </section>
 
                     </>
@@ -8977,6 +9860,17 @@ export default function AdminAgendaPlaygroundPage() {
                       />
                     )}
                   </section>
+
+                  <AgendaPlayerSlotsSection
+                    clubSlug={getClubSlug()}
+                    bookingId={persistedEditingBookingId ? Number(persistedEditingBookingId) : null}
+                    activityId={selectedCourt?.activityTypeId ? Number(selectedCourt.activityTypeId) : null}
+                    formatId={bookingActivityFormatId}
+                    onFormatChange={setBookingActivityFormatId}
+                    refreshKey={persistedAdminParticipants}
+                    canReprice={hasAdminAccess(user)}
+                    onFormatDurationChange={handleBookingFormatDurationChange}
+                  />
 
                   <section className="py-6 border-b border-p-border">
                     <div className="flex items-end justify-between">
@@ -9174,7 +10068,7 @@ export default function AdminAgendaPlaygroundPage() {
                   )}
                 </div>
 
-                <footer ref={simplifiedSidebarFooterRef} className="border-t border-p-border bg-p-surface px-6 py-4">
+                <footer ref={simplifiedSidebarFooterRef} className="border-t border-p-border bg-p-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:px-6 lg:py-4">
                   {useSimplifiedBookingSidebar ? (
                     <div className="space-y-3">
                       {shouldShowSeriesScopeHint && (
@@ -9182,41 +10076,98 @@ export default function AdminAgendaPlaygroundPage() {
                           Esta reserva pertenece a una serie. Al guardar, vas a elegir si editar solo esta ocurrencia, desde esta en adelante o toda la serie.
                         </div>
                       )}
+                      {!drawerSelectionIsAllowed && (!editingBookingId || hasScheduleChanges) && (
+                        <div className="rounded-xl border border-p-warning bg-p-warning-bg px-3 py-2 text-[12px] text-p-warning">
+                          El club no ofrece un turno de {formatDurationLabel(selectionMinutes)} a las{' '}
+                          {slotToTime(selectedStartSlot)}. Elegí otro horario o duración.
+                        </div>
+                      )}
                       {hasBlockingActionError && (
                         <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2.5">
                           <p className="text-[12px] font-semibold text-p-error">
-                            No podes continuar hasta corregir este error.
+                            No podés continuar hasta corregir este error.
                           </p>
                           <p className="mt-0.5 text-[12px] text-p-error">{blockingActionMessage}</p>
                         </div>
                       )}
-                      <div className="flex items-center justify-end gap-2">
-                        {editingBookingId && !isCompletedReservation && (
-                          <button
-                            type="button"
-                            onClick={openDeleteBookingFlow}
-                            aria-label="Eliminar reserva"
-                            title="Eliminar reserva"
-                            disabled={isSubmittingBooking || isDeletingBooking}
-                            className="h-10 w-10 rounded-xl border border-p-error bg-p-surface text-p-error grid place-items-center hover:bg-p-error-bg disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                      <div className="flex items-center justify-between gap-2">
+                        {editingBookingId && !isCompletedReservation ? (
+                          <div ref={simplifiedMoreActionsRef} className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setSimplifiedMoreActionsOpen((previous) => !previous)}
+                              disabled={isSubmittingBooking || isDeletingBooking}
+                              aria-haspopup="menu"
+                              aria-expanded={simplifiedMoreActionsOpen}
+                              className="h-10 inline-flex items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
+                            >
+                              <MoreVertical size={15} />
+                              <span className="sm:hidden">Más</span>
+                              <span className="hidden sm:inline">Más acciones</span>
+                            </button>
+                            {simplifiedMoreActionsOpen && (
+                              <div
+                                role="menu"
+                                className="absolute bottom-[calc(100%+8px)] left-0 z-40 w-[280px] rounded-2xl border border-p-border bg-p-surface p-1.5 shadow-xl"
+                              >
+                                {canChangeTitularFromUi && editingBooking?.state !== 'blocked' && (
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    onClick={() => {
+                                      setSimplifiedMoreActionsOpen(false);
+                                      openChangeTitularModal();
+                                    }}
+                                    className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-p-surface-2"
+                                  >
+                                    <span className="flex items-start gap-2.5">
+                                      <User size={15} className="mt-0.5 text-p-text-secondary" />
+                                      <span>
+                                        <span className="block text-[14px] font-semibold text-p-text">Cambiar titular</span>
+                                        <span className="block text-[12px] text-p-text-muted">Pasar la reserva a otro cliente</span>
+                                      </span>
+                                    </span>
+                                  </button>
+                                )}
+                                {canChangeTitularFromUi && editingBooking?.state !== 'blocked' && (
+                                  <div className="my-1 h-px bg-p-border" />
+                                )}
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setSimplifiedMoreActionsOpen(false);
+                                    openDeleteBookingFlow();
+                                  }}
+                                  className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-p-error-bg"
+                                >
+                                  <span className="flex items-start gap-2.5">
+                                    <Trash2 size={15} className="mt-0.5 text-p-error" />
+                                    <span>
+                                      <span className="block text-[14px] font-semibold text-p-error">Cancelar reserva</span>
+                                      <span className="block text-[12px] text-p-text-muted">Libera la cancha; si tiene pagos, elegís cuánto devolver</span>
+                                    </span>
+                                  </span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : isCreatingRegularBooking ? (
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-medium text-p-text-muted">Total</p>
+                            <p className="text-[18px] font-bold leading-tight tabular-nums text-p-text">
+                              {createQuoteLoading ? '…' : createQuoteTotal != null ? formatMoney(createQuoteTotal) : '—'}
+                            </p>
+                            {!createQuoteLoading && createQuoteTotal != null && createPlayerCount > 1 && (
+                              <p className="text-[11px] tabular-nums text-p-text-muted">
+                                {createPlayerCount} × {formatMoney(createQuoteTotal / createPlayerCount)}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span />
                         )}
-                        {editingBookingId &&
-                          !isCompletedReservation &&
-                          canChangeTitularFromUi &&
-                          editingBooking?.state !== 'blocked' && (
-                          <button
-                            type="button"
-                            onClick={openChangeTitularModal}
-                            disabled={isSubmittingBooking || isDeletingBooking}
-                            className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
-                          >
-                            Cambiar titular
-                          </button>
-                        )}
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
                           {showConfirmMainAction && (
                             <button
                               type="button"
@@ -9236,14 +10187,47 @@ export default function AdminAgendaPlaygroundPage() {
                               Ver detalle
                             </button>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => void handleCreateBooking()}
-                            disabled={primaryActionDisabled}
-                            className="h-10 min-w-[170px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
-                          >
-                            {editingBookingId ? 'Guardar cambios' : 'Crear reserva'}
-                          </button>
+                          {isCreatingRegularBooking ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  chargeAfterCreateRef.current = false;
+                                  void handleCreateBooking();
+                                }}
+                                disabled={primaryActionDisabled}
+                                className="h-11 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50 sm:h-10"
+                              >
+                                Reservar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  chargeAfterCreateRef.current = true;
+                                  void handleCreateBooking();
+                                }}
+                                disabled={primaryActionDisabled}
+                                className="h-11 flex-1 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50 sm:h-10 sm:flex-none sm:min-w-[170px]"
+                              >
+                                {isSubmittingBooking ? 'Guardando...' : 'Reservar y cobrar'}
+                              </button>
+                            </>
+                          ) : (!editingBookingId || hasDeferredEditChanges) && (
+                            <button
+                              type="button"
+                              onClick={() => void handleCreateBooking()}
+                              disabled={primaryActionDisabled}
+                              className="h-11 flex-1 sm:h-10 sm:flex-none sm:min-w-[170px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
+                            >
+                              {editingBookingId
+                                ? 'Guardar cambios'
+                                : isRecurringKind && Number.isFinite(recurringEstimatedOccurrencesTotal)
+                                  ? `Crear ${Number(recurringEstimatedOccurrencesTotal)} turnos`
+                                  : isRecurringKind
+                                    ? 'Crear reserva fija'
+                                    : 'Crear reserva'}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -9261,28 +10245,28 @@ export default function AdminAgendaPlaygroundPage() {
                           <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
                             <p>Total</p>
                             <p className="text-[13px] font-semibold text-p-text">
-                              {Number(billingSummary.totalAmount || 0).toFixed(2)} $
+                              {formatMoney(Number(billingSummary.totalAmount || 0))}
                             </p>
                           </div>
                           <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
                             <p>Pagado</p>
                             <p className="text-[13px] font-semibold text-p-positive">
-                              {Number(billingSummary.paidAmount || 0).toFixed(2)} $
+                              {formatMoney(Number(billingSummary.paidAmount || 0))}
                             </p>
                           </div>
                           <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
                             <p>Restante</p>
                             <p className="text-[13px] font-semibold text-p-warning">
-                              {Number(billingSummary.remainingAmount || 0).toFixed(2)} $
+                              {formatMoney(Number(billingSummary.remainingAmount || 0))}
                             </p>
                           </div>
                         </div>
                         <div className="mt-2 flex items-center justify-between text-[11px] text-p-text-muted">
                           <span>
-                            Lista: {quotedListPrice != null ? `${quotedListPrice.toFixed(2)} $` : '-'}
+                            Lista: {quotedListPrice != null ? `${formatMoney(quotedListPrice)}` : '-'}
                           </span>
                           <span>
-                            Descuento: {quotedDiscountAmount > 0 ? `-${quotedDiscountAmount.toFixed(2)} $` : '0.00 $'}
+                            Descuento: {quotedDiscountAmount > 0 ? `-${formatMoney(quotedDiscountAmount)}` : formatMoney(0)}
                           </span>
                         </div>
                       </div>
@@ -9311,8 +10295,8 @@ export default function AdminAgendaPlaygroundPage() {
                           <button
                             type="button"
                             onClick={openDeleteBookingFlow}
-                            aria-label="Eliminar reserva"
-                            title="Eliminar reserva"
+                            aria-label="Cancelar reserva"
+                            title="Cancelar reserva"
                             disabled={isSubmittingBooking || isDeletingBooking}
                             className="h-10 w-10 rounded-xl border border-p-error bg-p-surface text-p-error grid place-items-center hover:bg-p-error-bg disabled:opacity-40 disabled:cursor-not-allowed"
                           >
@@ -9345,9 +10329,15 @@ export default function AdminAgendaPlaygroundPage() {
                           type="button"
                           onClick={() => void handleCreateBooking()}
                           disabled={primaryActionDisabled}
-                          className="h-10 min-w-[232px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
+                          className="h-10 sm:min-w-[232px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
                         >
-                          {isSubmittingBooking ? primaryActionLabel : `${primaryActionLabel} • ${primaryActionMeta}`}
+                          {isSubmittingBooking
+                            ? primaryActionLabel
+                            : bookingKind === 'block'
+                              ? editingBookingId
+                                ? 'Guardar cambios'
+                                : `Bloquear ${slotToTime(selectedStartSlot)}–${slotToTime(selectedEndSlot)}`
+                              : `${primaryActionLabel} • ${primaryActionMeta}`}
                         </button>
                       </div>
                     </div>

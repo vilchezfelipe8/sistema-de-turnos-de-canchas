@@ -129,6 +129,24 @@ test('usuario logueado reutiliza client existente por email sin auto-linkear use
   assert.equal(auditLogs.some((row) => row.payload?.reason === 'ALREADY_LINKED'), false);
 });
 
+test('usuario logueado crea su client nuevo ya vinculado', async () => {
+  const { tx, clients, auditLogs } = buildTx([]);
+  const service = createService();
+
+  const resolved = await (service as any).resolveOrCreateClient(tx, {
+    clubId: 10,
+    userId: 7,
+    name: 'Lionel Messi',
+    phone: '+5493511234567',
+    email: 'lio@messi.com',
+    dni: ''
+  });
+
+  assert.equal(resolved.userId, 7);
+  assert.equal(clients[0]?.userId, 7);
+  assert.ok(auditLogs.some((row) => row.payload?.reason === 'CREATED_CLIENT'));
+});
+
 test('alta rápida admin reutiliza client existente por teléfono normalizado', async () => {
   const { tx, clients } = buildTx([
     {

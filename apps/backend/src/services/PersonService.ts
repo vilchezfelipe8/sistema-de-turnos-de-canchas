@@ -246,7 +246,8 @@ export class PersonService {
           { name: { contains: search, mode: 'insensitive' } },
           { phone: { contains: search, mode: 'insensitive' } },
           { dni: { contains: search, mode: 'insensitive' } },
-          { email: { contains: search, mode: 'insensitive' } }
+          { email: { contains: search, mode: 'insensitive' } },
+          { clubMember: { memberNumber: { equals: search, mode: 'insensitive' } } }
         ]
       },
       orderBy: { createdAt: 'desc' },
@@ -564,6 +565,24 @@ export class PersonService {
         }
 
         const canonicalUserId = Number((strongMatches.canonical as any).userId || 0);
+
+        // La ficha de un socio nunca se vincula sola desde un flujo de autoservicio: email, teléfono y DNI
+        // del usuario son declarados, y vincular le daría el precio socio a quien no lo es.
+        const isSelfServiceSource = ['SELF_CLAIM', 'SELF_BOOKING', 'PAYMENT_CLAIM'].includes(String(options?.source || ''));
+        if (isSelfServiceSource && canonicalUserId !== safeUserId) {
+          const member = await tx.clubMember.findUnique({
+            where: { clientId: String(strongMatches.canonical.id) },
+            select: { id: true }
+          });
+          if (member) {
+            throw conflict(
+              'Tus datos coinciden con un socio del club. Pedile al club que vincule tu cuenta.',
+              ErrorCodes.CLIENT_MEMBER_LINK_REQUIRES_ADMIN,
+              { clientId: String(strongMatches.canonical.id) }
+            );
+          }
+        }
+
         if (canonicalUserId > 0 && canonicalUserId !== safeUserId) {
           throw conflict(
             'El cliente encontrado ya está vinculado a otro usuario de Pique.',

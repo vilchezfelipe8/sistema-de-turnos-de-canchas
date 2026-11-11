@@ -1,6 +1,20 @@
+export type BookingCheckoutParticipantDraft = {
+  id: string;
+  identifier: string;
+  name?: string | null;
+  // Resultado de la búsqueda previa: con cuenta o invitado por email sin cuenta todavía.
+  lookupStatus?: 'FOUND' | 'EMAIL_WITHOUT_ACCOUNT' | null;
+  // Elegido en la búsqueda por nombre: se invita con el token firmado del servidor (sin DNI ni email).
+  inviteToken?: string | null;
+  ref?: string | null;
+};
+
 export type BookingCheckoutDraft = {
   id: string;
   clubSlug?: string | null;
+  // Nombre real del club y si confirma las reservas a mano (para mostrarlo antes y después de confirmar).
+  clubName?: string | null;
+  bookingConfirmationMode?: 'AUTOMATIC' | 'MANUAL' | 'DEPOSIT_REQUIRED' | null;
   courtId: number;
   courtName: string;
   activityId: number;
@@ -13,6 +27,24 @@ export type BookingCheckoutDraft = {
   discountAmount: number;
   lightsExtraApplied: number;
   lightsFromHour?: string | null;
+  // Precio por jugador: modalidad elegida y parte del titular (el resto se completa en el club).
+  activityFormatId?: string | null;
+  formatName?: string | null;
+  playerCount?: number | null;
+  pricePerPlayer?: number | null;
+  // Parte de cada lugar sin asignar o no socio (con luces), para mostrar el detalle por jugador.
+  generalPricePerPlayer?: number | null;
+  memberCategoryName?: string | null;
+  // false = el club cobra solo en el mostrador
+  onlineCheckoutEnabled?: boolean;
+  // % de descuento en efectivo (en el club) y online, para mostrarle los dos precios al jugador.
+  cashDiscountPercent?: number;
+  onlineDiscountPercent?: number;
+  // Club "Con seña": % de seña y si hay que pagarla online al reservar (no se ofrece "pagar en el club").
+  depositPercent?: number | null;
+  onlineDepositRequired?: boolean;
+  depositHoldMinutes?: number | null;
+  participants?: BookingCheckoutParticipantDraft[];
   createdAt: string;
 };
 
@@ -42,6 +74,20 @@ export const readBookingCheckoutDraft = (id: string): BookingCheckoutDraft | nul
     if (!parsed || String(parsed.id || '') !== safeId) return null;
     if (!Number.isFinite(Number(parsed.courtId)) || !Number.isFinite(Number(parsed.activityId))) return null;
     if (!parsed.date || !parsed.slotTime) return null;
+    const participants = Array.isArray(parsed.participants)
+      ? parsed.participants
+          .map((participant) => ({
+            id: String(participant?.id || '').trim(),
+            identifier: String(participant?.identifier || '').trim(),
+            name: String(participant?.name || '').trim() || null,
+            lookupStatus:
+              participant?.lookupStatus === 'FOUND' || participant?.lookupStatus === 'EMAIL_WITHOUT_ACCOUNT'
+                ? participant.lookupStatus
+                : null,
+          }))
+          .filter((participant) => participant.id && participant.identifier)
+          .slice(0, 20)
+      : [];
     return {
       ...parsed,
       courtId: Number(parsed.courtId),
@@ -51,6 +97,7 @@ export const readBookingCheckoutDraft = (id: string): BookingCheckoutDraft | nul
       listPrice: Number(parsed.listPrice || parsed.price || 0),
       discountAmount: Number(parsed.discountAmount || 0),
       lightsExtraApplied: Number(parsed.lightsExtraApplied || 0),
+      participants,
     };
   } catch {
     return null;
@@ -65,5 +112,27 @@ export const removeBookingCheckoutDraft = (id: string) => {
     window.sessionStorage.removeItem(`${STORAGE_PREFIX}${safeId}`);
   } catch {
     // noop
+  }
+};
+
+// De dónde se abrió el checkout (la grilla con la selección en la dirección): "Volver" regresa ahí
+// con el historial del navegador en lugar de abrir la página del club como si fuera nueva.
+const CHECKOUT_RETURN_KEY = 'bookingCheckoutReturn';
+
+export const rememberCheckoutReturn = (path: string) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(CHECKOUT_RETURN_KEY, path);
+  } catch {
+    // noop
+  }
+};
+
+export const readCheckoutReturn = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage.getItem(CHECKOUT_RETURN_KEY);
+  } catch {
+    return null;
   }
 };

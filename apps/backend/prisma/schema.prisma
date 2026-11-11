@@ -18,6 +18,44 @@ enum Role {
   GUEST
 }
 
+enum UserAccountStatus {
+  ACTIVE
+  PENDING_ACTIVATION // creada por un club (padrón de socios), todavía sin contraseña elegida
+  DISABLED
+}
+
+enum UserVerificationPurpose {
+  ACTIVATION
+  PASSWORD_RESET
+}
+
+enum UserVerificationChannel {
+  WHATSAPP
+  EMAIL
+  ADMIN_ISSUED
+}
+
+enum ClubMemberStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+// Modo de precio del turno del club. PER_COURT = comportamiento histórico.
+enum ClubPricingMode {
+  PER_COURT
+  PER_PLAYER
+}
+
+// Cómo se validó el precio socio de un lugar (D9). Solo SELF, ACCEPTED y STAFF_VALIDATED dan precio socio.
+enum MemberPriceValidation {
+  NOT_MEMBER      // no socio o lugar vacío
+  SELF            // es el titular autenticado
+  ACCEPTED        // aceptó la invitación desde su cuenta
+  STAFF_VALIDATED // validado en el mostrador
+  PENDING         // socio agregado por otro, todavía no confirmó → precio no socio
+}
+
 enum MembershipRole {
   OWNER
   ADMIN
@@ -80,6 +118,7 @@ enum AccountSource {
   MANUAL
   CLASS_PASS
   CLASS_ENROLLMENT
+  SUBSCRIPTION_INSTALLMENT
 }
 
 enum AccountStatus {
@@ -158,6 +197,7 @@ enum LedgerReferenceType {
   BOOKING
   CLASS_PASS
   CLASS_ENROLLMENT
+  SUBSCRIPTION
   MANUAL
 }
 
@@ -175,6 +215,7 @@ enum LedgerAccount {
   BOOKING_REVENUE
   BAR_REVENUE
   ACADEMY_REVENUE
+  MEMBERSHIP_REVENUE
   ADJUSTMENTS
   EXPENSE
 }
@@ -182,6 +223,17 @@ enum LedgerAccount {
 enum CashShiftStatus {
   OPEN
   CLOSED
+}
+
+// Motivo de cada movimiento de stock de un producto (historial de inventario).
+enum StockMovementType {
+  INITIAL        // stock con el que se creó el producto
+  PURCHASE       // ingreso de mercadería (proveedor / remito)
+  SALE           // venta o consumo
+  SALE_REVERSAL  // anulación de venta o consumo eliminado
+  ADJUSTMENT     // ajuste por conteo físico
+  WASTE          // merma, rotura, vencimiento
+  MANUAL_EDIT    // cambio de stock editando el producto
 }
 
 enum CashMovementPosType {
@@ -207,6 +259,7 @@ enum NotificationEventType {
   BOOKING_CREATED
   BOOKING_CANCELLED
   BOOKING_PENDING_WARNING
+  ACCOUNT_VERIFICATION_CODE
 }
 
 enum WhatsappSenderMode {
@@ -367,6 +420,37 @@ enum ClassPassStatus {
   CANCELLED
 }
 
+// Planes y cuotas (abonos de gimnasio, cuota social, clases mensuales).
+// Ver docs/planes-y-cuotas-diseno.md.
+enum SubscriptionBillingType {
+  RECURRING
+  FIXED_TERM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  PAST_DUE
+  EXPIRED
+  CANCELLED
+}
+
+enum SubscriptionInstallmentKind {
+  ENROLLMENT_FEE
+  PERIOD
+}
+
+enum SubscriptionInstallmentStatus {
+  PENDING
+  PAID
+  VOID
+}
+
+enum SubscriptionEntitlementKind {
+  ACTIVITY_ACCESS
+  CLASS_CREDITS
+}
+
 enum ClassCreditUsageReason {
   ATTENDANCE
   LATE_CANCEL
@@ -381,7 +465,8 @@ enum ClassCreditUsageReason {
 
 model User {
   id            Int            @id @default(autoincrement())
-  email         String         @unique
+  // Opcional: los socios importados desde el padrón pueden no tener email.
+  email         String?        @unique
   password      String
   firstName     String
   lastName      String
@@ -389,7 +474,11 @@ model User {
   emailVerifiedAt DateTime?    @db.Timestamptz(3)
   lastLoginAt    DateTime?     @db.Timestamptz(3)
   role          Role           @default(MEMBER)
-  dni       String?
+  // Normalizado (solo dígitos, ver utils/dni.ts). Credencial de login alternativa al email.
+  dni       String?            @unique
+  accountStatus UserAccountStatus @default(ACTIVE)
+  // Club que pre-creó la cuenta (padrón de socios). Solo auditoría.
+  createdByClubId Int?
 
   bookings      Booking[]
   bookingHistoryEntries BookingHistoryEntry[] @relation("BookingHistoryActor")
@@ -428,6 +517,29 @@ model User {
   academyBeneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryUser")
   academyClassPassesCreated ClassPass[] @relation("ClassPassCreatedByUser")
   academyClassCreditUsagesCreated ClassCreditUsage[] @relation("ClassCreditUsageCreatedByUser")
+  verificationCodes UserVerificationCode[]
+  pushSubscriptions PushSubscription[]
+  notificationPreference UserNotificationPreference?
+  bookingReminderLogs BookingReminderLog[]
+}
+
+model UserVerificationCode {
+  id             String                  @id @default(cuid())
+  userId         Int
+  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose        UserVerificationPurpose
+  channel        UserVerificationChannel
+  codeHash       String
+  attempts       Int                     @default(0)
+  expiresAt      DateTime                @db.Timestamptz(3)
+  consumedAt     DateTime?               @db.Timestamptz(3)
+  // Si lo generó un operador del club en el mostrador
+  issuedByUserId Int?
+  issuedForClubId Int?
+  createdAt      DateTime                @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, purpose, consumedAt])
+  @@index([expiresAt])
 }
 
 model MagicLoginToken {
@@ -521,6 +633,7 @@ model Club {
   clients       Client[]
   bookings      Booking[]
   products      Product[]
+  stockMovements StockMovement[]
   servicesCatalog ClubServiceCatalog[]
   cashMovements CashMovement[]
   memberships   Membership[]
@@ -554,6 +667,12 @@ model Club {
   classEnrollments ClassEnrollment[]
   classPasses ClassPass[]
   classCreditUsages ClassCreditUsage[]
+  memberCategories MemberCategory[]
+  clubMembers ClubMember[]
+  subscriptionPlans SubscriptionPlan[]
+  subscriptions Subscription[]
+  subscriptionInstallments SubscriptionInstallment[]
+  courtBlocks   CourtBlock[]
 }
 
 model ClubFavorite {
@@ -658,8 +777,27 @@ model Court {
   fixedBookings FixedBooking[]
   priceRules    CourtPriceRule[]
   classSessions ClassSession[]
+  courtBlocks   CourtBlock[]
 
   @@index([clubId])
+}
+
+// Bloqueo de cancha: franja en la que la cancha no se puede reservar (mantenimiento, evento, etc.).
+model CourtBlock {
+  id              String   @id @default(cuid())
+  clubId          Int
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  courtId         Int
+  court           Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  startDateTime   DateTime @db.Timestamptz(3)
+  endDateTime     DateTime @db.Timestamptz(3)
+  title           String?
+  createdByUserId Int?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, startDateTime])
+  @@index([courtId, startDateTime, endDateTime])
 }
 
 model CourtPriceRule {
@@ -707,8 +845,52 @@ model ActivityType {
   discountTargets        DiscountPolicyTarget[]
   classSessions          ClassSession[]
   classPasses            ClassPass[]
+  formats                ActivityFormat[]
+  subscriptionEntitlements SubscriptionPlanEntitlement[]
 
   @@index([clubId])
+}
+
+// Modalidad de juego de una actividad (ej. Tenis Single 2 jugadores / Dobles 4).
+model ActivityFormat {
+  id             String       @id @default(cuid())
+  clubId         Int
+  activityTypeId Int
+  activityType   ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  name           String
+  playerCount    Int
+  // Duración fija del turno en esta modalidad (ej. Single 60, Dobles 120). null = la de la actividad.
+  durationMinutes Int?
+  // Si el turno completo no entra (ej. hueco de 1 h antes de otro turno), permite reservarlo de 60 min
+  // con el mismo precio por jugador. Lo activa cada club por modalidad.
+  allowShortInGaps Boolean @default(false)
+  sortOrder      Int          @default(0)
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+
+  priceRules    PlayerPriceRule[]
+  bookings      Booking[]
+  fixedBookings FixedBooking[]
+
+  @@unique([activityTypeId, name])
+  @@index([clubId, isActive])
+}
+
+// Precio por jugador de una modalidad para una categoría (null = no socio). Sin franjas: solo varía por luces.
+model PlayerPriceRule {
+  id               String          @id @default(cuid())
+  clubId           Int
+  activityFormatId String
+  activityFormat   ActivityFormat  @relation(fields: [activityFormatId], references: [id], onDelete: Cascade)
+  memberCategoryId String?
+  memberCategory   MemberCategory? @relation(fields: [memberCategoryId], references: [id], onDelete: Cascade)
+  pricePerPlayer   Decimal         @db.Decimal(10, 2)
+  createdAt        DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(3)
+
+  // La unicidad modalidad + categoría (incluida "no socio" con NULL) se valida en el servicio.
+  @@index([activityFormatId, memberCategoryId])
 }
 
 model ActivityScheduleException {
@@ -767,6 +949,9 @@ model Client {
   billingResponsibleClassEnrollments ClassEnrollment[] @relation("ClassEnrollmentBillingResponsibleClient")
   ownedClassPasses ClassPass[] @relation("ClassPassOwnerClient")
   beneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryClient")
+  clubMember    ClubMember?
+  subscriptions Subscription[] @relation("SubscriptionClient")
+  paidSubscriptions Subscription[] @relation("SubscriptionPayerClient")
 
   @@index([clubId])
   @@index([userId])
@@ -774,6 +959,74 @@ model Client {
   @@index([clubId, phone])
   @@index([clubId, dni])
   @@unique([clubId, userId])
+}
+
+// Padrón de socios. "No socio" = el cliente no tiene ClubMember o no está ACTIVE y vigente.
+model MemberCategory {
+  id          String   @id @default(cuid())
+  clubId      Int
+  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  code        String
+  name        String
+  description String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  members ClubMember[]
+  playerPriceRules PlayerPriceRule[]
+  subscriptionPlans SubscriptionPlan[]
+
+  @@unique([clubId, code])
+  @@index([clubId, isActive])
+}
+
+model ClubMember {
+  id           String           @id @default(cuid())
+  clubId       Int
+  club         Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clientId     String           @unique
+  client       Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  categoryId   String
+  category     MemberCategory   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  memberNumber String?
+  status       ClubMemberStatus @default(ACTIVE)
+  joinedAt     DateTime         @db.Date
+  // "Al día hasta". Carga manual mientras la cuota social no se cobre con Pique.
+  validUntil   DateTime?        @db.Date
+  leftAt       DateTime?        @db.Date
+  statusReason String?
+  notes        String?
+  createdByUserId Int?
+  updatedByUserId Int?
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime         @updatedAt @db.Timestamptz(3)
+
+  history ClubMemberHistory[]
+
+  @@unique([clubId, memberNumber])
+  @@index([clubId, status])
+  @@index([clubId, categoryId])
+}
+
+model ClubMemberHistory {
+  id              String            @id @default(cuid())
+  clubMemberId    String
+  clubMember      ClubMember        @relation(fields: [clubMemberId], references: [id], onDelete: Cascade)
+  clubId          Int
+  // CREATED | STATUS_CHANGED | CATEGORY_CHANGED | UPDATED | MERGED
+  action          String
+  fromStatus      ClubMemberStatus?
+  toStatus        ClubMemberStatus?
+  fromCategoryId  String?
+  toCategoryId    String?
+  reason          String?
+  changedByUserId Int?
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@index([clubMemberId, createdAt])
+  @@index([clubId, createdAt])
 }
 
 enum ClientDuplicateIncidentStatus {
@@ -1009,6 +1262,10 @@ model ClassPass {
 
   usages ClassCreditUsage[]
 
+  // Pack generado por un período de un plan con clases incluidas.
+  subscriptionId String?
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
   @@index([clubId, status])
   @@index([clubId, ownerClientId])
   @@index([clubId, beneficiaryClientId])
@@ -1058,6 +1315,8 @@ model Booking {
   autoCancelWarningSentAt DateTime? @db.Timestamptz(3)
   autoCancelledAt         DateTime? @db.Timestamptz(3)
   autoCancelReason        String?
+  // Reserva desde la app con seña online obligatoria: hasta cuándo puede pagarla antes de liberarse.
+  onlineDepositDueAt      DateTime? @db.Timestamptz(3)
 
   listPrice       Decimal @default(0) @db.Decimal(10, 2)
   price           Decimal @db.Decimal(10, 2)
@@ -1082,8 +1341,17 @@ model Booking {
 
   fixedBookingId Int?
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
+
+  // Precio por jugador (ClubPricingMode.PER_PLAYER). null = reserva con precio por cancha.
+  activityFormatId    String?
+  activityFormat      ActivityFormat? @relation(fields: [activityFormatId], references: [id])
+  playerCount         Int?
+  // Σ (precio no socio − precio aplicado) de los lugares
+  memberBenefitAmount Decimal @default(0) @db.Decimal(10, 2)
+  playerSlots         BookingPlayerSlot[]
   billingConfig  BookingBillingConfig?
   participants   BookingParticipant[]
+  reminderLogs   BookingReminderLog[]
   historyEntries BookingHistoryEntry[]
   onlinePaymentAttempts OnlinePaymentAttempt[]
   reviews        ClubReview[]
@@ -1094,6 +1362,7 @@ model Booking {
   @@index([activityId, startDateTime], map: "booking_activity_day")
   @@index([startDateTime])
   @@index([status, startDateTime, autoCancelledAt], map: "booking_pending_autocancel_idx")
+  @@index([status, onlineDepositDueAt])
 }
 
 model BookingParticipant {
@@ -1109,11 +1378,14 @@ model BookingParticipant {
   phone           String?
   invitedEmail    String?
   invitedName     String?
+  // Invitación por DNI a un usuario existente (puede no tener email)
+  invitedUserId   Int?
   status          BookingParticipantStatus @default(INVITED)
   role            BookingParticipantRole   @default(PARTICIPANT)
   invitedByUserId Int?
   invitedByUser   User?                    @relation("BookingParticipantInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   historyEntries  BookingHistoryEntry[]
+  playerSlot      BookingPlayerSlot?
   acceptedAt      DateTime?                @db.Timestamptz(3)
   declinedAt      DateTime?                @db.Timestamptz(3)
   leftAt          DateTime?                @db.Timestamptz(3)
@@ -1127,6 +1399,7 @@ model BookingParticipant {
   @@index([clientId])
   @@index([userId, status])
   @@index([invitedEmail, status])
+  @@index([invitedUserId, status])
 }
 
 model BookingBillingConfig {
@@ -1196,6 +1469,9 @@ model FixedBooking {
 
   bookings Booking[]
 
+  activityFormatId String?
+  activityFormat   ActivityFormat? @relation(fields: [activityFormatId], references: [id])
+
   @@index([courtId, dayOfWeek])
   @@index([clubId])
   @@index([clientId])
@@ -1256,8 +1532,40 @@ model AccountItem {
   paymentAllocations PaymentAllocation[]
   discounts AccountItemDiscount[]
 
+  // A quién corresponde el ítem (parte de cancha de un jugador en precio por jugador).
+  clientId   String?
+  playerSlot BookingPlayerSlot?
+
   @@index([accountId])
   @@index([productId])
+}
+
+// Lugar de un jugador en una reserva con precio por jugador. La parte de cada lugar queda
+// congelada cuando su ítem de la cuenta tiene pagos imputados (RN-05).
+model BookingPlayerSlot {
+  id                      String                @id @default(cuid())
+  bookingId               Int
+  booking                 Booking               @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  clubId                  Int
+  slotIndex               Int
+  participantId           String?               @unique
+  participant             BookingParticipant?   @relation(fields: [participantId], references: [id], onDelete: SetNull)
+  clientId                String?
+  userId                  Int?
+  displayName             String?
+  pricingMemberCategoryId String?
+  memberPriceValidation   MemberPriceValidation @default(NOT_MEMBER)
+  memberValidatedByUserId Int?
+  shareListAmount         Decimal               @db.Decimal(10, 2)
+  shareAmount             Decimal               @db.Decimal(10, 2)
+  sharePricedAt           DateTime              @default(now()) @db.Timestamptz(3)
+  accountItemId           String?               @unique
+  accountItem             AccountItem?          @relation(fields: [accountItemId], references: [id], onDelete: SetNull)
+  createdAt               DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime              @updatedAt @db.Timestamptz(3)
+
+  @@unique([bookingId, slotIndex])
+  @@index([clubId, clientId])
 }
 
 model DiscountPolicy {
@@ -1453,6 +1761,8 @@ model OnlinePaymentAttempt {
   payment              Payment?                   @relation("OnlinePaymentAttemptPayment", fields: [paymentId], references: [id], onDelete: SetNull)
   failureReason        String?
   rawProviderData      Json?
+  // Partes que cubre el pago (reservas por jugador). null = toda la cuenta.
+  target               Json?
   processedAt          DateTime?                  @db.Timestamptz(3)
   createdAt            DateTime                   @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime                   @updatedAt @db.Timestamptz(3)
@@ -1776,6 +2086,16 @@ model ClubSettings {
   // Configuración avanzada (Agregado para centralizar)
   fixedBookingSettingsByActivity Json?
 
+  // Módulo de socios (padrón, categorías, precio socio)
+  membersEnabled            Boolean  @default(false)
+  // false = el club cobra solo en el mostrador (sin checkout online)
+  onlineCheckoutEnabled     Boolean  @default(true)
+  // Precio del turno por cancha (histórico) o por jugador según su categoría
+  pricingMode               ClubPricingMode @default(PER_COURT)
+  // Ventanas de reserva desde la app: hora de apertura para socios y no socios, días hacia adelante y cierre.
+  // null o enabled=false = sin restricción (comportamiento histórico).
+  bookingReleasePolicy      Json?
+
   // Política de confirmación de reservas
   bookingConfirmationMode       BookingConfirmationMode @default(MANUAL)
   bookingDepositPercent         Decimal?                @db.Decimal(5, 2)
@@ -1791,6 +2111,15 @@ model ClubSettings {
   autoCancelPendingWarningEnabled       Boolean @default(false)
   autoCancelPendingWarningMinutesBefore Int?
   enforceCashShiftCloseWithOpenAccounts Boolean @default(false)
+
+  // Descuento por medio de pago en el mostrador, en % sobre el precio de lista.
+  // Ej: { "CASH": 20 } = efectivo 20% menos. null = sin descuento.
+  paymentMethodDiscounts Json?
+
+  // Seña online obligatoria (modo DEPOSIT_REQUIRED): el jugador que reserva desde la app tiene
+  // onlineDepositHoldMinutes para pagar la seña con Mercado Pago; si no, la reserva se cancela sola.
+  onlineDepositRequired    Boolean @default(false)
+  onlineDepositHoldMinutes Int     @default(15)
 
   createdAt                 DateTime @default(now()) @db.Timestamptz(3)
   updatedAt                 DateTime @updatedAt @db.Timestamptz(3)
@@ -1816,9 +2145,43 @@ model Product {
   usedInCombos ProductComponent[] @relation("ComboComponent")
   accountItems AccountItem[]
   discountTargets DiscountPolicyTarget[]
+  stockMovements StockMovement[]
 
   @@index([clubId])
   @@map("Product")
+}
+
+// Historial de stock: cada cambio de Product.stock deja una fila (delta firmado + saldo).
+// Los ingresos y ajustes cargados juntos comparten groupId (un remito, un conteo).
+model StockMovement {
+  id        String            @id @default(cuid())
+  clubId    Int
+  club      Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  productId Int
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  type        StockMovementType
+  quantity    Int               // delta firmado: + entra, - sale
+  stockBefore Int
+  stockAfter  Int
+
+  groupId        String?
+  supplier       String?
+  documentNumber String?       // nro de remito / factura del proveedor
+  unitCost       Decimal?      @db.Decimal(10, 2)
+  reason         String?
+
+  accountId     String?
+  accountItemId String?
+
+  createdByUserId Int?
+  occurredAt      DateTime     @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId, occurredAt])
+  @@index([clubId, productId, occurredAt])
+  @@index([clubId, type, occurredAt])
+  @@index([groupId])
 }
 
 model ClubServiceCatalog {
@@ -2026,4 +2389,201 @@ model Refund {
   @@index([clubId, createdAt])
   @@index([cashShiftId])
   @@index([status, createdAt])
+}
+
+// Avisos push web: una suscripción por navegador/celular del usuario (endpoint del servicio de push).
+model PushSubscription {
+  id         String    @id @default(cuid())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  userAgent  String?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
+  lastSentAt DateTime? @db.Timestamptz(3)
+
+  @@index([userId])
+}
+
+// Qué avisos quiere recibir el jugador (las cancelaciones del club se envían siempre).
+model UserNotificationPreference {
+  userId              Int      @id
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  invitations         Boolean  @default(true)
+  invitationResponses Boolean  @default(true)
+  bookingReminders    Boolean  @default(true)
+  updatedAt           DateTime @updatedAt @db.Timestamptz(3)
+}
+
+// Recordatorios ya enviados (evita repetirlos si el scheduler corre varias veces).
+model BookingReminderLog {
+  bookingId Int
+  booking   Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String
+  sentAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([bookingId, userId, kind])
+}
+
+// ---------------------------------------------------------------------------
+// Planes y cuotas. Ver docs/planes-y-cuotas-diseno.md.
+// ---------------------------------------------------------------------------
+
+model SubscriptionPlan {
+  id             String   @id @default(cuid())
+  clubId         Int
+  club           Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  billingType    SubscriptionBillingType
+  periodMonths   Int
+  enrollmentFee  Decimal? @db.Decimal(10, 2)
+  // null = cada cuota vence según la fecha de alta.
+  dueDayOfMonth  Int?
+  graceDays      Int      @default(5)
+  pauseMaxDays   Int      @default(0)
+  pauseMaxCount  Int      @default(0)
+  grantsMemberCategoryId String?
+  grantsMemberCategory   MemberCategory? @relation(fields: [grantsMemberCategoryId], references: [id], onDelete: SetNull)
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  options        SubscriptionPlanOption[]
+  entitlements   SubscriptionPlanEntitlement[]
+  subscriptions  Subscription[]
+
+  @@index([clubId, isActive])
+}
+
+model SubscriptionPlanOption {
+  id                String  @id @default(cuid())
+  planId            String
+  plan              SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  label             String
+  installmentsCount Int
+  // Precio de lista de cada cuota.
+  installmentPrice  Decimal @db.Decimal(10, 2)
+  isActive          Boolean @default(true)
+  sortOrder         Int     @default(0)
+
+  subscriptions     Subscription[]
+
+  @@index([planId])
+}
+
+model SubscriptionPlanEntitlement {
+  id               String  @id @default(cuid())
+  planId           String
+  plan             SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  kind             SubscriptionEntitlementKind
+  activityTypeId   Int
+  activityType     ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  // ACTIVITY_ACCESS: null = libre.
+  timesPerWeek     Int?
+  // CLASS_CREDITS: créditos por período.
+  creditsPerPeriod Int?
+  classType        ClassSessionType?
+
+  @@index([planId])
+  @@index([activityTypeId])
+}
+
+model Subscription {
+  id               String  @id @default(cuid())
+  clubId           Int
+  club             Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  planId           String
+  plan             SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  optionId         String
+  option           SubscriptionPlanOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  clientId         String
+  client           Client  @relation("SubscriptionClient", fields: [clientId], references: [id], onDelete: Restrict)
+  payerClientId    String
+  payerClient      Client  @relation("SubscriptionPayerClient", fields: [payerClientId], references: [id], onDelete: Restrict)
+  status           SubscriptionStatus @default(ACTIVE)
+  // Nombre, opción, precios y beneficios al momento de la venta.
+  planSnapshot     Json
+  // FIXED_TERM: true (congela precio). RECURRING: false (toma el precio vigente al renovar).
+  priceLocked      Boolean
+  startDate        DateTime @db.Date
+  // FIXED_TERM: último día del plazo. RECURRING: null.
+  endDate          DateTime? @db.Date
+  // Último día del período en curso (RECURRING) o del plazo (FIXED_TERM).
+  currentPeriodEnd DateTime @db.Date
+  autoRenew        Boolean  @default(true)
+  pausesUsed       Int      @default(0)
+  cancelledAt      DateTime? @db.Timestamptz(3)
+  cancelReason     String?
+  notes            String?
+  createdByUserId  Int
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  installments     SubscriptionInstallment[]
+  pauses           SubscriptionPause[]
+  history          SubscriptionHistory[]
+  classPasses      ClassPass[]
+
+  @@index([clubId, status])
+  @@index([clubId, clientId])
+  @@index([clubId, payerClientId])
+}
+
+model SubscriptionInstallment {
+  id             String  @id @default(cuid())
+  clubId         Int
+  club           Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  // 0 = matrícula, 1..N = cuotas.
+  sequence       Int
+  kind           SubscriptionInstallmentKind
+  coversFrom     DateTime @db.Date
+  coversTo       DateTime @db.Date
+  dueDate        DateTime @db.Date
+  listAmount     Decimal  @db.Decimal(10, 2)
+  status         SubscriptionInstallmentStatus @default(PENDING)
+  paidAt         DateTime? @db.Timestamptz(3)
+  // Cuenta SUBSCRIPTION_INSTALLMENT (Account.sourceId = id de la cuota).
+  accountId      String?  @unique
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([subscriptionId, sequence])
+  @@index([clubId, status, dueDate])
+}
+
+model SubscriptionPause {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  reason          String?
+  createdByUserId Int
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([subscriptionId])
+}
+
+model SubscriptionHistory {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  clubId          Int
+  action          String
+  fromStatus      SubscriptionStatus?
+  toStatus        SubscriptionStatus?
+  detail          Json?
+  changedByUserId Int?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([subscriptionId, createdAt])
+  @@index([clubId, createdAt])
 }

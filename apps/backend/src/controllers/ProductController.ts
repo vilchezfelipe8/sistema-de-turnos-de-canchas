@@ -42,6 +42,7 @@ export class ProductController {
                 name: z.string().trim().min(2, 'Cargá un nombre válido.'),
                 price: z.preprocess((v) => Number(v), z.number().positive('Cargá un precio válido.')),
                 stock: z.preprocess((v) => (v === undefined || v === null || v === '' ? 0 : Number(v)), z.number().min(0, 'Cargá un stock válido.')),
+                minStock: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().min(0, 'Cargá un número desde 0.').optional()),
                 category: z.string().trim().max(100).optional().nullable(),
                 isCombo: z.boolean().optional(),
                 components: z.array(z.object({
@@ -61,10 +62,11 @@ export class ProductController {
                 name: sanitizeString(parsed.data.name, 200),
                 price: parsed.data.price,
                 stock: parsed.data.stock,
+                minStock: parsed.data.minStock,
                 category: parsed.data.category ? sanitizeString(String(parsed.data.category), 100) : undefined,
                 isCombo: Boolean(parsed.data.isCombo),
                 components: Array.isArray(parsed.data.components) ? parsed.data.components : []
-            });
+            }, Number((req as any).user?.userId || 0) || null);
             res.status(201).json(newProduct);
         } catch (error) {
             return sendAppError(res, error, 'Error al crear producto');
@@ -81,6 +83,7 @@ export class ProductController {
                 name: z.string().trim().min(2, 'Cargá un nombre válido.').optional(),
                 price: z.preprocess((v) => (v === undefined ? undefined : Number(v)), z.number().positive('Cargá un precio válido.').optional()),
                 stock: z.preprocess((v) => (v === undefined ? undefined : Number(v)), z.number().min(0, 'Cargá un stock válido.').optional()),
+                minStock: z.preprocess((v) => (v === undefined || v === null || v === '' ? undefined : Number(v)), z.number().int().min(0, 'Cargá un número desde 0.').optional()),
                 category: z.string().trim().max(100).optional().nullable(),
                 isCombo: z.boolean().optional(),
                 components: z.array(z.object({
@@ -111,7 +114,7 @@ export class ProductController {
             if (data.name != null) updateData.name = sanitizeString(String(data.name), 200);
             if (data.category != null) updateData.category = sanitizeString(String(data.category), 100);
 
-            const updatedProduct = await this.productService.updateProductByClub(parsedParams.data.id, club.id, updateData);
+            const updatedProduct = await this.productService.updateProductByClub(parsedParams.data.id, club.id, updateData, Number((req as any).user?.userId || 0) || null);
             if (!updatedProduct) throw badRequest('Producto no encontrado.', ErrorCodes.PRODUCT_NOT_FOUND);
             res.json(updatedProduct);
         } catch (error) {

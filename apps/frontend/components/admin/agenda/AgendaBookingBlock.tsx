@@ -1,7 +1,7 @@
 import type { CSSProperties, MouseEventHandler, ReactNode } from 'react';
-import { Calendar, Repeat, Check, Users } from 'lucide-react';
+import { Repeat, Check } from 'lucide-react';
 
-type BookingState = 'pending' | 'confirmed' | 'completed' | 'blocked';
+type BookingState = 'pending' | 'confirmed' | 'completed' | 'blocked' | 'class';
 type PaymentState = 'paid' | 'partial' | 'unpaid';
 
 type BlockContentVisibility = {
@@ -28,6 +28,8 @@ type AgendaBookingBlockProps = {
   participantsCount?: number;
   sportLabel?: string;
   hasPendingNotification?: boolean;
+  /** Reemplaza la etiqueta de pago (ej: clases). */
+  badgeLabel?: string;
   isConflict?: boolean;
   conflictLabel?: string;
   className?: string;
@@ -38,8 +40,6 @@ type AgendaBookingBlockProps = {
   onMouseLeave?: MouseEventHandler<HTMLDivElement>;
   children?: ReactNode;
 };
-
-type SportIconKind = 'tennis' | 'football' | null;
 
 const cx = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(' ');
 
@@ -52,93 +52,6 @@ function paymentStatePillClass(state: PaymentState): string {
   if (state === 'paid') return 'bg-lima-200/90 text-ink-900';
   if (state === 'partial') return 'bg-amber-300/90 text-ink-900';
   return 'bg-ink-300/90 text-ink-900';
-}
-
-function PaymentStateCompactIcon({ state }: { state: PaymentState }) {
-  if (state === 'paid') return <Check size={14} className="shrink-0" />;
-  if (state === 'partial') {
-    return (
-      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" className="shrink-0">
-        <path d="M12 3.5A8.5 8.5 0 0 0 12 20.5Z" fill="currentColor" />
-        <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
-        <path d="M12 3.5V20.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" className="shrink-0">
-      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function resolveSportIconKind(sportLabel: string): SportIconKind {
-  const normalized = String(sportLabel || '').trim().toLowerCase();
-  if (!normalized) return null;
-  if (normalized.includes('padel') || normalized.includes('padel')) return 'tennis';
-  if (normalized.includes('tenis') || normalized.includes('tennis')) return 'tennis';
-  if (normalized.includes('fut') || normalized.includes('football') || normalized.includes('soccer')) return 'football';
-  return null;
-}
-
-function SportIcon({ kind, label }: { kind: SportIconKind; label: string }) {
-  if (!kind) return null;
-
-  if (kind === 'tennis') {
-    return (
-      <svg
-        viewBox="0 0 24 24"
-        width="20"
-        height="20"
-        aria-label={`Deporte: ${label}`}
-        role="img"
-        className="shrink-0 opacity-80"
-      >
-        <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-        <path
-          d="M8 4.8c2 1.5 3.2 4.2 3.2 7.2S10 17.7 8 19.2"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-        <path
-          d="M16 4.8c-2 1.5-3.2 4.2-3.2 7.2s1.2 5.7 3.2 7.2"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      aria-label={`Deporte: ${label}`}
-      role="img"
-      className="shrink-0 opacity-80"
-    >
-      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M12 8.2l2.1 1.5-.8 2.4h-2.6l-.8-2.4 2.1-1.5z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M9.4 12.1l-1.9 1.7m7.1-1.7l1.9 1.7m-5.6 2.2h2.2"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
 }
 
 export default function AgendaBookingBlock({
@@ -157,6 +70,7 @@ export default function AgendaBookingBlock({
   participantsCount = 0,
   sportLabel = '',
   hasPendingNotification = false,
+  badgeLabel,
   isConflict = false,
   conflictLabel = 'Superposicion',
   className,
@@ -170,7 +84,18 @@ export default function AgendaBookingBlock({
   const durationMinutes = (endSlot - startSlot) * slotMinutes;
   const debtAmount = typeof remainingAmount === 'number' ? remainingAmount : totalAmount;
   const showAmountPill = paymentState !== 'paid' && typeof debtAmount === 'number' && debtAmount > 0;
-  const sportIconKind = resolveSportIconKind(sportLabel);
+  // Una sola etiqueta que se lee de un vistazo: pagado, o cuánto falta cobrar.
+  const paymentLabel = badgeLabel
+    ? badgeLabel
+    : state === 'blocked'
+      ? 'Bloqueado'
+      : paymentState === 'paid'
+      ? 'Pagado'
+      : showAmountPill
+        ? `Debe ${formatAmount(debtAmount!)}`
+        : paymentState === 'partial'
+          ? 'Parcial'
+          : 'Sin cobrar';
 
   return (
     <div
@@ -200,32 +125,22 @@ export default function AgendaBookingBlock({
       ) : (
         <>
           {visibility.showBadge && (
-            <div className="mb-1 flex items-center gap-1 flex-wrap">
+            <div className="mb-1 flex items-center gap-1">
               <span
-                className={`inline-flex items-center justify-center rounded-full px-2.5 py-[3px] leading-none ${paymentStatePillClass(paymentState)}`}
-                title={paymentState === 'paid' ? 'Pagado' : paymentState === 'partial' ? 'Parcial' : 'Pendiente'}
-                aria-label={paymentState === 'paid' ? 'Pagado' : paymentState === 'partial' ? 'Parcial' : 'Pendiente'}
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-[3px] text-[11px] font-extrabold leading-none ${
+                  state === 'blocked'
+                    ? 'bg-ink-900/80 text-ink-50'
+                    : state === 'class'
+                      ? 'bg-sky-700 text-white'
+                      : paymentStatePillClass(paymentState)
+                }`}
               >
-                <PaymentStateCompactIcon state={paymentState} />
+                {state !== 'blocked' && state !== 'class' && paymentState === 'paid' && <Check size={12} className="shrink-0" />}
+                {paymentLabel}
               </span>
-              {showAmountPill && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-black/15 px-2.5 py-1 text-[13px] font-extrabold leading-none">
-                  {formatAmount(debtAmount!)}
-                </span>
-              )}
-              {participantsCount > 1 && (
-                <span className="inline-flex items-center justify-center" title="Participantes">
-                  <Users size={20} className="shrink-0 opacity-80" />
-                </span>
-              )}
-              {isRecurring ? (
-                <Repeat size={20} className="opacity-80 shrink-0" />
-              ) : (
-                <Calendar size={20} className="opacity-80 shrink-0" />
-              )}
-              {sportIconKind && (
-                <span className="inline-flex items-center justify-center" title={`Deporte: ${sportLabel}`}>
-                  <SportIcon kind={sportIconKind} label={sportLabel} />
+              {isRecurring && (
+                <span title="Reserva fija" aria-label="Reserva fija" className="inline-flex">
+                  <Repeat size={14} className="shrink-0 opacity-70" />
                 </span>
               )}
             </div>

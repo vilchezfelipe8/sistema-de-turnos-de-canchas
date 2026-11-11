@@ -197,21 +197,22 @@ export default function AdminDrawer({
         role="dialog"
         aria-modal="true"
         className={[
-          // Mobile: pantalla completa
-          'fixed inset-0 w-full',
+          // Mobile: hoja inferior que ocupa casi todo el alto
+          'fixed inset-x-0 bottom-0 flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-3xl border-t',
           // Desktop: slide-in desde la derecha
-          `md:inset-y-0 md:left-auto md:right-0 md:top-16 md:w-full`,
+          `md:inset-y-0 md:left-auto md:right-0 md:top-16 md:max-h-none md:w-full md:rounded-none md:border-t-0`,
           sizeWidthClass[size],
           'border-l border-p-border bg-p-surface shadow-p-lg',
         ].join(' ')}
       >
-        <div className="relative flex h-full flex-col">
+        <div className="relative flex min-h-0 flex-1 flex-col md:h-full">
 
           {/* ── Header ── */}
-          <header className="shrink-0 border-b border-p-border bg-p-surface px-6 py-5">
+          <header className="shrink-0 border-b border-p-border bg-p-surface px-4 pb-3.5 pt-2.5 md:px-6 md:py-5">
+            <span aria-hidden="true" className="mx-auto mb-2.5 block h-1 w-10 rounded-full bg-p-border-strong md:hidden" />
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <h2 className="text-[22px] font-semibold leading-snug tracking-tight text-p-text">
+                <h2 className="text-[18px] font-semibold leading-snug tracking-tight text-p-text md:text-[22px]">
                   {title}
                 </h2>
                 {subtitle && (
@@ -241,8 +242,8 @@ export default function AdminDrawer({
 
           {/* ── Tabs opcionales ── */}
           {tabs.length > 0 && (
-            <div className="shrink-0 border-b border-p-border bg-p-surface px-6">
-              <nav className="flex items-center gap-6 overflow-x-auto">
+            <div className="shrink-0 border-b border-p-border bg-p-surface px-4 md:px-6">
+              <nav className="flex items-center gap-5 overflow-x-auto md:gap-6">
                 {tabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -263,7 +264,7 @@ export default function AdminDrawer({
           )}
 
           {/* ── Body (scrolleable) ── */}
-          <div className="min-h-0 flex-1 overflow-y-auto bg-p-surface px-6 py-6">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-p-surface px-4 py-4 md:px-6 md:py-6">
             <div className="space-y-5">
               {children}
             </div>
@@ -271,7 +272,7 @@ export default function AdminDrawer({
 
           {/* ── Footer fijo ── */}
           {footer && (
-            <footer className="shrink-0 border-t border-p-border bg-p-surface px-6 py-4">
+            <footer className="shrink-0 border-t border-p-border bg-p-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 md:py-4">
               {footer}
             </footer>
           )}

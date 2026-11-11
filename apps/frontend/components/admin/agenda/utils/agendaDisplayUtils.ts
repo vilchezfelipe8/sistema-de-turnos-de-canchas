@@ -101,13 +101,26 @@ export function bookingColor(state: Booking['state']) {
   if (state === 'completed') return 'bg-blue-100 text-ink-900';
   if (state === 'confirmed') return 'bg-lima-100 text-ink-900';
   if (state === 'blocked') return 'bg-red-100 text-ink-900';
+  if (state === 'class') return 'bg-sky-100 text-ink-900';
   return 'bg-amber-200 text-ink-900';
+}
+
+/**
+ * Ya terminó y no queda nada pendiente: se dibuja más claro.
+ * Si todavía debe plata o falta confirmar, se sigue viendo fuerte.
+ */
+export function isSettledPastBooking(booking: Booking, pastSlotCount: number): boolean {
+  if (booking.endSlot > pastSlotCount) return false;
+  if (booking.state === 'blocked' || booking.state === 'class') return true;
+  if (booking.state === 'pending') return false;
+  return Number(booking.hoverPayment?.remainingAmount || 0) <= 0.009;
 }
 
 export function bookingStatusLabel(state: Booking['state']) {
   if (state === 'completed') return 'COMPLETADA';
   if (state === 'confirmed') return 'CONFIRMADA';
   if (state === 'blocked') return 'BLOQUEADO';
+  if (state === 'class') return 'CLASE';
   return 'PENDIENTE';
 }
 
@@ -115,6 +128,7 @@ export function bookingBadgeColor(state: Booking['state']) {
   if (state === 'completed') return 'bg-blue-200 text-ink-900';
   if (state === 'confirmed') return 'bg-lima-200 text-ink-900';
   if (state === 'blocked') return 'bg-red-200 text-ink-900';
+  if (state === 'class') return 'bg-sky-200 text-ink-900';
   return 'bg-amber-300 text-ink-900';
 }
 

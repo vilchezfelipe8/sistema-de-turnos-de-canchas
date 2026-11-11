@@ -36,8 +36,19 @@ const TEMPLATE_SPECS = [
     templateName: 'staff_booking_pending_warning_v1',
     eventType: 'BOOKING_PENDING_WARNING',
     recipientRole: 'CLUB_STAFF'
+  },
+  {
+    // Código de activación de cuenta de socio / recuperación de contraseña. Plantilla de autenticación de Meta
+    // (cuerpo con {{1}} = código y botón "copiar código"); requiere aprobación previa en Meta.
+    templateName: 'customer_account_code_v1',
+    eventType: 'ACCOUNT_VERIFICATION_CODE',
+    recipientRole: 'CUSTOMER',
+    category: 'AUTHENTICATION'
   }
 ] as const;
+
+const templateCategory = (spec: (typeof TEMPLATE_SPECS)[number]) =>
+  'category' in spec ? spec.category : 'UTILITY';
 
 const readRequiredEnv = (name: string) => {
   const value = String(process.env[name] || '').trim();
@@ -107,7 +118,7 @@ async function main() {
         where: { id: existing.id },
         data: {
           templateName: spec.templateName,
-          category: 'UTILITY',
+          category: templateCategory(spec),
           status: 'ACTIVE'
         }
       });
@@ -121,7 +132,7 @@ async function main() {
         recipientRole: spec.recipientRole,
         templateName: spec.templateName,
         languageCode: LANGUAGE_CODE,
-        category: 'UTILITY',
+        category: templateCategory(spec),
         status: 'ACTIVE',
         version: 1
       }

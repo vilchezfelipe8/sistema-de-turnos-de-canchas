@@ -13,6 +13,8 @@ import { authMiddleware } from '../middleware/AuthMiddleware';
 import { requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccess } from '../middleware/ClubMiddleware';
 import { ProductController } from '../controllers/ProductController';
+import { StockController } from '../controllers/StockController';
+import { CourtBlockController } from '../controllers/CourtBlockController';
 import { ProductRepository } from '../repositories/ProductRepository';
 import { CashRepository } from '../repositories/CashRepository';
 import { z } from 'zod';
@@ -29,7 +31,11 @@ import { ClassSessionAdminController } from '../controllers/ClassSessionAdminCon
 import { ClassEnrollmentAdminController } from '../controllers/ClassEnrollmentAdminController';
 import { ClassPassAdminController } from '../controllers/ClassPassAdminController';
 import { ClassCreditUsageAdminController } from '../controllers/ClassCreditUsageAdminController';
+import { SubscriptionAdminController } from '../controllers/SubscriptionAdminController';
 import { AcademyStudentAdminController } from '../controllers/AcademyStudentAdminController';
+import { MemberController } from '../controllers/MemberController';
+import { PlayerSlotController } from '../controllers/PlayerSlotController';
+import { BookingReleaseController } from '../controllers/BookingReleaseController';
 
 const router = Router();
 
@@ -40,6 +46,11 @@ const userRepository = new UserRepository();
 const activityRepository = new ActivityTypeRepository();
 const clubRepository = new ClubRepository();
 const productController = new ProductController();
+const stockController = new StockController();
+const courtBlockController = new CourtBlockController();
+const memberController = new MemberController();
+const playerSlotController = new PlayerSlotController();
+const bookingReleaseController = new BookingReleaseController();
 const cashRepository = new CashRepository();
 const productRepository = new ProductRepository();
 
@@ -70,6 +81,7 @@ const classSessionAdminController = new ClassSessionAdminController();
 const classEnrollmentAdminController = new ClassEnrollmentAdminController();
 const classPassAdminController = new ClassPassAdminController();
 const classCreditUsageAdminController = new ClassCreditUsageAdminController();
+const subscriptionAdminController = new SubscriptionAdminController();
 const academyStudentAdminController = new AcademyStudentAdminController();
 
 // Todas las rutas requieren autenticación y verificación de acceso al club.
@@ -84,6 +96,14 @@ router.get('/:slug/admin/schedule',
     verifyClubAccess, 
     requireTenantRole(['ADMIN', 'STAFF']), 
     bookingController.getAdminSchedule
+);
+
+// Reglas de reserva del día (inicios y duraciones permitidas por actividad)
+router.get('/:slug/admin/booking-rules',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    bookingController.getAdminBookingRules
 );
 
 // Obtener todas las canchas del club
@@ -460,6 +480,64 @@ router.delete('/:slug/admin/products/:id',
     productController.delete
 );
 
+// Bloqueos de cancha: franjas no reservables
+router.get('/:slug/admin/court-blocks',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    courtBlockController.list
+);
+
+router.post('/:slug/admin/court-blocks',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    courtBlockController.create
+);
+
+router.patch('/:slug/admin/court-blocks/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    courtBlockController.update
+);
+
+router.delete('/:slug/admin/court-blocks/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    courtBlockController.remove
+);
+
+// Inventario: historial de movimientos, ingresos de mercadería, conteos y mermas
+router.get('/:slug/admin/stock/movements',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    stockController.list
+);
+
+router.post('/:slug/admin/stock/entries',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    stockController.createEntry
+);
+
+router.post('/:slug/admin/stock/counts',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    stockController.createCount
+);
+
+router.post('/:slug/admin/stock/waste',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    stockController.createWaste
+);
+
 router.get('/:slug/admin/services',
     authMiddleware,
     verifyClubAccess,
@@ -824,6 +902,164 @@ router.post('/:slug/admin/clients/:clientId/merge',
     clubController.mergeClubClients
 );
 
+// ---------- Ventanas de reserva (prioridad de socios) ----------
+router.get('/:slug/admin/booking-window',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    bookingReleaseController.getPolicy
+);
+
+router.put('/:slug/admin/booking-window',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    bookingReleaseController.updatePolicy
+);
+
+// ---------- Precio por jugador ----------
+router.get('/:slug/admin/pricing-settings',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    playerSlotController.getPricingSettings
+);
+
+router.put('/:slug/admin/pricing-settings',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    playerSlotController.updatePricingSettings
+);
+
+router.get('/:slug/admin/activity-formats',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    playerSlotController.listFormats
+);
+
+router.post('/:slug/admin/activity-formats',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    playerSlotController.createFormat
+);
+
+router.patch('/:slug/admin/activity-formats/:formatId',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    playerSlotController.updateFormat
+);
+
+router.get('/:slug/admin/player-prices',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    playerSlotController.getPriceTable
+);
+
+router.put('/:slug/admin/player-prices',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    playerSlotController.updatePriceTable
+);
+
+// ---------- Socios (padrón) ----------
+router.get('/:slug/admin/members-settings',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    memberController.getSettings
+);
+
+router.put('/:slug/admin/members-settings',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.updateSettings
+);
+
+router.get('/:slug/admin/member-categories',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    memberController.listCategories
+);
+
+router.post('/:slug/admin/member-categories',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.createCategory
+);
+
+router.patch('/:slug/admin/member-categories/:categoryId',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.updateCategory
+);
+
+// Padrón de socios (no confundir con /admin/members: staff y roles del club)
+router.get('/:slug/admin/club-members',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.listMembers
+);
+
+router.get('/:slug/admin/clients/:clientId/member',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    memberController.getClientMember
+);
+
+router.post('/:slug/admin/clients/:clientId/member',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.createMember
+);
+
+router.patch('/:slug/admin/clients/:clientId/member',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.updateMember
+);
+
+router.post('/:slug/admin/clients/:clientId/member/status',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.changeMemberStatus
+);
+
+router.get('/:slug/admin/clients/:clientId/member/history',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.getMemberHistory
+);
+
+router.post('/:slug/admin/clients/:clientId/member/app-account',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    memberController.provisionAppAccount
+);
+
+router.post('/:slug/admin/clients/:clientId/activation-code',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    memberController.issueActivationCode
+);
+
 router.get('/:slug/admin/discount-policies',
     authMiddleware,
     verifyClubAccess,
@@ -934,6 +1170,70 @@ router.get('/:slug/admin/stats/dashboard',
     verifyClubAccess,     
     requireTenantRole(['ADMIN', 'STAFF']), 
     bookingController.getDashboardStats
+);
+
+// ── Planes y cuotas ──────────────────────────────────────────────────
+router.get('/:slug/admin/subscription-plans',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.listPlans
+);
+
+router.get('/:slug/admin/subscription-plans/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.getPlan
+);
+
+router.post('/:slug/admin/subscription-plans',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    subscriptionAdminController.createPlan
+);
+
+router.put('/:slug/admin/subscription-plans/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    subscriptionAdminController.updatePlan
+);
+
+router.patch('/:slug/admin/subscription-plans/:id/status',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    subscriptionAdminController.setPlanStatus
+);
+
+router.get('/:slug/admin/subscriptions',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.listSubscriptions
+);
+
+router.get('/:slug/admin/subscriptions/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.getSubscription
+);
+
+router.post('/:slug/admin/subscriptions',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.sell
+);
+
+router.post('/:slug/admin/subscriptions/:id/cancel',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    subscriptionAdminController.cancel
 );
 
 export default router;

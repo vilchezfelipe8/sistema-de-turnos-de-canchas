@@ -260,8 +260,8 @@ export default function Home() {
       href = 'mailto:soporte.pique@gmail.com';
       copyText = 'soporte.pique@gmail.com';
     } else if (type === 'instagram') {
-      href = 'https://www.instagram.com/pique.app_/';
-      copyText = '@pique.app_';
+      href = 'https://www.instagram.com/pique.ar_/';
+      copyText = '@pique.ar_';
     }
     setContactMenu({ type, top: Math.max(top, 10), left: Math.max(left, 10), href, copyText });
   };
@@ -1796,7 +1796,7 @@ export default function Home() {
               className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-ink-700 text-ink-50 rounded-2xl hover:bg-lima-700 transition-colors font-bold"
             >
               <Instagram size={18} />
-              <span>@pique.app_</span>
+              <span>@pique.ar_</span>
             </button>
           </div>
           {contactMenu && (

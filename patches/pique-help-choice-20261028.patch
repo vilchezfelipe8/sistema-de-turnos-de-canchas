@@ -1,0 +1,25 @@
+--- a/apps/frontend/pages/login.tsx
++++ b/apps/frontend/pages/login.tsx
+@@ -125,11 +125,10 @@
+   .lg-inline-link { background:none; border:none; padding:0; font-family:${FONT}; font-size:11px; font-weight:700; color:var(--accent-fg); cursor:pointer; }
+   .lg-inline-link:hover { text-decoration:underline; text-underline-offset:3px; }
+   .lg-help-option { display:flex; align-items:center; gap:12px; width:100%; padding:13px; border-radius:14px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-family:${FONT}; text-align:left; cursor:pointer; transition:border-color .15s, background .15s; }
+-  .lg-help-option:hover:not(:disabled) { border-color:var(--accent-border-strong); }
++  .lg-help-option:hover:not(:disabled) { background:var(--surface-3); border-color:var(--border-strong); }
++  .lg-help-option:focus-visible { outline:2px solid var(--positive-fg); outline-offset:3px; }
+   .lg-help-option:disabled { opacity:.6; cursor:not-allowed; }
+-  .lg-help-option-main { border-color:var(--accent-bg-muted); background:var(--accent-bg-soft); }
+   .lg-help-icon { width:34px; height:34px; border-radius:11px; flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:var(--surface-1); color:var(--text-secondary); }
+-  .lg-help-option-main .lg-help-icon { background:var(--positive-bg); color:var(--accent-fg); }
+   .lg-help-text { display:flex; flex-direction:column; gap:2px; min-width:0; }
+   .lg-help-text strong { font-size:13px; font-weight:800; }
+   .lg-help-text span { font-size:11px; font-weight:600; color:var(--text-muted); line-height:1.4; }
+@@ -608,7 +607,7 @@
+                 </div>
+                 <button
+                   type="button"
+-                  className="lg-help-option lg-help-option-main"
++                  className="lg-help-option"
+                   onClick={handleRequestMagicLink}
+                   disabled={magicLoading || loading || Boolean(oauthLoading)}
+                 >

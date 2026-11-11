@@ -8,12 +8,14 @@ import { normalizeEmail } from '../utils/magicLink';
 import { getPhoneIdentityVariants, normalizeIdentityPhone } from '../utils/phone';
 import { ErrorCodes, badRequest, conflict, forbidden, notFound } from '../errors';
 import { PersonService, type PersonSearchResult } from './PersonService';
+import { MemberService, type MemberSummary } from './MemberService';
 
 // 👇 1. USAMOS TUS IMPORTS CORRECTOS
 import { prisma } from '../prisma'; 
 
 export class ClubService {
     private readonly personService = new PersonService();
+    private readonly memberService = new MemberService();
 
     constructor(
         private clubRepo: ClubRepository,
@@ -200,7 +202,8 @@ export class ClubService {
                             { name: { contains: search, mode: 'insensitive' } },
                             { phone: { contains: search, mode: 'insensitive' } },
                             { dni: { contains: search, mode: 'insensitive' } },
-                            { email: { contains: search, mode: 'insensitive' } }
+                            { email: { contains: search, mode: 'insensitive' } },
+                            { clubMember: { memberNumber: { equals: search, mode: 'insensitive' } } }
                         ]
                     }
                     : {})
@@ -208,20 +211,23 @@ export class ClubService {
             orderBy: { createdAt: 'desc' }
         });
 
-        return this.dedupeClientSearchRows(clients).map((client) => ({
+        const rows = this.dedupeClientSearchRows(clients);
+        const members = await this.memberService.getMemberSummariesForClients(clubId, rows.map((client) => String(client.id)));
+        return rows.map((client) => ({
             id: client.id,
             name: client.name,
             phone: client.phone || '',
             email: client.email || '',
             dni: client.dni || '',
-            isProfessor: Boolean(client.isProfessor)
+            isProfessor: Boolean(client.isProfessor),
+            member: members.get(String(client.id)) ?? null
         }));
     }
 
     async searchParticipants(clubId: number, query?: string) {
         const search = String(query || '').trim();
         if (!search) return [];
-        const rows = await this.personService.searchPeople(clubId, search);
+        const rows = await this.searchPeople(clubId, search);
         return rows
             .filter((row) => row.kind !== 'newClientSuggestion')
             .map((row) => ({
@@ -232,13 +238,28 @@ export class ClubService {
                 dni: String(row.dni || '').trim(),
                 isProfessor: false,
                 sourceType: row.kind === 'systemUser' ? ('systemUser' as const) : ('clubClient' as const),
-                userId: row.userId ?? null
+                userId: row.userId ?? null,
+                member: row.member ?? null
             }))
             .slice(0, 8);
     }
 
-    async searchPeople(clubId: number, query?: string): Promise<PersonSearchResult[]> {
-        return this.personService.searchPeople(clubId, query);
+    async searchPeople(clubId: number, query?: string): Promise<Array<PersonSearchResult & { member: MemberSummary | null }>> {
+        const rows = await this.personService.searchPeople(clubId, query);
+        const members = await this.memberService.getMemberSummariesForClients(
+            clubId,
+            rows.map((row) => String(row.clientId || '')).filter(Boolean)
+        );
+        return rows.map((row) => {
+            const member = row.clientId ? members.get(row.clientId) ?? null : null;
+            // El texto del badge viaja en `badges`, que todas las búsquedas de personas del admin ya muestran.
+            const memberBadge = member
+                ? member.isCurrent
+                    ? `Socio · ${member.categoryName}${member.memberNumber ? ` · N° ${member.memberNumber}` : ''}`
+                    : member.status === 'SUSPENDED' ? 'Socio suspendido' : 'Socio no vigente'
+                : null;
+            return { ...row, badges: memberBadge ? [...row.badges, memberBadge] : row.badges, member };
+        });
     }
 
     private dedupeClientSearchRows(rows: any[]) {
@@ -500,6 +521,12 @@ export class ClubService {
         const hasLinkedBookings = await prisma.booking.count({ where: { clubId, clientId } });
         if (hasLinkedBookings > 0) {
             throw conflict('No se puede eliminar: el cliente tiene reservas asociadas', ErrorCodes.CONFLICT);
+        }
+
+        // RN-14: un socio no se borra; primero se lo da de baja del padrón.
+        const member = await prisma.clubMember.findUnique({ where: { clientId }, select: { id: true } });
+        if (member) {
+            throw conflict('No se puede eliminar: el cliente figura en el padrón de socios. Dalo de baja primero.', ErrorCodes.CLIENT_IS_MEMBER);
         }
 
         await prisma.client.delete({ where: { id: clientId } });

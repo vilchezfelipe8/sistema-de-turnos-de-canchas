@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { WhatsappOperationsController } from '../controllers/WhatsappOperationsController';
 import { authMiddleware } from '../middleware/AuthMiddleware';
-import { requireGlobalRole } from '../middleware/RoleMiddleware';
+import { requirePiqueTeam } from '../middleware/RoleMiddleware';
 
 const router = Router();
 const controller = new WhatsappOperationsController();
@@ -9,37 +9,37 @@ const controller = new WhatsappOperationsController();
 router.get(
   '/deliveries',
   authMiddleware,
-  requireGlobalRole('ADMIN'),
+  requirePiqueTeam,
   controller.listDeliveries
 );
 router.get(
   '/deliveries/:id',
   authMiddleware,
-  requireGlobalRole('ADMIN'),
+  requirePiqueTeam,
   controller.getDeliveryDetail
 );
 router.post(
   '/deliveries/:id/resend',
   authMiddleware,
-  requireGlobalRole('ADMIN'),
+  requirePiqueTeam,
   controller.resendDelivery
 );
 router.get(
   '/webhook-events',
   authMiddleware,
-  requireGlobalRole('ADMIN'),
+  requirePiqueTeam,
   controller.listWebhookEvents
 );
 router.get(
   '/preflight',
   authMiddleware,
-  requireGlobalRole('ADMIN'),
+  requirePiqueTeam,
   controller.getPreflight
 );
 router.get(
   '/summary',
   authMiddleware,
-  requireGlobalRole('ADMIN'),
+  requirePiqueTeam,
   controller.getSummary
 );
 

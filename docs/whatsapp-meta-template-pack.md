@@ -1,6 +1,6 @@
 # WhatsApp Meta Template Pack
 
-Usar en todos los templates:
+Usar en todos los templates (salvo `customer_account_code_v1`, ver al final):
 
 - Category: `Utility`
 - Type: `Default`
@@ -191,3 +191,25 @@ Samples:
 {{7}}=30
 {{8}}=$12000
 ```
+
+## customer_account_code_v1
+
+Código para activar la cuenta de socio (primer ingreso con DNI) o recuperar la contraseña.
+Distinto al resto: es una plantilla de **autenticación** de Meta.
+
+- Category: `Authentication`
+- Code delivery: `Copy code`
+- Language: `Spanish (ARG)`
+- Add security recommendation: `Sí`
+- Add expiry time: `10 minutos`
+
+Meta genera el cuerpo fijo de las plantillas de autenticación ("{{1}} es tu código de verificación..."); solo hay que elegir las opciones de arriba.
+El backend envía el código como parámetro del cuerpo y del botón "Copiar código" (`MetaCloudWhatsappProvider`, categoría `AUTHENTICATION`).
+
+Samples:
+
+```text
+{{1}}=482913
+```
+
+Después de la aprobación, correr `npm run whatsapp:bootstrap-cloud-api` para registrar el mapeo (`ACCOUNT_VERIFICATION_CODE` / `CUSTOMER`).

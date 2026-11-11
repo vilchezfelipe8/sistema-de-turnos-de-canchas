@@ -84,6 +84,17 @@ export class AuthEmailService {
     this.from = getRequiredEnv('EMAIL_FROM');
   }
 
+  private async sendEmail(payload: Parameters<Resend['emails']['send']>[0]): Promise<void> {
+    const { data, error } = await this.resend.emails.send(payload);
+    if (error) {
+      throw new Error(`Resend rechazó el correo (${error.name}): ${error.message}`);
+    }
+    if (!data?.id) {
+      throw new Error('Resend no devolvió un identificador de envío.');
+    }
+    logger.info({ provider: 'resend', emailId: data.id }, 'Correo de autenticación aceptado por el proveedor');
+  }
+
   async sendMagicLink(email: string, url: string, ttlMinutes: number): Promise<void> {
     const safeTtl = Math.max(1, Math.floor(ttlMinutes));
     const subject = 'Tu enlace de acceso a Pique';
@@ -178,6 +189,8 @@ ${brandHeader}
       '',
       'Recibimos una solicitud para iniciar sesión con este correo.',
       '',
+      `Ingresar a Pique: ${url}`,
+      '',
       `Este enlace vence en ${safeTtl} minuto${safeTtl === 1 ? '' : 's'} y solo puede usarse una vez.`,
       'Si no pediste este acceso, podés ignorar este correo.',
       '',
@@ -185,7 +198,7 @@ ${brandHeader}
       'pique.ar'
     ].join('\n');
 
-    await this.resend.emails.send({
+    await this.sendEmail({
       from: this.from,
       to: email,
       subject,
@@ -193,5 +206,56 @@ ${brandHeader}
       text,
       attachments: logoAttachment ? [logoAttachment] : undefined
     });
+  }
+
+  async sendVerificationCode(
+    email: string,
+    code: string,
+    ttlMinutes: number,
+    purpose: 'ACTIVATION' | 'PASSWORD_RESET'
+  ): Promise<void> {
+    const safeTtl = Math.max(1, Math.floor(ttlMinutes));
+    const title = purpose === 'ACTIVATION' ? 'Activá tu cuenta de Pique' : 'Recuperá tu contraseña de Pique';
+    const intro =
+      purpose === 'ACTIVATION'
+        ? 'Usá este código para activar tu cuenta y elegir tu contraseña.'
+        : 'Usá este código para elegir una nueva contraseña.';
+    const safeCode = escapeHtml(code);
+    const supportCopy = 'Pique — Reservas, agenda y gestión para clubes deportivos.';
+    const html = `
+<!doctype html>
+<html lang="es">
+  <head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8" /><title>${escapeHtml(title)}</title></head>
+  <body style="margin:0; padding:24px 12px; background-color:#f3f4f6; font-family:Arial, Helvetica, sans-serif; color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px; margin:0 auto; background-color:#ffffff; border:1px solid #e5e7eb; border-radius:16px;">
+      <tr>
+        <td style="padding:40px 32px;">
+          <div style="font-size:26px; font-weight:800; margin:0 0 16px 0;">${escapeHtml(title)}</div>
+          <div style="font-size:16px; line-height:1.65; color:#374151; margin:0 0 24px 0;">${escapeHtml(intro)}</div>
+          <div style="font-size:34px; font-weight:800; letter-spacing:8px; text-align:center; background-color:#f3f4f6; border-radius:12px; padding:16px 0; margin:0 0 24px 0;">${safeCode}</div>
+          <div style="font-size:15px; line-height:1.65; color:#374151; margin:0 0 8px 0;">
+            El código vence en <strong>${safeTtl} minuto${safeTtl === 1 ? '' : 's'}</strong>. No lo compartas con nadie.
+          </div>
+          <div style="font-size:15px; line-height:1.65; color:#374151; margin:0 0 24px 0;">Si no lo pediste, podés ignorar este correo.</div>
+          <div style="font-size:12px; color:#6b7280; text-align:center; border-top:1px solid #e5e7eb; padding-top:20px;">${supportCopy}<br />pique.ar</div>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+    `;
+    const text = [
+      title,
+      '',
+      intro,
+      '',
+      `Código: ${code}`,
+      `Vence en ${safeTtl} minuto${safeTtl === 1 ? '' : 's'}. No lo compartas con nadie.`,
+      'Si no lo pediste, podés ignorar este correo.',
+      '',
+      supportCopy
+    ].join('\n');
+
+    await this.sendEmail({ from: this.from, to: email, subject: title, html, text });
   }
 }

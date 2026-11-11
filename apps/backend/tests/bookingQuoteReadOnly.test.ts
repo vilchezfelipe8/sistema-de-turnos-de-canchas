@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BookingService } from '../src/services/BookingService';
+import { PricingService } from '../src/services/PricingService';
 import { prisma } from '../src/prisma';
 
 function buildServiceHarness() {
@@ -64,9 +65,9 @@ function buildServiceHarness() {
       fixedSlots: [{ start: '19:00', duration: 90 }]
     }
   });
-  service.pricingService = {
+  service.pricingService = Object.assign(new PricingService(), {
     calculateCourtPrice: async () => 28000
-  };
+  });
   service.discountService = {
     computeDraftDiscountTx: async (_tx: any, input: any) => ({
       total: Number(input.unitPrice),

@@ -23,6 +23,10 @@ type RotateSessionInput = {
 
 const addDays = (source: Date, days: number) => new Date(source.getTime() + days * 24 * 60 * 60 * 1000);
 
+// Renovaciones simultáneas (dos pestañas, la app y el navegador, o una respuesta perdida por mala señal):
+// si llega una credencial rotada hace menos de este tiempo, no se trata como robo y la sesión sigue.
+const ROTATION_GRACE_MS = 60_000;
+
 const normalizeMeta = (meta?: SessionClientMeta) => ({
   ip: String(meta?.ip || '').trim() || null,
   userAgent: String(meta?.userAgent || '').trim() || null,
@@ -94,6 +98,26 @@ export class AuthSessionService {
     return { session, accessToken, refreshToken };
   }
 
+  // Si la sesión se acaba de rotar (dentro de la tolerancia), devuelve un acceso válido para la sesión
+  // activa más nueva de la misma familia, sin emitir otra credencial de renovación (la cookie buena
+  // ya la recibió el pedido que rotó primero).
+  private async resolveRecentRotationTx(
+    tx: Prisma.TransactionClient,
+    session: { familyId: string; userId: number; status: AuthSessionStatus; rotatedAt: Date | null },
+    role: string,
+    now: Date
+  ) {
+    if (session.status !== AuthSessionStatus.ROTATED || !session.rotatedAt) return null;
+    if (now.getTime() - new Date(session.rotatedAt).getTime() > ROTATION_GRACE_MS) return null;
+    const latest = await tx.authSession.findFirst({
+      where: { familyId: session.familyId, status: AuthSessionStatus.ACTIVE },
+      orderBy: { createdAt: 'desc' }
+    });
+    if (!latest || latest.expiresAt <= now || latest.absoluteExpiresAt <= now) return null;
+    const accessToken = this.tokenService.signAccessToken({ userId: session.userId, role, sid: latest.id });
+    return { ok: true as const, session: latest, accessToken, refreshToken: null as string | null };
+  }
+
   async rotateSession(input: RotateSessionInput) {
     const now = new Date();
     const incomingHash = this.tokenService.hashRefreshToken(input.refreshToken);
@@ -116,6 +140,8 @@ export class AuthSessionService {
       }
 
       if (current.status !== AuthSessionStatus.ACTIVE) {
+        const recent = await this.resolveRecentRotationTx(tx, current, current.user.role, now);
+        if (recent) return recent;
         await this.revokeFamilyTx(tx, current.familyId, now);
         return { ok: false as const, reason: 'AUTH_REVOKED' as const };
       }
@@ -152,6 +178,12 @@ export class AuthSessionService {
       });
 
       if (rotateUpdated.count !== 1) {
+        // Otro pedido la rotó en el mismo instante: si fue recién, se sigue con la sesión nueva.
+        const latestState = await tx.authSession.findUnique({ where: { id: current.id } });
+        if (latestState) {
+          const recent = await this.resolveRecentRotationTx(tx, latestState, current.user.role, now);
+          if (recent) return recent;
+        }
         await this.revokeFamilyTx(tx, current.familyId, now);
         return { ok: false as const, reason: 'AUTH_REVOKED' as const };
       }
@@ -182,7 +214,7 @@ export class AuthSessionService {
         ok: true as const,
         session: nextSession,
         accessToken,
-        refreshToken: rotatedRefreshToken
+        refreshToken: rotatedRefreshToken as string | null
       };
     });
   }

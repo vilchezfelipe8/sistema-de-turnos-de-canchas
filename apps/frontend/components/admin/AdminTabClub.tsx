@@ -1,4 +1,7 @@
+import Link from 'next/link';
 import { useEffect, useState, useRef, useCallback } from 'react';
+import ActivityScheduleEditor from '../../modules/ajustes/components/ActivityScheduleEditor';
+import SettingsActivityFormatsSection from '../../modules/ajustes/components/SettingsActivityFormatsSection';
 import type { ReactNode } from 'react';
 import { ClubService, Club, type BookingConfirmationMode } from '../../services/ClubService';
 import { getCourts } from '../../services/CourtService';
@@ -22,7 +25,8 @@ type AdminTabClubSection =
   | 'pricing'
   | 'exceptions'
   | 'audit'
-  | 'reviews';
+  | 'reviews'
+  | 'cash';
 
 type AdminTabClubProps = {
   forcedTab?: AdminTabClubSection;
@@ -48,20 +52,76 @@ const UNSAVED_NAVIGATION_ABORT_TOKEN = '__UNSAVED_NAVIGATION_ABORT__';
 const BOOKING_CONFIRMATION_MODES: Array<{ value: BookingConfirmationMode; label: string; helper: string }> = [
   {
     value: 'AUTOMATIC',
-    label: 'Automática',
-    helper: 'Toda reserva nueva queda confirmada al crearse.'
+    label: 'Al instante',
+    helper: 'La reserva queda confirmada apenas se hace.'
   },
   {
     value: 'MANUAL',
-    label: 'Manual',
-    helper: 'Las reservas nacen pendientes y un admin las confirma manualmente.'
+    label: 'La confirmo yo',
+    helper: 'Queda "sin confirmar" hasta que alguien del club la confirme.'
   },
   {
     value: 'DEPOSIT_REQUIRED',
     label: 'Con seña',
-    helper: 'Las reservas nacen pendientes y se confirman cuando cubren la seña mínima.'
+    helper: 'Se confirma sola cuando el jugador paga la seña.'
   }
 ];
+
+/** Nombres simples para el historial de cambios (Auditoría). */
+const AUDIT_FIELD_LABELS: Record<string, string> = {
+  slug: 'Dirección de la página',
+  name: 'Nombre del club',
+  addressLine: 'Dirección',
+  city: 'Ciudad',
+  province: 'Provincia',
+  contactInfo: 'Email',
+  phone: 'Teléfono',
+  logoUrl: 'Logo',
+  clubImageUrl: 'Foto de portada',
+  instagramUrl: 'Instagram',
+  facebookUrl: 'Facebook',
+  websiteUrl: 'Sitio web',
+  description: 'Descripción',
+  lightsEnabled: 'Extra por luces',
+  lightsExtraAmount: 'Monto extra por luces',
+  lightsFromHour: 'Luces a partir de las',
+  professorDurationOverrideEnabled: 'Duración especial para profesores',
+  professorDurationOverrideMinutes: 'Minutos para profesores',
+  bookingConfirmationMode: 'Cómo se confirman las reservas',
+  bookingDepositPercent: 'Seña (%)',
+  allowManualConfirmationOverride: 'Confirmar a mano sin seña',
+  autoCancelPendingBookingsEnabled: 'Cancelar solas las reservas sin confirmar',
+  autoCancelPendingBookingsMinutesBefore: 'Minutos antes para cancelar',
+  autoCancelPendingBookingsOnlyIfUnpaid: 'Cancelar solo si no pagaron',
+  autoCancelPendingWarningEnabled: 'Avisar antes de cancelar',
+  autoCancelPendingWarningMinutesBefore: 'Minutos antes del aviso',
+  bookingSimpleAdvanceDaysUser: 'Días que pueden reservar los jugadores',
+  bookingSimpleAdvanceDaysAdmin: 'Días que se puede reservar desde el panel',
+  allowAdminSkipSimpleAdvanceLimit: 'Saltear el límite desde el panel',
+  enforceCashShiftCloseWithOpenAccounts: 'No cerrar caja con cuentas abiertas',
+  clubOperationalStatus: 'Estado del club',
+  temporaryClosureStartDate: 'Cierre temporal desde',
+  temporaryClosureEndDate: 'Cierre temporal hasta',
+  openingDays: 'Días de apertura',
+  closureDates: 'Fechas de cierre',
+  fixedBookingSettingsByActivity: 'Reservas fijas',
+};
+
+const auditValueText = (value: unknown): string => {
+  if (value == null || value === '') return '—';
+  if (Array.isArray(value)) return value.length > 0 ? value.map((item) => String(item)).join(', ') : 'ninguna';
+  if (typeof value === 'object') return Object.keys(value as object).length > 0 ? 'ajustado' : '—';
+  const raw = String(value);
+  if (raw === 'true') return 'Sí';
+  if (raw === 'false') return 'No';
+  if (raw === 'AUTOMATIC') return 'Al instante';
+  if (raw === 'MANUAL') return 'La confirmo yo';
+  if (raw === 'DEPOSIT_REQUIRED') return 'Con seña';
+  if (raw === 'OPEN') return 'Abierto';
+  if (raw === 'TEMPORARY_CLOSED') return 'Cierre temporal';
+  if (raw === 'PERMANENTLY_CLOSED') return 'Cierre permanente';
+  return raw.length > 60 ? `${raw.slice(0, 57)}…` : raw;
+};
 
 const LIGHTS_FROM_HOUR_OPTIONS = ["18:00", "19:00", "20:00", "21:00", "22:00"];
 
@@ -415,6 +475,8 @@ export default function AdminTabClub({
   const router = useRouter();
   const [club, setClub] = useState<Club | null>(null);
   const [loadingClub, setLoadingClub] = useState(false);
+  /** La dirección pública no se edita sin querer: hay que tocar "Cambiar". */
+  const [slugEditing, setSlugEditing] = useState(false);
   const [clubForm, setClubForm] = useState({
     slug: '', name: '', addressLine: '', city: '', province: '', country: '', contactInfo: '', phone: '', logoUrl: '', clubImageUrl: '',
     instagramUrl: '', facebookUrl: '', websiteUrl: '', description: '',
@@ -672,9 +734,9 @@ export default function AdminTabClub({
     const actor = fullName || String(log.user?.email || 'Admin');
     const rawChanges = Array.isArray(log.payload?.changes) ? log.payload.changes : [];
     const changes: ConfigChange[] = rawChanges.slice(0, 20).map((item: any) => ({
-      label: String(item?.field || 'Cambio'),
-      before: item?.before == null ? '-' : String(item.before),
-      after: item?.after == null ? '-' : String(item.after),
+      label: AUDIT_FIELD_LABELS[String(item?.field || '')] || String(item?.field || 'Cambio'),
+      before: auditValueText(item?.before),
+      after: auditValueText(item?.after),
       critical: ['bookingConfirmationMode', 'bookingDepositPercent', 'autoCancelPendingBookingsEnabled', 'bookingSimpleAdvanceDaysUser', 'bookingSimpleAdvanceDaysAdmin'].includes(String(item?.field || ''))
     }));
     return { id: String(log.id), changedAt: String(log.createdAt), actor, changes };
@@ -2276,15 +2338,36 @@ export default function AdminTabClub({
                   <p className={cardTitleCls}>Datos básicos</p>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
-                      <label className={labelCls}>Slug (URL)</label>
-                      <input
-                        type="text"
-                        value={clubForm.slug}
-                        onChange={(e) => setClubForm({ ...clubForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
-                        className={inputCls}
-                        placeholder="ej: las-tejas-padel"
-                      />
-                      <p className="mt-1 text-[11px] text-p-text-muted">pique.com.ar/club/<span className="text-p-accent">{clubForm.slug || '...'}</span></p>
+                      <label className={labelCls}>Tu página</label>
+                      {slugEditing ? (
+                        <>
+                          <input
+                            type="text"
+                            autoFocus
+                            value={clubForm.slug}
+                            onChange={(e) => setClubForm({ ...clubForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
+                            className={inputCls}
+                            placeholder="ej: las-tejas-padel"
+                          />
+                          <p className="mt-1 text-[11px] font-medium text-p-warning">
+                            Si la cambiás, los links que ya compartiste (WhatsApp, Instagram) dejan de funcionar.
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-p-text-muted">
+                            pique.com.ar/club/<span className="text-p-text">{clubForm.slug || '...'}</span>
+                          </p>
+                        </>
+                      ) : (
+                        <div className="flex h-10 items-center justify-between gap-2 rounded-xl border border-p-border bg-p-surface-2 px-3">
+                          <span className="truncate text-[13px] text-p-text">pique.com.ar/club/{clubForm.slug}</span>
+                          <button
+                            type="button"
+                            onClick={() => setSlugEditing(true)}
+                            className="shrink-0 text-[12px] font-semibold text-p-accent hover:underline underline-offset-2"
+                          >
+                            Cambiar
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <label className={labelCls}>Nombre comercial</label>
@@ -2360,6 +2443,12 @@ export default function AdminTabClub({
                           placeholder="+54 9 351..."
                         />
                       </div>
+                      <p className="mt-1 text-[12px] text-p-text-muted">
+                        A este número te llegan por WhatsApp los avisos de reservas nuevas y canceladas.{' '}
+                        <Link href="/admin/mensajes" className="font-semibold text-p-accent hover:underline">
+                          Ver avisos
+                        </Link>
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -2551,35 +2640,38 @@ export default function AdminTabClub({
 
                 {/* Confirmación de reservas */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Confirmación de reservas</p>
+                  <p className={cardTitleCls}>¿Cómo se confirma una reserva?</p>
                   <div className="space-y-4">
-                    <div>
-                      <label className={labelCls}>Modo de confirmación</label>
-                      <select
-                        value={clubForm.bookingConfirmationMode}
-                        onChange={(e) => {
-                          const nextMode = e.target.value as BookingConfirmationMode;
-                          setClubForm((prev) => ({
-                            ...prev,
-                            bookingConfirmationMode: nextMode,
-                            bookingDepositPercent: nextMode === 'DEPOSIT_REQUIRED' ? prev.bookingDepositPercent : ''
-                          }));
-                        }}
-                        className={`${inputCls} w-full md:w-80`}
-                      >
-                        {BOOKING_CONFIRMATION_MODES.map((mode) => (
-                          <option key={mode.value} value={mode.value}>{mode.label}</option>
-                        ))}
-                      </select>
-                      <p className="mt-1.5 text-[11px] text-p-text-muted">
-                        {BOOKING_CONFIRMATION_MODES.find((m) => m.value === clubForm.bookingConfirmationMode)?.helper}
-                      </p>
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                      {BOOKING_CONFIRMATION_MODES.map((mode) => {
+                        const active = clubForm.bookingConfirmationMode === mode.value;
+                        return (
+                          <button
+                            key={mode.value}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() =>
+                              setClubForm((prev) => ({
+                                ...prev,
+                                bookingConfirmationMode: mode.value,
+                                bookingDepositPercent: mode.value === 'DEPOSIT_REQUIRED' ? prev.bookingDepositPercent : ''
+                              }))
+                            }
+                            className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                              active ? 'border-ink-900 bg-p-surface-2' : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                            }`}
+                          >
+                            <span className="block text-[13px] font-semibold text-p-text">{mode.label}</span>
+                            <span className="block text-[12px] text-p-text-muted">{mode.helper}</span>
+                          </button>
+                        );
+                      })}
                     </div>
 
                     {isDepositMode && (
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <div>
-                          <label className={labelCls}>Seña mínima (%)</label>
+                          <label className={labelCls}>Seña (% del total)</label>
                           <input
                             type="number"
                             min={1}
@@ -2598,7 +2690,7 @@ export default function AdminTabClub({
                             >
                               {clubForm.allowManualConfirmationOverride && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                             </div>
-                            <span className="text-[12px] text-p-text">Permitir confirmación manual sin seña</span>
+                            <span className="text-[12px] text-p-text">Puedo confirmarla a mano aunque no haya pagado la seña</span>
                           </label>
                         </div>
                       </div>
@@ -2606,7 +2698,7 @@ export default function AdminTabClub({
 
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                       <div>
-                        <label className={labelCls}>Anticipación máx. usuario (días)</label>
+                        <label className={labelCls}>Los jugadores reservan hasta (días antes)</label>
                         <input
                           type="number"
                           min={1}
@@ -2616,7 +2708,7 @@ export default function AdminTabClub({
                         />
                       </div>
                       <div>
-                        <label className={labelCls}>Anticipación máx. admin (días)</label>
+                        <label className={labelCls}>Desde el panel, hasta (días antes)</label>
                         <input
                           type="number"
                           min={1}
@@ -2634,14 +2726,14 @@ export default function AdminTabClub({
                       >
                         {clubForm.allowAdminSkipSimpleAdvanceLimit && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Permitir que admin omita límite de anticipación</span>
+                      <span className="text-[12px] text-p-text">Desde el panel puedo reservar más adelante igual</span>
                     </label>
                   </div>
                 </div>
 
                 {/* Auto-cancelación */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Auto-cancelación</p>
+                  <p className={cardTitleCls}>Reservas que nadie confirma</p>
                   <div className="space-y-4">
                     <label className="flex cursor-pointer items-center gap-2.5">
                       <div
@@ -2650,12 +2742,12 @@ export default function AdminTabClub({
                       >
                         {clubForm.autoCancelPendingBookingsEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Cancelar reservas pendientes automáticamente</span>
+                      <span className="text-[12px] text-p-text">Cancelarlas solas si siguen sin confirmar</span>
                     </label>
                     {clubForm.autoCancelPendingBookingsEnabled && (
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 pl-7">
                         <div>
-                          <label className={labelCls}>Minutos antes del turno</label>
+                          <label className={labelCls}>¿Cuántos minutos antes del turno?</label>
                           <input
                             type="number"
                             min={1}
@@ -2673,7 +2765,7 @@ export default function AdminTabClub({
                             >
                               {clubForm.autoCancelPendingBookingsOnlyIfUnpaid && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                             </div>
-                            <span className="text-[12px] text-p-text">Solo si no tiene pago registrado</span>
+                            <span className="text-[12px] text-p-text">Solo si no pagaron nada</span>
                           </label>
                         </div>
                       </div>
@@ -2685,11 +2777,11 @@ export default function AdminTabClub({
                       >
                         {clubForm.autoCancelPendingWarningEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Enviar aviso previo a la cancelación</span>
+                      <span className="text-[12px] text-p-text">Avisarle al jugador antes de cancelarla</span>
                     </label>
                     {clubForm.autoCancelPendingWarningEnabled && (
                       <div className="pl-7">
-                        <label className={labelCls}>Minutos antes del aviso</label>
+                        <label className={labelCls}>¿Cuántos minutos antes del turno se avisa?</label>
                         <input
                           type="number"
                           min={1}
@@ -2711,8 +2803,8 @@ export default function AdminTabClub({
               <div className="space-y-4">
                 {/* Días de apertura */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Días de apertura</p>
-                  <p className="mb-3 text-[12px] text-p-text-muted">Seleccioná los días en los que el club está abierto. Sin selección = abre todos los días.</p>
+                  <p className={cardTitleCls}>¿Qué días abre el club?</p>
+                  <p className="mb-3 text-[12px] text-p-text-muted">Si no marcás ninguno, abre todos los días.</p>
                   <div className="flex flex-wrap gap-2">
                     {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((label, idx) => {
                       const day = idx % 7;
@@ -2731,137 +2823,53 @@ export default function AdminTabClub({
                   </div>
                 </div>
 
-                {/* Horarios por actividad */}
+                {/* Horario de cada deporte */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Horarios por actividad</p>
+                  <p className={cardTitleCls}>Horario de cada deporte</p>
                   {activityTypes.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay actividades configuradas.</p>
+                    <p className="text-[12px] text-p-text-muted">No hay deportes cargados.</p>
                   ) : (
                     <div className="space-y-4">
                       {activityTypes.map((activity) => {
                         const cfg = activityScheduleForm[activity.id];
                         if (!cfg) return null;
                         return (
-                          <div key={activity.id} className="rounded-xl border border-p-border p-4">
-                            <div className="mb-3 flex items-center justify-between">
-                              <p className="text-[13px] font-semibold text-p-text">{activity.name}</p>
-                              {pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id) && (
-                                <span className="rounded-full bg-p-positive-bg px-2 py-0.5 text-[10px] font-semibold text-p-accent">Cambios pendientes</span>
-                              )}
-                            </div>
-                            <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-                              <div>
-                                <label className={labelCls}>Modo</label>
-                                <select
-                                  value={cfg.scheduleMode}
-                                  onChange={(e) => setActivityScheduleForm((prev) => ({
-                                    ...prev,
-                                    [activity.id]: { ...prev[activity.id], scheduleMode: e.target.value as 'FIXED' | 'RANGE' }
-                                  }))}
-                                  className={inputCls}
-                                >
-                                  <option value="FIXED">Turnos fijos</option>
-                                  <option value="RANGE">Rango horario</option>
-                                </select>
-                              </div>
-                              <div className="md:col-span-3">
-                                <label className={labelCls}>Duraciones (min, separadas por coma)</label>
-                                <input
-                                  type="text"
-                                  value={cfg.scheduleDurations}
-                                  onChange={(e) => setActivityScheduleForm((prev) => ({
-                                    ...prev,
-                                    [activity.id]: { ...prev[activity.id], scheduleDurations: e.target.value }
-                                  }))}
-                                  className={inputCls}
-                                  placeholder="60, 90"
-                                />
-                              </div>
-                              {cfg.scheduleMode === 'RANGE' ? (
-                                <>
-                                  <div>
-                                    <label className={labelCls}>Apertura</label>
-                                    <input
-                                      type="time"
-                                      value={cfg.scheduleOpenTime}
-                                      onChange={(e) => setActivityScheduleForm((prev) => ({
-                                        ...prev,
-                                        [activity.id]: { ...prev[activity.id], scheduleOpenTime: e.target.value }
-                                      }))}
-                                      className={inputCls}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className={labelCls}>Cierre</label>
-                                    <input
-                                      type="time"
-                                      value={cfg.scheduleCloseTime}
-                                      onChange={(e) => setActivityScheduleForm((prev) => ({
-                                        ...prev,
-                                        [activity.id]: { ...prev[activity.id], scheduleCloseTime: e.target.value }
-                                      }))}
-                                      className={inputCls}
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className={labelCls}>Intervalo (min)</label>
-                                    <input
-                                      type="number"
-                                      min={1}
-                                      value={cfg.scheduleIntervalMinutes}
-                                      onChange={(e) => setActivityScheduleForm((prev) => ({
-                                        ...prev,
-                                        [activity.id]: { ...prev[activity.id], scheduleIntervalMinutes: e.target.value }
-                                      }))}
-                                      className={inputCls}
-                                    />
-                                  </div>
-                                  <div className="md:col-span-4">
-                                    <label className={labelCls}>Franjas cortadas (opcional, una por línea: HH:mm-HH:mm)</label>
-                                    <textarea
-                                      rows={3}
-                                      value={cfg.scheduleWindows}
-                                      onChange={(e) => setActivityScheduleForm((prev) => ({
-                                        ...prev,
-                                        [activity.id]: { ...prev[activity.id], scheduleWindows: e.target.value }
-                                      }))}
-                                      className={`${inputCls} h-auto py-2.5 resize-none`}
-                                      placeholder={'08:00-12:00\n16:00-23:00'}
-                                    />
-                                  </div>
-                                </>
-                              ) : (
-                                <div className="md:col-span-4">
-                                  <label className={labelCls}>Turnos fijos (uno por línea: HH:mm-60)</label>
-                                  <textarea
-                                    rows={4}
-                                    value={cfg.scheduleFixedSlots}
-                                    onChange={(e) => setActivityScheduleForm((prev) => ({
-                                      ...prev,
-                                      [activity.id]: { ...prev[activity.id], scheduleFixedSlots: e.target.value }
-                                    }))}
-                                    className={`${inputCls} h-auto py-2.5 resize-none`}
-                                    placeholder={'08:00-60\n09:00-60\n10:30-90'}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                          <ActivityScheduleEditor
+                            key={activity.id}
+                            activityName={activity.name}
+                            config={cfg}
+                            onChange={(patch) =>
+                              setActivityScheduleForm((prev) => ({
+                                ...prev,
+                                [activity.id]: { ...prev[activity.id], ...patch },
+                              }))
+                            }
+                            hasPendingChanges={pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id)}
+                            exceptionsCount={Number(activityExceptionSummary[activity.id]?.count || 0)}
+                            onOpenExceptions={() => openExceptionModalForActivity(activity)}
+                          />
                         );
                       })}
                     </div>
                   )}
                 </div>
 
+                {/* Modalidades (antes en Ajustes > Actividades): se guardan solas. */}
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Modalidades de juego</p>
+                  <SettingsActivityFormatsSection />
+                </div>
+
                 {/* Turnos fijos por actividad */}
                 {activitySettings.length > 0 && (
                   <div className={cardCls}>
-                    <p className={cardTitleCls}>Configuración de turnos fijos por actividad</p>
+                    <p className={cardTitleCls}>Reservas fijas (todas las semanas)</p>
+                    <p className="mb-3 text-[12px] text-p-text-muted">Cuántos turnos a futuro se crean para cada reserva fija.</p>
                     <div className="space-y-3">
                       {activitySettings.map((activity) => (
                         <div key={activity.key} className="grid grid-cols-1 gap-3 md:grid-cols-3 rounded-xl border border-p-border p-3">
                           <div>
-                            <label className={labelCls}>Actividad</label>
+                            <label className={labelCls}>Deporte</label>
                             <input
                               type="text"
                               value={activity.label}
@@ -2870,7 +2878,7 @@ export default function AdminTabClub({
                             />
                           </div>
                           <div>
-                            <label className={labelCls}>Días hacia adelante</label>
+                            <label className={labelCls}>Se crean los turnos de los próximos (días)</label>
                             <input
                               type="number"
                               min={1}
@@ -2892,7 +2900,7 @@ export default function AdminTabClub({
                             />
                           </div>
                           <div>
-                            <label className={labelCls}>Frecuencia generación (días)</label>
+                            <label className={labelCls}>Se completan cada (días)</label>
                             <input
                               type="number"
                               min={1}
@@ -2921,8 +2929,8 @@ export default function AdminTabClub({
 
                 {/* Profesor */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Profesor (operativo)</p>
-                  <p className="mb-4 text-[12px] text-p-text-muted">Ajusta la duración operativa de reservas o clases con profesor cuando el club usa una lógica distinta a la estándar.</p>
+                  <p className={cardTitleCls}>Turnos de profesores</p>
+                  <p className="mb-4 text-[12px] text-p-text-muted">Si los profesores reservan turnos de otra duración (ej: clases de 1 hora), activalo.</p>
                   <div className="space-y-4">
                     <label className="flex cursor-pointer items-center gap-2.5">
                       <div
@@ -2931,11 +2939,11 @@ export default function AdminTabClub({
                       >
                         {clubForm.professorDurationOverrideEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Permitir ajuste de duración para profesor</span>
+                      <span className="text-[12px] text-p-text">Los profesores reservan con otra duración</span>
                     </label>
                     {clubForm.professorDurationOverrideEnabled && (
                       <div className="pl-7">
-                        <label className={labelCls}>Duración especial (min)</label>
+                        <label className={labelCls}>Duración para profesores (min)</label>
                         <input
                           type="number"
                           min={1}
@@ -3039,11 +3047,32 @@ export default function AdminTabClub({
               </div>
             )}
 
+            {/* ----- TAB: CAJA ----- */}
+            {effectiveTab === 'cash' && (
+              <div className="space-y-4">
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Cerrar la caja</p>
+                  <p className="mb-3 text-[12px] text-p-text-muted">
+                    Si lo activás, no se puede cerrar la caja mientras haya cuentas abiertas con plata por cobrar.
+                  </p>
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <div
+                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
+                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
+                    >
+                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-ink-50" />}
+                    </div>
+                    <span className="text-[12px] text-p-text">No dejar cerrar la caja si hay cuentas abiertas</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
             {/* ----- TAB: PRECIOS ----- */}
             {effectiveTab === 'pricing' && (
               <div className="space-y-4">
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Iluminación</p>
+                  <p className={cardTitleCls}>Luces de noche</p>
                   <div className="space-y-4">
                     <label className="flex cursor-pointer items-center gap-2.5">
                       <div
@@ -3052,12 +3081,12 @@ export default function AdminTabClub({
                       >
                         {clubForm.lightsEnabled && <Check size={12} strokeWidth={3} className="text-ink-50" />}
                       </div>
-                      <span className="text-[12px] text-p-text">Activar recargo nocturno</span>
+                      <span className="text-[12px] text-p-text">Cobrar un extra por las luces</span>
                     </label>
                     {clubForm.lightsEnabled && (
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 pl-7">
                         <div>
-                          <label className={labelCls}>Monto extra ($)</label>
+                          <label className={labelCls}>Cuánto se suma por turno ($)</label>
                           <input
                             type="number"
                             min={0}
@@ -3069,7 +3098,7 @@ export default function AdminTabClub({
                           />
                         </div>
                         <div>
-                          <label className={labelCls}>Desde la hora</label>
+                          <label className={labelCls}>A partir de las</label>
                           <select
                             value={clubForm.lightsFromHour || ''}
                             onChange={(e) => setClubForm({ ...clubForm, lightsFromHour: e.target.value })}
@@ -3084,26 +3113,10 @@ export default function AdminTabClub({
                   </div>
                 </div>
 
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Política de cierre de caja</p>
-                  <p className="mb-3 text-[12px] text-p-text-muted">
-                    Define si el sistema permite cerrar caja cuando todavía hay cuentas corrientes abiertas.
-                  </p>
-                  <label className="flex cursor-pointer items-center gap-2.5">
-                    <div
-                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
-                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
-                    >
-                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-ink-50" />}
-                    </div>
-                    <span className="text-[12px] text-p-text">Bloquear cierre de caja con cuentas corrientes abiertas</span>
-                  </label>
-                </div>
-
                 {/* Lista de políticas */}
                 <div className={cardCls}>
                   <div className="mb-4 flex items-center justify-between">
-                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Políticas de descuento</p>
+                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Descuentos para clientes</p>
                     <button
                       type="button"
                       onClick={() => {
@@ -3113,13 +3126,13 @@ export default function AdminTabClub({
                       }}
                       className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[11px] font-semibold text-ink-50 transition hover:bg-ink-900"
                     >
-                      + Nueva política
+                      + Nuevo descuento
                     </button>
                   </div>
                   {loadingDiscountPolicies ? (
                     <p className="text-[12px] text-p-text-muted">Cargando...</p>
                   ) : discountPolicies.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay políticas configuradas. Creá la primera con el botón de arriba.</p>
+                    <p className="text-[12px] text-p-text-muted">Todavía no hay descuentos. Creá el primero con el botón de arriba.</p>
                   ) : (
                     <div className="space-y-2">
                       {discountPolicies.map((policy) => (
@@ -3151,7 +3164,7 @@ export default function AdminTabClub({
 
                 {/* Asignación a clientes */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Asignar política a cliente</p>
+                  <p className={cardTitleCls}>Darle un descuento a un cliente</p>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
                       <label className={labelCls}>Buscar cliente</label>
@@ -3188,13 +3201,13 @@ export default function AdminTabClub({
                       </div>
                     </div>
                     <div>
-                      <label className={labelCls}>Política</label>
+                      <label className={labelCls}>Descuento</label>
                       <select
                         value={selectedPolicyIdForAssignment}
                         onChange={(e) => setSelectedPolicyIdForAssignment(e.target.value)}
                         className={inputCls}
                       >
-                        <option value="">Seleccionar política...</option>
+                        <option value="">Elegí un descuento...</option>
                         {discountPolicies.filter((p) => p.isActive).map((p) => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
@@ -3269,20 +3282,38 @@ export default function AdminTabClub({
               <div className="space-y-4">
                 {/* Historial de cambios */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Historial de cambios</p>
+                  <p className={cardTitleCls}>Quién cambió qué</p>
                   {changeHistory.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">Aún no hay cambios auditados para este club.</p>
+                    <p className="text-[12px] text-p-text-muted">Todavía nadie cambió los ajustes del club.</p>
                   ) : (
-                    <div className="space-y-2 max-h-80 overflow-auto pr-1">
-                      {changeHistory.map((entry) => (
-                        <div key={entry.id} className="rounded-xl border border-p-border p-3">
-                          <p className="text-[12px] font-medium text-p-text">
-                            {entry.actor} · {new Date(entry.changedAt).toLocaleString('es-AR')}
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-p-text-muted">{entry.changes.length} cambio(s) aplicado(s)</p>
-                        </div>
-                      ))}
-                    </div>
+                    <ul className="divide-y divide-p-border">
+                      {changeHistory.map((entry) => {
+                        const when = new Date(entry.changedAt);
+                        const whenText = Number.isNaN(when.getTime())
+                          ? ''
+                          : `${when.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/,/g, '').replace(/\./g, '')} ${when.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`;
+                        return (
+                          <li key={entry.id} className="py-3">
+                            <p className="text-[13px] text-p-text">
+                              <span className="font-semibold">{entry.actor}</span>
+                              <span className="text-p-text-muted"> · {whenText}</span>
+                            </p>
+                            {entry.changes.length === 0 ? (
+                              <p className="mt-0.5 text-[12px] text-p-text-muted">Guardó sin cambios visibles.</p>
+                            ) : (
+                              <ul className="mt-1 space-y-0.5">
+                                {entry.changes.map((change, index) => (
+                                  <li key={`${entry.id}-${index}`} className="text-[12px] text-p-text-secondary">
+                                    {change.label}: <span className="text-p-text-muted">{change.before}</span> →{' '}
+                                    <span className="font-medium text-p-text">{change.after}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   )}
                 </div>
               </div>
@@ -3293,7 +3324,7 @@ export default function AdminTabClub({
               <div className="space-y-4">
                 <div className={cardCls}>
                   <div className="mb-4 flex items-center justify-between">
-                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Moderación de reseñas</p>
+                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>Lo que opinan los jugadores</p>
                     <div className="flex items-center gap-2">
                       <select
                         value={reviewStatusFilter}
@@ -3305,19 +3336,16 @@ export default function AdminTabClub({
                         <option value="HIDDEN">Ocultas</option>
                         <option value="REPORTED">Reportadas</option>
                       </select>
-                      <button
-                        type="button"
-                        onClick={() => { if (club?.slug) void loadClubReviews(club.slug, reviewStatusFilter); }}
-                        className="h-9 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] text-p-text-muted hover:bg-p-surface-2 transition"
-                      >
-                        Recargar
-                      </button>
                     </div>
                   </div>
                   {loadingClubReviews ? (
                     <p className="text-[12px] text-p-text-muted">Cargando reseñas...</p>
                   ) : clubReviews.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay reseñas para el filtro seleccionado.</p>
+                    <p className="text-[12px] text-p-text-muted">
+                      {reviewStatusFilter === 'ALL'
+                        ? 'Todavía no hay reseñas. Los jugadores pueden opinar después de jugar.'
+                        : 'No hay reseñas con ese filtro.'}
+                    </p>
                   ) : (
                     <div className="space-y-2 max-h-96 overflow-auto pr-1">
                       {clubReviews.map((review) => (
@@ -3328,7 +3356,10 @@ export default function AdminTabClub({
                                 {review.user?.name || 'Usuario'} · {Number(review.rating).toFixed(1)} / 5
                               </p>
                               <p className="mt-0.5 text-[11px] text-p-text-muted">
-                                Reserva #{review.bookingId} · {new Date(review.createdAt).toLocaleDateString('es-AR')} · <span className="font-medium">{review.status}</span>
+                                {new Date(review.createdAt).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace(/\./g, '')} ·{' '}
+                                <span className="font-medium">
+                                  {review.status === 'PUBLISHED' ? 'Se ve en la app' : review.status === 'HIDDEN' ? 'Oculta' : review.status === 'REPORTED' ? 'Reportada' : String(review.status)}
+                                </span>
                               </p>
                               {review.comment ? (
                                 <p className="mt-2 text-[12px] text-p-text leading-relaxed">{review.comment}</p>
@@ -3343,7 +3374,7 @@ export default function AdminTabClub({
                                 onClick={() => void handleUpdateReviewStatus(review.id, 'PUBLISHED')}
                                 className="h-8 rounded-xl bg-ink-900 px-3 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
                               >
-                                Publicar
+                                Mostrar
                               </button>
                               <button
                                 type="button"

@@ -8,6 +8,8 @@ type MockState = ReturnType<typeof buildState>;
 
 function buildState() {
   return {
+    clubMembers: [] as Array<{ id: string; clientId: string }>,
+    clubMemberHistory: [] as any[],
     clients: [
       {
         id: 'c-1',
@@ -59,7 +61,7 @@ function buildState() {
       { userId: 88, clubId: 10 },
       { userId: 99, clubId: 99 },
     ],
-    bookings: [{ id: 101, clubId: 10, clientId: 'c-1' }],
+    bookings: [{ id: 101, clubId: 10, clientId: 'c-1', userId: null as number | null }],
     fixedBookings: [{ id: 201, clubId: 10, clientId: 'c-1' }],
     accounts: [{ id: 'acc-1', clubId: 10, clientId: 'c-1' }],
     clientDiscountAssignments: [{ id: 'as-1', clubId: 10, clientId: 'c-1', policyId: 'pol-1' }],
@@ -123,7 +125,12 @@ function withMockedPrisma(run: (state: MockState) => Promise<void>) {
             Number(row.clubId) === Number(where?.userId_clubId?.clubId)
         ) || null,
     },
+    bookingParticipant: { findFirst: async () => null },
     booking: {
+      findFirst: async ({ where }: any) =>
+        state.bookings.find(
+          (row) => Number(row.clubId) === Number(where?.clubId) && Number(row.userId || 0) === Number(where?.userId)
+        ) || null,
       updateMany: async ({ where, data }: any) => {
         let count = 0;
         state.bookings = state.bookings.map((row) => {
@@ -137,6 +144,7 @@ function withMockedPrisma(run: (state: MockState) => Promise<void>) {
       },
     },
     fixedBooking: {
+      findFirst: async () => null,
       updateMany: async ({ where, data }: any) => {
         let count = 0;
         state.fixedBookings = state.fixedBookings.map((row) => {
@@ -160,6 +168,21 @@ function withMockedPrisma(run: (state: MockState) => Promise<void>) {
           return row;
         });
         return { count };
+      },
+    },
+    clubMember: {
+      findUnique: async ({ where }: any) =>
+        state.clubMembers.find((row) => String(row.clientId) === String(where?.clientId)) ?? null,
+      update: async ({ where, data }: any) => {
+        const row = state.clubMembers.find((member) => member.id === where?.id);
+        if (row) Object.assign(row, data);
+        return row;
+      },
+    },
+    clubMemberHistory: {
+      create: async ({ data }: any) => {
+        state.clubMemberHistory.push(data);
+        return data;
       },
     },
     clientDiscountAssignment: {
@@ -289,6 +312,15 @@ test('link manual cross-club bloquea', async () => {
   });
 });
 
+test('link manual: un usuario que reservó en el club se puede vincular aunque no tenga ficha vinculada', async () => {
+  const service = new ClientIdentityAdminService();
+  await withMockedPrisma(async (state) => {
+    state.bookings[0]!.userId = 99;
+    const result = await service.linkUserToClient({ clubId: 10, clientId: 'c-2', userId: 99, actorUserId: 500 });
+    assert.equal(result?.userId, 99);
+  });
+});
+
 test('client ya vinculado a otro usuario bloquea', async () => {
   const service = new ClientIdentityAdminService();
   await withMockedPrisma(async (state) => {
@@ -390,6 +422,28 @@ test('merge mismo club mueve reservas/cuentas/incidente y deja auditoría', asyn
     assert.equal(state.auditLogs.some((row) => row.action === 'CLIENTS_MERGED'), true);
     assert.equal(state.clients.find((row) => row.id === 'c-2')?.userId, 77);
     assert.equal(state.clients.find((row) => row.id === 'c-1')?.phone, null);
+  });
+});
+
+test('merge mueve el registro de socio del cliente absorbido al que queda', async () => {
+  const service = new ClientIdentityAdminService();
+  await withMockedPrisma(async (state) => {
+    state.clubMembers.push({ id: 'm-1', clientId: 'c-1' });
+    await service.mergeClients({ clubId: 10, sourceClientId: 'c-1', targetClientId: 'c-2', actorUserId: 500 });
+    assert.equal(state.clubMembers[0]?.clientId, 'c-2');
+    assert.equal(state.clubMemberHistory[0]?.action, 'MERGED');
+  });
+});
+
+test('merge de dos socios bloqueado (RN-14)', async () => {
+  const service = new ClientIdentityAdminService();
+  await withMockedPrisma(async (state) => {
+    state.clubMembers.push({ id: 'm-1', clientId: 'c-1' }, { id: 'm-2', clientId: 'c-2' });
+    await assert.rejects(
+      () => service.mergeClients({ clubId: 10, sourceClientId: 'c-1', targetClientId: 'c-2', actorUserId: 500 }),
+      (error: any) => error instanceof AppError && error.code === ErrorCodes.MEMBER_MERGE_CONFLICT
+    );
+    assert.equal(state.bookings[0]?.clientId, 'c-1');
   });
 });
 

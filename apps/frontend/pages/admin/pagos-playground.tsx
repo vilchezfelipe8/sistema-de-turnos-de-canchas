@@ -17,11 +17,19 @@ import { useRouter } from 'next/router';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
 import MetricCard from '../../components/admin/ui/MetricCard';
 import CashSummaryCards from '../../modules/caja/components/CashSummaryCards';
+import CashTodayToCollect, { type CashTodayItem } from '../../modules/caja/components/CashTodayToCollect';
 import CashMovementsTimeline from '../../modules/caja/components/CashMovementsTimeline';
 import CashAccountsList from '../../modules/caja/components/CashAccountsList';
 import type { CashAccountItem } from '../../modules/caja/components/CashAccountsList';
 import CashAccountDetailPanel from '../../modules/caja/components/CashAccountDetailPanel';
 import CashCloseFlow from '../../modules/caja/components/CashCloseFlow';
+import {
+  CashCloseRecap,
+  CashClosedShiftCard,
+  CashClosesHistory,
+  type CashClosedShift,
+  type CashShiftBreakdown,
+} from '../../modules/caja/components/CashCloseRecap';
 import CashShiftPanel from '../../modules/caja/components/CashShiftPanel';
 import AccountDrawer, {
   type AccountDrawerContext,
@@ -41,6 +49,7 @@ import {
   type AccountStatus,
 } from '../../services/AccountService';
 import { CashService } from '../../services/CashService';
+import { PlayerPricingService } from '../../services/PlayerPricingService';
 import { searchClients } from '../../services/BookingService';
 import { ClubService } from '../../services/ClubService';
 import {
@@ -72,7 +81,8 @@ type RefundMethodFilter = 'ALL' | 'CASH' | 'TRANSFER' | 'CARD_REVERSAL' | 'CREDI
 type RefundActionKind = 'approve' | 'approve_execute' | 'execute' | 'retry' | 'fail' | 'cancel';
 type CashView = 'live' | 'movements' | 'closures';
 type CashActionSidebarView = 'none' | 'open_shift' | 'close_shift' | 'movement_create' | 'close_report' | 'product_sale';
-type AccountsFilter = 'ALL' | 'OPEN' | 'CLOSED' | 'WITH_DEBT' | 'WITH_REFUNDS';
+/** Por cobrar: todo lo que se debe, de cualquier fecha. Pagadas / Todas: por período. */
+type AccountsFilter = 'DEBT' | 'PAID' | 'ALL';
 type PosItem = {
   type: 'product' | 'service';
   id: number;
@@ -148,14 +158,50 @@ const serializePosSaleItems = (
     });
 type AccountRow = {
   id: string;
-  sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+  sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
   status: AccountStatus;
   createdAt: string;
+  totalAmount?: number | null;
+  paidAmount?: number | null;
+  client?: { id?: string; name?: string | null } | null;
   booking?: {
     id?: number;
+    startDateTime?: string | null;
+    endDateTime?: string | null;
     courtName?: string | null;
     clientName?: string | null;
   } | null;
+};
+
+const accountKindLabel: Record<AccountRow['sourceType'], string> = {
+  BOOKING: 'Reserva',
+  BAR: 'Consumos',
+  TABLE: 'Mesa',
+  MANUAL: 'Cuenta suelta',
+  CLASS_PASS: 'Pack de clases',
+  CLASS_ENROLLMENT: 'Clase',
+  SUBSCRIPTION_INSTALLMENT: 'Cuota de plan',
+};
+
+/** Fecha que importa de una cuenta: el turno si es una reserva, si no cuándo se abrió. */
+const accountWhen = (account: AccountRow): Date => {
+  const raw = account.booking?.startDateTime || account.createdAt;
+  return new Date(raw);
+};
+
+const formatAccountDay = (date: Date): string =>
+  Number.isNaN(date.getTime())
+    ? '-'
+    : date
+        .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+        .replace(/,/g, '')
+        .replace(/\./g, '');
+
+const formatAccountTime = (iso: string | null | undefined): string | null => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 };
 
 type AccountDetailItem = {
@@ -165,6 +211,15 @@ type AccountDetailItem = {
   quantity: number;
   total: number;
   createdAt?: string;
+  // Precio por jugador: parte de un jugador (lugar) y si su precio socio está pendiente de validar.
+  playerSlot?: {
+    bookingId: number;
+    slotIndex: number;
+    displayName: string | null;
+    memberPricePending: boolean;
+    memberCategoryName: string | null;
+    isFrozen: boolean;
+  } | null;
 };
 
 type AccountDetailPaymentAllocation = {
@@ -201,6 +256,11 @@ type Movement = {
   amount: number;
   description: string;
   method: 'CASH' | 'TRANSFER' | 'CARD';
+  kind: 'PAYMENT' | 'REFUND' | 'MANUAL';
+  who: string;
+  what: string;
+  accountId: string | null;
+  paymentId: string | null;
 };
 
 type Balance = {
@@ -222,6 +282,9 @@ type CashShift = {
   status: 'OPEN' | 'CLOSED';
   openedAt: string;
   openingAmount: number;
+  expectedCash?: number | null;
+  digitalAmount?: number | null;
+  breakdown?: CashShiftBreakdown | null;
   cashRegister?: {
     id: string;
     name: string;
@@ -257,6 +320,9 @@ const formatRelativeDate = (isoString: string): string => {
   return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
 };
 const ACCOUNT_PAYMENT_EPSILON = 0.009;
+/** Refresco automático de Caja (web y mobile). */
+const CAJA_AUTO_REFRESH_MS = 30_000;
+const CAJA_REFRESH_ON_FOCUS_MIN_GAP_MS = 10_000;
 const EMPTY_REFUNDS: RefundRecord[] = [];
 const drawerSectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
 
@@ -268,14 +334,73 @@ const shortCode = (value: unknown) => {
 };
 
 const formatRefundStatus = (status: string) => {
-  if (status === 'REQUESTED') return 'Solicitada';
-  if (status === 'APPROVED') return 'Aprobada';
-  if (status === 'READY_TO_EXECUTE') return 'Lista';
-  if (status === 'EXECUTED') return 'Ejecutada';
-  if (status === 'FAILED') return 'Fallida';
-  if (status === 'CANCELLED') return 'Cancelada';
+  if (status === 'REQUESTED') return 'Falta aprobar';
+  if (status === 'APPROVED' || status === 'READY_TO_EXECUTE') return 'Falta devolver';
+  if (status === 'EXECUTED') return 'Devuelta';
+  if (status === 'FAILED') return 'No se pudo devolver';
+  if (status === 'CANCELLED') return 'Anulada';
   return status;
 };
+
+const REFUND_TODO_STATUSES = new Set(['REQUESTED', 'APPROVED', 'READY_TO_EXECUTE', 'FAILED']);
+
+const refundStatusTone = (status: string) => {
+  if (status === 'EXECUTED') return 'text-p-positive';
+  if (status === 'CANCELLED') return 'text-p-text-muted';
+  if (status === 'FAILED') return 'text-p-error';
+  return 'text-p-warning';
+};
+
+/** Período: Día / Semana / Mes y flechas. Igual en Cuentas, Movimientos y Devoluciones. */
+function CashPeriodPicker({
+  period,
+  label,
+  offset,
+  onPeriod,
+  onOffset,
+}: {
+  period: CashPeriod;
+  label: string;
+  offset: number;
+  onPeriod: (period: CashPeriod) => void;
+  onOffset: (updater: (prev: number) => number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+      {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((value) => (
+        <button
+          key={`period-${value}`}
+          type="button"
+          aria-pressed={period === value}
+          onClick={() => onPeriod(value)}
+          className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold transition ${
+            period === value ? 'bg-p-surface-3 text-p-text' : 'text-p-text-muted hover:text-p-text-secondary'
+          }`}
+        >
+          {value === 'hoy' ? 'Día' : value === 'semana' ? 'Semana' : 'Mes'}
+        </button>
+      ))}
+      <button
+        type="button"
+        aria-label="Período anterior"
+        onClick={() => onOffset((prev) => prev - 1)}
+        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
+      >
+        <ChevronLeft size={15} />
+      </button>
+      <span className="min-w-[96px] text-center text-[12px] font-semibold text-p-text-secondary">{label}</span>
+      <button
+        type="button"
+        aria-label="Período siguiente"
+        onClick={() => onOffset((prev) => Math.min(0, prev + 1))}
+        disabled={offset === 0}
+        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40 disabled:hover:bg-transparent"
+      >
+        <ChevronRight size={15} />
+      </button>
+    </div>
+  );
+}
 
 const refundCodeLabel = (refund: RefundRecord) => {
   const display = String(refund?.displayCode || '').trim();
@@ -412,10 +537,9 @@ const parsePaymentsTab = (value: unknown): PaymentsTab => {
   if (raw === 'cash') return 'SUMMARY';
   if (raw === 'summary') return 'SUMMARY';
   if (raw === 'movements') return 'MOVEMENTS';
-  if (raw === 'closure') return 'CLOSURE';
+  if (raw === 'closure') return 'SUMMARY';
   if (raw === 'refunds') return 'REFUNDS';
   if (raw === 'accounts') return 'ACCOUNTS';
-  if (raw === 'reports') return 'REPORTS';
   return 'SUMMARY';
 };
 
@@ -473,6 +597,60 @@ const formatMovementConcept = (movement: any) => {
   return rawConcept;
 };
 
+const CASH_EXPENSE_PRESETS = ['Proveedor', 'Sueldos', 'Limpieza', 'Mantenimiento', 'Retiro del dueño'];
+const CASH_INCOME_PRESETS = ['Cambio para la caja', 'Aporte del dueño', 'Alquiler de espacio'];
+const CASH_MOVEMENT_PRESETS = [...CASH_EXPENSE_PRESETS, ...CASH_INCOME_PRESETS];
+
+const formatMovementSlot = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const day = d
+    .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+    .replace(/,/g, '')
+    .replace(/\./g, '');
+  return `${day} ${d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })}`;
+};
+
+/** "Lionel Messi" + "Cobro de reserva · Cancha 1 · mar 3 nov 22:00". */
+const describeCashMovement = (item: any): Pick<Movement, 'kind' | 'who' | 'what' | 'accountId' | 'paymentId'> => {
+  const rawType = String(item?.type || '').toUpperCase();
+  const accountId = item?.accountId ? String(item.accountId) : null;
+  const paymentId = item?.paymentId ? String(item.paymentId) : null;
+  const sourceType = String(item?.sourceType || '').toUpperCase() as AccountRow['sourceType'];
+  const booking = item?.booking;
+  const isRefund = rawType === 'REFUND';
+  const isPayment = rawType === 'PAYMENT_IN' && Boolean(accountId);
+  if (isRefund || isPayment) {
+    const who =
+      String(booking?.clientName || '').trim() ||
+      String(item?.accountClientName || '').trim() ||
+      (sourceType === 'BAR' ? 'Venta mostrador' : accountKindLabel[sourceType] || 'Cuenta');
+    const target =
+      sourceType === 'BOOKING'
+        ? ['reserva', String(booking?.courtName || '').trim(), formatMovementSlot(booking?.startDateTime)].filter(Boolean).join(' · ')
+        : sourceType === 'BAR'
+          ? 'consumos'
+          : (accountKindLabel[sourceType] || 'cuenta').toLowerCase();
+    return {
+      kind: isRefund ? 'REFUND' : 'PAYMENT',
+      who,
+      what: `${isRefund ? 'Devolución de' : 'Cobro de'} ${target}`,
+      accountId,
+      paymentId,
+    };
+  }
+  const concept = String(item?.concept || '').replace(/\s*#\S+/g, '').trim();
+  const income = rawType === 'PAYMENT_IN' || rawType === 'DEPOSIT' || rawType === 'INCOME';
+  return {
+    kind: 'MANUAL',
+    who: concept || (income ? 'Ingreso' : 'Egreso'),
+    what: income ? 'Ingreso a mano' : 'Egreso a mano',
+    accountId,
+    paymentId,
+  };
+};
+
 const movementMethodLabel = (method: Movement['method']) => {
   if (method === 'CASH') return 'Efectivo';
   if (method === 'CARD') return 'Tarjeta';
@@ -485,6 +663,7 @@ const accountSourceLabel = (sourceType: AccountRow['sourceType']) => {
   if (sourceType === 'TABLE') return 'Mesa';
   if (sourceType === 'CLASS_PASS') return 'Pack de clases';
   if (sourceType === 'CLASS_ENROLLMENT') return 'Clase';
+  if (sourceType === 'SUBSCRIPTION_INSTALLMENT') return 'Cuota de plan';
   return 'Manual';
 };
 
@@ -527,7 +706,7 @@ export default function AdminPaymentsPlaygroundPage() {
   const [pendingRefunds, setPendingRefunds] = useState<RefundRecord[]>([]);
   const [recentRefunds, setRecentRefunds] = useState<RefundRecord[]>([]);
   const [accountsSearchTerm, setAccountsSearchTerm] = useState('');
-  const [accountsFilter, setAccountsFilter] = useState<AccountsFilter>('ALL');
+  const [accountsFilter, setAccountsFilter] = useState<AccountsFilter>('DEBT');
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
   const [accountDrawerInitialView, setAccountDrawerInitialView] =
@@ -564,6 +743,8 @@ export default function AdminPaymentsPlaygroundPage() {
   const [refundSearchTerm, setRefundSearchTerm] = useState('');
   const [refundStatusFilter, setRefundStatusFilter] = useState<RefundStatusFilter>('ALL');
   const [refundMethodFilter, setRefundMethodFilter] = useState<RefundMethodFilter>('ALL');
+  /** Por hacer = falta aprobar o devolver; Hechas = ya devueltas. */
+  const [refundStageFilter, setRefundStageFilter] = useState<'ALL' | 'TODO' | 'DONE'>('ALL');
   const [refundRequestOpen, setRefundRequestOpen] = useState(false);
   const [refundRequestAccountLocked, setRefundRequestAccountLocked] = useState(false);
   const [refundRequestAccountId, setRefundRequestAccountId] = useState('');
@@ -590,6 +771,9 @@ export default function AdminPaymentsPlaygroundPage() {
   const [cashShowFilters, setCashShowFilters] = useState(false);
   const [cashSidebarView, setCashSidebarView] = useState<CashActionSidebarView>('none');
   const [cashLastCloseReport, setCashLastCloseReport] = useState<CashShiftCloseReport | null>(null);
+  // Cierres anteriores (comprobantes) y cuál se está mirando.
+  const [cashClosedShifts, setCashClosedShifts] = useState<CashClosedShift[]>([]);
+  const [cashSelectedClosedId, setCashSelectedClosedId] = useState('');
 
   const [cashOpenShiftForm, setCashOpenShiftForm] = useState({
     cashRegisterId: '',
@@ -597,11 +781,15 @@ export default function AdminPaymentsPlaygroundPage() {
   });
   const [cashCloseShiftForm, setCashCloseShiftForm] = useState({ countedCash: '' });
   const [cashNewMovement, setCashNewMovement] = useState({
-    type: 'INCOME' as 'INCOME' | 'EXPENSE',
+    type: 'EXPENSE' as 'INCOME' | 'EXPENSE',
     description: '',
     amount: '',
     method: 'CASH' as 'CASH' | 'TRANSFER' | 'CARD',
   });
+  // El aviso de error se va apenas se corrige algo.
+  useEffect(() => {
+    setCashMovementError('');
+  }, [cashNewMovement.amount, cashNewMovement.description, cashNewMovement.type, cashSidebarView]);
 
   // POS — Venta mostrador (Fase 1.6)
   const [posProducts, setPosProducts] = useState<PosItem[]>([]);
@@ -665,9 +853,14 @@ export default function AdminPaymentsPlaygroundPage() {
   }, [authChecked, router, user]);
 
   useEffect(() => {
+    // Los reportes de mostrador viven en Informes: el link viejo lleva ahí.
+    if (String(router.query.tab || '').toLowerCase() === 'reports') {
+      void router.replace('/admin/informes?tab=mostrador');
+      return;
+    }
     const nextTab = parsePaymentsTab(router.query.tab);
     setActiveTab((prev) => (prev === nextTab ? prev : nextTab));
-  }, [router.query.tab]);
+  }, [router, router.query.tab]);
 
   const cashActiveView = toCashViewByTab(activeTab);
 
@@ -686,9 +879,12 @@ export default function AdminPaymentsPlaygroundPage() {
     [router]
   );
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const [open, closed, pending, recent] = await Promise.all([
         listAccounts({ status: 'OPEN' }),
@@ -697,19 +893,23 @@ export default function AdminPaymentsPlaygroundPage() {
         listRefunds({ take: 30 }),
       ]);
 
-      setOpenAccounts(Array.isArray(open) ? open : []);
+      const nextOpen = Array.isArray(open) ? open : [];
+      setOpenAccounts(nextOpen);
       setClosedAccounts(Array.isArray(closed) ? closed : []);
       setPendingRefunds(Array.isArray(pending) ? pending : []);
       setRecentRefunds(Array.isArray(recent) ? recent : []);
+      if (silent) setError('');
+      return nextOpen;
     } catch (loadError: any) {
-      reportUiError({ area: 'PaymentsPlayground', action: 'refresh' }, loadError);
-      setError(loadError?.message || 'No se pudo cargar el módulo de pagos.');
+      reportUiError({ area: 'PaymentsPlayground', action: silent ? 'autoRefresh' : 'refresh' }, loadError);
+      if (!silent) setError(loadError?.message || 'No se pudo cargar el módulo de pagos.');
+      return null;
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
-  const ensureAccountDetail = useCallback(async (accountId: string, force = false) => {
+  const ensureAccountDetail = useCallback(async (accountId: string, force = false, silent = false) => {
     const key = String(accountId || '').trim();
     if (!key) return null;
     if (!force && accountDetailById[key]) return accountDetailById[key];
@@ -718,8 +918,10 @@ export default function AdminPaymentsPlaygroundPage() {
     const requestSeq = (accountDetailRequestSeqRef.current[key] || 0) + 1;
     accountDetailRequestSeqRef.current[key] = requestSeq;
     try {
-      setLoadingAccountDetailById((prev) => ({ ...prev, [key]: true }));
-      setAccountDetailError('');
+      if (!silent) {
+        setLoadingAccountDetailById((prev) => ({ ...prev, [key]: true }));
+        setAccountDetailError('');
+      }
       const detail = await getAccountById(key);
       const normalized: AccountDetail = {
         id: String(detail?.id || key),
@@ -734,6 +936,7 @@ export default function AdminPaymentsPlaygroundPage() {
           quantity: Number(item?.quantity || 1),
           total: Number(item?.total || 0),
           createdAt: String(item?.createdAt || ''),
+          playerSlot: item?.playerSlot ?? null,
         })),
         payments: (Array.isArray(detail?.payments) ? detail.payments : []).map((payment: any) => ({
           id: String(payment?.id || ''),
@@ -756,10 +959,12 @@ export default function AdminPaymentsPlaygroundPage() {
       return normalized;
     } catch (detailError) {
       reportUiError({ area: 'PaymentsPlayground', action: 'ensureAccountDetail' }, detailError);
-      setAccountDetailError(extractErrorMessage(detailError, 'No se pudo cargar el detalle de la cuenta.'));
+      if (!silent) {
+        setAccountDetailError(extractErrorMessage(detailError, 'No se pudo cargar el detalle de la cuenta.'));
+      }
       return null;
     } finally {
-      if (accountDetailRequestSeqRef.current[key] === requestSeq) {
+      if (!silent && accountDetailRequestSeqRef.current[key] === requestSeq) {
         setLoadingAccountDetailById((prev) => ({ ...prev, [key]: false }));
       }
     }
@@ -819,9 +1024,12 @@ export default function AdminPaymentsPlaygroundPage() {
     }
   }, [openAccountDrawer, refresh]);
 
-  const loadCashSummary = useCallback(async () => {
-    setCashSummaryError('');
-    setLoadingCashSummary(true);
+  const loadCashSummary = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setCashSummaryError('');
+      setLoadingCashSummary(true);
+    }
     try {
       const { startDate, endDate } = getCashDateRange(cashActivePeriod, cashPeriodOffset);
       const data = await CashService.getSummary({ startDate, endDate });
@@ -837,12 +1045,14 @@ export default function AdminPaymentsPlaygroundPage() {
         const type = String(item?.type || 'INCOME');
         const normalizedType: Movement['type'] =
           type === 'WITHDRAW' || type === 'REFUND' || type === 'EXPENSE' ? 'EXPENSE' : 'INCOME';
+        const described = describeCashMovement(item);
         return {
           id: Number(item?.id || 0),
           date: String(item?.createdAt || ''),
           type: normalizedType,
           amount: Number(item?.amount || 0),
-          description: formatMovementConcept(item),
+          ...described,
+          description: `${described.who} ${described.what} ${formatMovementConcept(item)}`,
           method: (['CASH', 'TRANSFER', 'CARD'].includes(String(item?.method))
             ? item.method
             : 'CASH') as Movement['method'],
@@ -851,15 +1061,43 @@ export default function AdminPaymentsPlaygroundPage() {
       setCashMovements(normalizedMovements.filter((item) => Number.isFinite(item.id) && item.id > 0));
     } catch (loadError) {
       reportUiError({ area: 'PaymentsPlayground', action: 'loadCashSummary' }, loadError);
-      setCashSummaryError(extractErrorMessage(loadError, 'No se pudo cargar el resumen de caja.'));
+      if (!silent) setCashSummaryError(extractErrorMessage(loadError, 'No se pudo cargar el resumen de caja.'));
     } finally {
-      setLoadingCashSummary(false);
+      if (!silent) setLoadingCashSummary(false);
     }
   }, [cashActivePeriod, cashPeriodOffset]);
 
-  const loadCashShiftContext = useCallback(async () => {
-    setCashShiftError('');
-    setLoadingCashShift(true);
+  const loadCashClosedShifts = useCallback(async (): Promise<CashClosedShift[]> => {
+    try {
+      const rows = await CashService.listClosedShifts(10);
+      const list = Array.isArray(rows) ? (rows as CashClosedShift[]) : [];
+      setCashClosedShifts(list);
+      return list;
+    } catch (loadError) {
+      reportUiError({ area: 'PaymentsPlayground', action: 'loadCashClosedShifts' }, loadError);
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCashClosedShifts();
+  }, [loadCashClosedShifts]);
+
+  const openCashClosesView = useCallback(
+    (shiftId?: string) => {
+      setCashSelectedClosedId(shiftId || cashClosedShifts[0]?.id || '');
+      setCashSidebarView('close_report');
+      void loadCashClosedShifts();
+    },
+    [cashClosedShifts, loadCashClosedShifts]
+  );
+
+  const loadCashShiftContext = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setCashShiftError('');
+      setLoadingCashShift(true);
+    }
     try {
       const [shift, registers] = await Promise.all([
         CashService.getCurrentShift(),
@@ -876,9 +1114,9 @@ export default function AdminPaymentsPlaygroundPage() {
       }
     } catch (loadError) {
       reportUiError({ area: 'PaymentsPlayground', action: 'loadCashShiftContext' }, loadError);
-      setCashShiftError(extractErrorMessage(loadError, 'No se pudo cargar el estado del turno de caja.'));
+      if (!silent) setCashShiftError(extractErrorMessage(loadError, 'No se pudo cargar el estado del turno de caja.'));
     } finally {
-      setLoadingCashShift(false);
+      if (!silent) setLoadingCashShift(false);
     }
   }, []);
 
@@ -1044,15 +1282,29 @@ export default function AdminPaymentsPlaygroundPage() {
       const normalizedMethod = String(refund.executionMethod || '').toUpperCase();
       const matchesStatus = refundStatusFilter === 'ALL' || normalizedStatus === refundStatusFilter;
       const matchesMethod = refundMethodFilter === 'ALL' || normalizedMethod === refundMethodFilter;
+      const matchesStage =
+        refundStageFilter === 'ALL' ||
+        (refundStageFilter === 'TODO' && REFUND_TODO_STATUSES.has(normalizedStatus)) ||
+        (refundStageFilter === 'DONE' && normalizedStatus === 'EXECUTED');
+      // Lo que falta hacer se ve siempre, aunque sea de otro período.
+      const inPeriod = matchesDate || (refundStageFilter === 'TODO' && REFUND_TODO_STATUSES.has(normalizedStatus));
+      const account =
+        openAccounts.find((row) => row.id === refund.accountId) ||
+        closedAccounts.find((row) => row.id === refund.accountId);
       const matchesSearch =
         normalizedQuery.length === 0 ||
         refundCodeLabel(refund).toLowerCase().includes(normalizedQuery) ||
         String(refund.reason || '').toLowerCase().includes(normalizedQuery) ||
-        shortId(refund.accountId).toLowerCase().includes(normalizedQuery) ||
-        shortId(refund.paymentId).toLowerCase().includes(normalizedQuery);
-      return matchesDate && matchesStatus && matchesMethod && matchesSearch;
+        String(account?.booking?.clientName || account?.client?.name || '').toLowerCase().includes(normalizedQuery) ||
+        String(account?.booking?.courtName || '').toLowerCase().includes(normalizedQuery);
+      return inPeriod && matchesStatus && matchesMethod && matchesStage && matchesSearch;
     });
-  }, [cashActivePeriod, cashPeriodOffset, recentRefunds, refundMethodFilter, refundSearchTerm, refundStatusFilter]);
+  }, [cashActivePeriod, closedAccounts, cashPeriodOffset, openAccounts, recentRefunds, refundMethodFilter, refundSearchTerm, refundStageFilter, refundStatusFilter]);
+
+  const refundsTodo = useMemo(() => {
+    const items = recentRefunds.filter((refund) => REFUND_TODO_STATUSES.has(String(refund.status || '').toUpperCase()));
+    return { count: items.length, amount: items.reduce((sum, refund) => sum + Number(refund.amount || 0), 0) };
+  }, [recentRefunds]);
 
   const filteredPendingRefunds = useMemo(() => {
     const visibleIds = new Set(filteredRecentRefunds.map((refund) => refund.id));
@@ -1122,9 +1374,10 @@ export default function AdminPaymentsPlaygroundPage() {
         }
       }
       setCashCloseShiftForm({ countedCash: '' });
-      showAdminToast('Turno de caja cerrado correctamente.');
-      setCashSidebarView('none');
-      await Promise.all([loadCashShiftContext(), loadCashSummary()]);
+      showAdminToast('Caja cerrada.');
+      await Promise.all([loadCashShiftContext(), loadCashSummary(), loadCashClosedShifts()]);
+      setCashSelectedClosedId(closedShift?.id ? String(closedShift.id) : '');
+      setCashSidebarView('close_report');
     } catch (closeError) {
       reportUiError({ area: 'PaymentsPlayground', action: 'closeShift' }, closeError);
       setCashShiftError(extractErrorMessage(closeError, 'No se pudo cerrar la caja.'));
@@ -1143,11 +1396,11 @@ export default function AdminPaymentsPlaygroundPage() {
       return;
     }
     if (cashNewMovement.description.trim().length < 3) {
-      setCashMovementError('Describe el movimiento con al menos 3 caracteres.');
+      setCashMovementError('Escribí en qué se usó la plata (o tocá una opción).');
       return;
     }
     if (!Number.isFinite(amount) || amount <= 0) {
-      setCashMovementError('Ingresa un monto valido mayor a 0.');
+      setCashMovementError('Poné cuánta plata fue.');
       return;
     }
 
@@ -1159,8 +1412,8 @@ export default function AdminPaymentsPlaygroundPage() {
         type: cashNewMovement.type,
         method: cashNewMovement.method,
       });
-      setCashNewMovement({ type: 'INCOME', description: '', amount: '', method: 'CASH' });
-      showAdminToast('Movimiento registrado correctamente.');
+      setCashNewMovement({ type: 'EXPENSE', description: '', amount: '', method: 'CASH' });
+      showAdminToast(cashNewMovement.type === 'EXPENSE' ? 'Egreso anotado.' : 'Ingreso anotado.');
       setCashSidebarView('none');
       await loadCashSummary();
     } catch (movementError) {
@@ -1380,14 +1633,88 @@ export default function AdminPaymentsPlaygroundPage() {
   );
 
   useEffect(() => {
-    if (activeTab !== 'ACCOUNTS') return;
-    if (allAccounts.length === 0) return;
-    const missingIds = allAccounts
-      .map((account) => account.id)
-      .filter((id) => !accountDetailById[id] && !loadingAccountDetailById[id]);
-    if (missingIds.length === 0) return;
-    void Promise.allSettled(missingIds.map((id) => ensureAccountDetail(id)));
-  }, [activeTab, allAccounts, accountDetailById, ensureAccountDetail, loadingAccountDetailById]);
+    if (activeTab !== 'ACCOUNTS' || !selectedAccountId) return;
+    if (accountDetailById[selectedAccountId] || loadingAccountDetailById[selectedAccountId]) return;
+    void ensureAccountDetail(selectedAccountId);
+  }, [activeTab, selectedAccountId, accountDetailById, ensureAccountDetail, loadingAccountDetailById]);
+
+  // Refresco automático de Caja (web y mobile). No corre con la pestaña oculta ni con
+  // paneles/modales de acción abiertos, para no pisar formularios en curso.
+  const cajaAutoRefreshBlockedRef = useRef(false);
+  cajaAutoRefreshBlockedRef.current =
+    accountDrawerOpen ||
+    cashActionSidebarOpen ||
+    refundRequestOpen ||
+    Boolean(refundActionConfirm) ||
+    submittingCashMovement ||
+    openingCashShift ||
+    closingCashShift ||
+    posSubmitting ||
+    openingAccount;
+  const cajaAutoRefreshStateRef = useRef({
+    activeTab,
+    selectedAccountId,
+    openAccountIds: [] as string[],
+  });
+  cajaAutoRefreshStateRef.current = {
+    activeTab,
+    selectedAccountId,
+    openAccountIds: openAccounts.map((account) => String(account.id)),
+  };
+  const cajaAutoRefreshFnsRef = useRef({ refresh, ensureAccountDetail, loadCashSummary, loadCashShiftContext });
+  cajaAutoRefreshFnsRef.current = { refresh, ensureAccountDetail, loadCashSummary, loadCashShiftContext };
+  useEffect(() => {
+    if (!authChecked || !user || !hasOperatorAccess(user)) return;
+    let inFlight = false;
+    let lastRunAt = Date.now();
+    const runRefresh = async () => {
+      if (inFlight || cajaAutoRefreshBlockedRef.current) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      inFlight = true;
+      lastRunAt = Date.now();
+      try {
+        const { activeTab: tab, selectedAccountId: selectedId, openAccountIds: previousOpenIds } =
+          cajaAutoRefreshStateRef.current;
+        const { refresh, ensureAccountDetail, loadCashSummary, loadCashShiftContext } = cajaAutoRefreshFnsRef.current;
+        const tasks: Array<Promise<unknown>> = [];
+        if (tab === 'ACCOUNTS' || tab === 'REFUNDS') {
+          tasks.push(
+            refresh({ silent: true }).then((nextOpen) => {
+              if (!nextOpen || tab !== 'ACCOUNTS') return;
+              // Actualiza saldos de cuentas abiertas (y de las que se cerraron desde la última vuelta).
+              const ids = new Set<string>([
+                ...nextOpen.map((account: any) => String(account.id)),
+                ...previousOpenIds,
+                ...(selectedId ? [String(selectedId)] : []),
+              ]);
+              return Promise.allSettled(
+                Array.from(ids).slice(0, 40).map((id) => ensureAccountDetail(id, true, true))
+              );
+            })
+          );
+        }
+        if (isCashSectionTab(tab)) {
+          tasks.push(loadCashSummary({ silent: true }), loadCashShiftContext({ silent: true }));
+        }
+        await Promise.allSettled(tasks);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const intervalId = window.setInterval(() => void runRefresh(), CAJA_AUTO_REFRESH_MS);
+    const handleReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastRunAt < CAJA_REFRESH_ON_FOCUS_MIN_GAP_MS) return;
+      void runRefresh();
+    };
+    document.addEventListener('visibilitychange', handleReturn);
+    window.addEventListener('focus', handleReturn);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleReturn);
+      window.removeEventListener('focus', handleReturn);
+    };
+  }, [authChecked, user]);
 
   const accountsWithRefundsIdSet = useMemo(() => {
     const set = new Set<string>();
@@ -1401,52 +1728,151 @@ export default function AdminPaymentsPlaygroundPage() {
   const periodAccounts = useMemo(() => {
     const { rawStart, rawEnd } = getCashDateRange(cashActivePeriod, cashPeriodOffset);
     return allAccounts.filter((account) => {
-      const createdAt = new Date(account.createdAt);
-      return Number.isFinite(createdAt.getTime()) && createdAt >= rawStart && createdAt <= rawEnd;
+      const when = accountWhen(account);
+      return Number.isFinite(when.getTime()) && when >= rawStart && when <= rawEnd;
     });
   }, [allAccounts, cashActivePeriod, cashPeriodOffset]);
 
+  const accountRemaining = useCallback(
+    (account: AccountRow) => {
+      const d = accountDetailById[account.id];
+      if (d) return Math.max(0, Number(d.remaining || 0));
+      const total = Number(account.totalAmount || 0);
+      const paid = Number(account.paidAmount || 0);
+      return Math.max(0, Math.round((total - paid) * 100) / 100);
+    },
+    [accountDetailById]
+  );
+
+  const accountOwesMoney = useCallback(
+    (account: AccountRow) => account.status === 'OPEN' && accountRemaining(account) > ACCOUNT_PAYMENT_EPSILON,
+    [accountRemaining]
+  );
+
+  // Lo que se debe no depende del período: una deuda de la semana pasada sigue siendo deuda.
+  const accountsDebtSummary = useMemo(() => {
+    let count = 0;
+    let amount = 0;
+    for (const account of allAccounts) {
+      if (!accountOwesMoney(account)) continue;
+      count += 1;
+      amount += accountRemaining(account);
+    }
+    return { count, amount: Math.round(amount * 100) / 100 };
+  }, [accountOwesMoney, accountRemaining, allAccounts]);
+
+  // Resumen: qué hay que cobrar hoy (turnos/cuentas de hoy con deuda) y lo que quedó de antes.
+  const cashTodayToCollect = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startOfTomorrow = new Date(startOfToday);
+    startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+    const today: Array<{ when: number; item: CashTodayItem }> = [];
+    let olderCount = 0;
+    let olderAmount = 0;
+    for (const account of allAccounts) {
+      if (!accountOwesMoney(account)) continue;
+      const when = accountWhen(account);
+      if (!Number.isFinite(when.getTime())) continue;
+      const owes = accountRemaining(account);
+      if (when < startOfToday) {
+        olderCount += 1;
+        olderAmount += owes;
+        continue;
+      }
+      if (when >= startOfTomorrow) continue;
+      const startTime = formatAccountTime(account.booking?.startDateTime);
+      const endTime = formatAccountTime(account.booking?.endDateTime);
+      today.push({
+        when: when.getTime(),
+        item: {
+          id: account.id,
+          time: startTime ? (endTime ? `${startTime}–${endTime}` : startTime) : '',
+          who:
+            account.booking?.clientName?.trim() ||
+            account.client?.name?.trim() ||
+            (account.sourceType === 'BAR' ? 'Consumidor final' : accountKindLabel[account.sourceType]),
+          what: account.booking?.courtName
+            ? `${accountKindLabel[account.sourceType]} · ${account.booking.courtName}`
+            : accountKindLabel[account.sourceType],
+          owes,
+        },
+      });
+    }
+    today.sort((a, b) => a.when - b.when);
+    return {
+      items: today.map((row) => row.item),
+      olderDebt: { count: olderCount, amount: Math.round(olderAmount * 100) / 100 },
+    };
+  }, [accountOwesMoney, accountRemaining, allAccounts]);
+
   const filteredAccounts = useMemo(() => {
     const search = accountsSearchTerm.trim().toLowerCase();
-    return periodAccounts.filter((account) => {
-      const matchesFilter =
-        accountsFilter === 'ALL' ||
-        (accountsFilter === 'OPEN' && account.status === 'OPEN') ||
-        (accountsFilter === 'CLOSED' && account.status === 'CLOSED') ||
-        (accountsFilter === 'WITH_DEBT' && account.hasDebt) ||
-        (accountsFilter === 'WITH_REFUNDS' && accountsWithRefundsIdSet.has(account.id));
-
-      if (!matchesFilter) return false;
-
-      if (!search) return true;
-      const haystack = [
-        account.id,
-        account.sourceType,
-        account.booking?.clientName || '',
-        account.booking?.courtName || '',
-        account.booking?.id ? String(account.booking.id) : '',
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(search);
-    });
-  }, [accountsFilter, accountsSearchTerm, accountsWithRefundsIdSet, periodAccounts]);
+    const base =
+      accountsFilter === 'DEBT'
+        ? allAccounts.filter(accountOwesMoney)
+        : accountsFilter === 'PAID'
+          ? periodAccounts.filter((account) => {
+              // Pagada = tenía algo que cobrar y quedó en cero. Las de $0 (canceladas) van solo en Todas.
+              const total = Number(accountDetailById[account.id]?.total ?? account.totalAmount ?? 0);
+              return total > ACCOUNT_PAYMENT_EPSILON && accountRemaining(account) <= ACCOUNT_PAYMENT_EPSILON;
+            })
+          : periodAccounts;
+    return base
+      .filter((account) => {
+        if (!search) return true;
+        const haystack = [
+          account.booking?.clientName || '',
+          account.client?.name || '',
+          account.booking?.courtName || '',
+          accountKindLabel[account.sourceType] || '',
+          account.booking?.id ? String(account.booking.id) : '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(search);
+      })
+      .sort((a, b) => accountWhen(b).getTime() - accountWhen(a).getTime());
+  }, [accountDetailById, accountOwesMoney, accountRemaining, accountsFilter, accountsSearchTerm, allAccounts, periodAccounts]);
 
   const selectedAccount = useMemo(
     () => allAccounts.find((account) => account.id === selectedAccountId) || null,
     [allAccounts, selectedAccountId]
   );
   const selectedAccountDetail = selectedAccountId ? accountDetailById[selectedAccountId] || null : null;
+
+  // Precio por jugador (D9, opción D): el cajero valida al socio presente y su parte pasa a precio socio.
+  const [validatingMemberItemId, setValidatingMemberItemId] = useState<string | null>(null);
+  const handleValidateMemberFromCash = useCallback(async (accountId: string, item: AccountDetailItem) => {
+    if (!item.playerSlot) return;
+    try {
+      setValidatingMemberItemId(item.id);
+      await PlayerPricingService.validateMember(item.playerSlot.bookingId, item.playerSlot.slotIndex);
+      await ensureAccountDetail(accountId, true);
+      showAdminToast('Socio validado: se aplicó el precio socio.');
+    } catch (validationError) {
+      reportUiError({ area: 'PaymentsPlayground', action: 'validateMemberFromCash' }, validationError);
+      showAdminToast(extractErrorMessage(validationError, 'No se pudo validar al socio.'));
+    } finally {
+      setValidatingMemberItemId(null);
+    }
+  }, [ensureAccountDetail]);
   const accountDrawerContext = useMemo<AccountDrawerContext | undefined>(() => {
     if (!selectedAccount) return undefined;
+    const startTime = formatAccountTime(selectedAccount.booking?.startDateTime);
+    const endTime = formatAccountTime(selectedAccount.booking?.endDateTime);
     const subtitleParts = [
-      accountSourceLabel(selectedAccount.sourceType),
-      `#${shortCode(selectedAccount.id)}`,
-      selectedAccount.booking?.id ? `Reserva #${selectedAccount.booking.id}` : '',
-      selectedAccount.createdAt ? formatDateTime24(selectedAccount.createdAt) : '',
+      formatAccountDay(accountWhen(selectedAccount)),
+      startTime ? (endTime ? `${startTime}–${endTime}` : startTime) : '',
+      selectedAccount.booking?.courtName
+        ? `${accountKindLabel[selectedAccount.sourceType]} · ${selectedAccount.booking.courtName}`
+        : accountKindLabel[selectedAccount.sourceType],
     ].filter(Boolean);
     return {
-      title: accountDisplayLabel(selectedAccount),
+      title:
+        selectedAccount.booking?.clientName?.trim() ||
+        selectedAccount.client?.name?.trim() ||
+        accountKindLabel[selectedAccount.sourceType],
       subtitle: subtitleParts.join(' · '),
       accountStatus: selectedAccount.status,
     };
@@ -1459,31 +1885,41 @@ export default function AdminPaymentsPlaygroundPage() {
     setSelectedAccountId(filteredAccounts[0].id);
   }, [activeTab, filteredAccounts, selectedAccountId]);
 
-  // Derived list for CashAccountsList — merges account rows with lazy-loaded detail.
+  // Filas de la lista: cuándo, quién, qué y cuánto debe.
   const cashAccountItems: CashAccountItem[] = useMemo(
     () =>
       filteredAccounts.map((account) => {
         const d = accountDetailById[account.id];
+        const total = d ? Number(d.total || 0) : Number(account.totalAmount || 0);
+        const paid = d ? Number(d.paid || 0) : Number(account.paidAmount || 0);
+        const startTime = formatAccountTime(account.booking?.startDateTime);
+        const endTime = formatAccountTime(account.booking?.endDateTime);
+        const title =
+          account.booking?.clientName?.trim() ||
+          account.client?.name?.trim() ||
+          accountKindLabel[account.sourceType];
+        const concept = account.booking?.courtName
+          ? `${accountKindLabel[account.sourceType]} · ${account.booking.courtName}`
+          : accountKindLabel[account.sourceType];
         return {
           id: account.id,
           status: account.status,
           sourceType: account.sourceType,
-          hasDebt: account.hasDebt,
-          booking: account.booking ?? null,
-          detail: d
-            ? {
-                total: d.total,
-                paid: d.paid,
-                remaining: d.remaining,
-                lastPaymentAt:
-                  d.payments?.length
-                    ? d.payments[d.payments.length - 1]?.createdAt ?? null
-                    : null,
-              }
-            : null,
+          title,
+          concept,
+          dateLabel: formatAccountDay(accountWhen(account)),
+          timeLabel: startTime ? (endTime ? `${startTime}–${endTime}` : startTime) : null,
+          bookingId: account.booking?.id ?? null,
+          total,
+          paid,
+          remaining: accountRemaining(account),
         };
       }),
-    [filteredAccounts, accountDetailById]
+    [accountDetailById, accountRemaining, filteredAccounts]
+  );
+  const selectedAccountItem = useMemo(
+    () => cashAccountItems.find((account) => account.id === selectedAccountId) || null,
+    [cashAccountItems, selectedAccountId]
   );
 
   const selectedAccountDetailLoading = Boolean(
@@ -1493,27 +1929,6 @@ export default function AdminPaymentsPlaygroundPage() {
     () => filteredAccounts.some((account) => account.id === selectedAccountId),
     [filteredAccounts, selectedAccountId]
   );
-  const visibleOpenAccounts = useMemo(
-    () => filteredAccounts.filter((account) => account.status === 'OPEN'),
-    [filteredAccounts]
-  );
-  const visibleClosedAccounts = useMemo(
-    () => filteredAccounts.filter((account) => account.status === 'CLOSED'),
-    [filteredAccounts]
-  );
-  const visibleAccountsWithDebtCount = useMemo(
-    () =>
-      visibleOpenAccounts.filter((account) => {
-        const d = accountDetailById[account.id];
-        return !d || d.remaining > 0.009;
-      }).length,
-    [accountDetailById, visibleOpenAccounts]
-  );
-  const visibleAccountsWithRefundsCount = useMemo(
-    () => filteredAccounts.filter((account) => accountsWithRefundsIdSet.has(account.id)).length,
-    [accountsWithRefundsIdSet, filteredAccounts]
-  );
-
   const refundRequestAccount = useMemo(
     () => allAccounts.find((account) => account.id === refundRequestAccountId) || null,
     [allAccounts, refundRequestAccountId]
@@ -1813,7 +2228,8 @@ export default function AdminPaymentsPlaygroundPage() {
         <title>Caja | Pique Admin</title>
       </Head>
       <AdminPlaygroundShell activeItem="Caja" user={user} contentMuted={cashActionSidebarOpen}>
-        <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-6">
+        <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 lg:gap-4 lg:p-6">
+          <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Caja</h1>
           <AdminSegmentedControl
             ariaLabel="Secciones de caja"
             value={activeTab}
@@ -1822,9 +2238,7 @@ export default function AdminPaymentsPlaygroundPage() {
               { value: 'SUMMARY', label: 'Resumen' },
               { value: 'ACCOUNTS', label: 'Cuentas' },
               { value: 'MOVEMENTS', label: 'Movimientos' },
-              { value: 'CLOSURE', label: 'Cierre' },
               { value: 'REFUNDS', label: 'Devoluciones' },
-              { value: 'REPORTS', label: 'Reportes' },
             ]}
             className="w-fit"
           />
@@ -1845,9 +2259,33 @@ export default function AdminPaymentsPlaygroundPage() {
               </div>
             ) : activeTab === 'ACCOUNTS' ? (
               <div className="space-y-4">
-                <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
+                {/* Qué mirar, buscar y crear: una sola fila. */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+                    {([
+                      { id: 'DEBT', label: 'Por cobrar' },
+                      { id: 'PAID', label: 'Pagadas' },
+                      { id: 'ALL', label: 'Todas' },
+                    ] as Array<{ id: AccountsFilter; label: string }>).map((option) => (
+                      <button
+                        key={`accounts-filter-${option.id}`}
+                        type="button"
+                        aria-pressed={accountsFilter === option.id}
+                        onClick={() => setAccountsFilter(option.id)}
+                        className={`h-9 rounded-lg px-3.5 text-[13px] font-semibold transition ${
+                          accountsFilter === option.id
+                            ? 'bg-ink-900 text-ink-50'
+                            : 'text-p-text-secondary hover:bg-p-surface-2'
+                        }`}
+                      >
+                        {option.label}
+                        {option.id === 'DEBT' && accountsDebtSummary.count > 0 ? ` (${accountsDebtSummary.count})` : ''}
+                      </button>
+                    ))}
+                  </div>
+
+                  {accountsFilter !== 'DEBT' && (
+                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
                       {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
                         <button
                           key={`accounts-${period}`}
@@ -1856,144 +2294,159 @@ export default function AdminPaymentsPlaygroundPage() {
                             setCashActivePeriod(period);
                             setCashPeriodOffset(0);
                           }}
-                          className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
+                          className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold transition ${
                             cashActivePeriod === period
-                              ? 'bg-p-surface text-p-accent shadow-sm'
+                              ? 'bg-p-surface-3 text-p-text'
                               : 'text-p-text-muted hover:text-p-text-secondary'
                           }`}
                         >
-                          {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
+                          {period === 'hoy' ? 'Día' : period === 'semana' ? 'Semana' : 'Mes'}
                         </button>
                       ))}
-                    </div>
-
-                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface px-1 py-1">
                       <button
                         type="button"
+                        aria-label="Período anterior"
                         onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
+                        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
                       >
-                        <ChevronLeft size={16} />
+                        <ChevronLeft size={15} />
                       </button>
-                      <span className="min-w-[120px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
+                      <span className="min-w-[96px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
                       <button
                         type="button"
+                        aria-label="Período siguiente"
                         onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
                         disabled={cashPeriodOffset === 0}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:text-p-text-muted disabled:hover:bg-transparent"
+                        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40 disabled:hover:bg-transparent"
                       >
-                        <ChevronRight size={16} />
+                        <ChevronRight size={15} />
                       </button>
                     </div>
-                  </div>
+                  )}
+
+                  <label className="relative min-w-[200px] flex-1 sm:max-w-[320px]">
+                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                    <input
+                      type="text"
+                      value={accountsSearchTerm}
+                      onChange={(event) => setAccountsSearchTerm(event.target.value)}
+                      placeholder="Buscar cliente o cancha"
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickOpenAccount()}
+                    disabled={openingAccount}
+                    className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3.5 text-[13px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-60"
+                  >
+                    <Plus size={15} strokeWidth={2.5} />
+                    {openingAccount ? 'Creando...' : 'Cuenta suelta'}
+                  </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                  <MetricCard label="Cuentas abiertas" value={visibleOpenAccounts.length} format="number" />
-                  <MetricCard
-                    label="Con deuda"
-                    value={visibleAccountsWithDebtCount}
-                    format="number"
-                    valueColor="var(--warn-fg)"
-                  />
-                  <MetricCard label="Cerradas" value={visibleClosedAccounts.length} format="number" valueColor="var(--positive-fg)" />
-                  <MetricCard label="Con devoluciones" value={visibleAccountsWithRefundsCount} format="number" valueColor="var(--accent-fg)" />
-                </div>
-                <AdminPanel
-                  title="Cuentas"
-                  description="Gestión operativa de cuentas abiertas y cerradas."
-                  headerClassName="pl-4 pr-2 py-3"
-                  actions={(
-                    <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
-                      <label className="relative w-full sm:w-[300px] sm:flex-none">
-                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                        <input
-                          type="text"
-                          value={accountsSearchTerm}
-                          onChange={(event) => setAccountsSearchTerm(event.target.value)}
-                          placeholder="Buscar por cliente, cuenta, reserva o cancha"
-                          className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
-                        />
-                      </label>
-                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-                        {[
-                          { id: 'ALL', label: 'Todas' },
-                          { id: 'OPEN', label: 'Abiertas' },
-                          { id: 'CLOSED', label: 'Cerradas' },
-                          { id: 'WITH_REFUNDS', label: 'Con devolución' },
-                        ].map((option) => (
-                          <button
-                            key={`accounts-filter-${option.id}`}
-                            type="button"
-                            onClick={() => setAccountsFilter(option.id as AccountsFilter)}
-                            className={`h-7 rounded-lg px-2.5 text-[11px] font-semibold transition ${
-                              accountsFilter === option.id
-                                ? 'bg-p-positive-bg text-p-accent'
-                                : 'text-p-text-muted hover:bg-p-surface-2'
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleQuickOpenAccount()}
-                        disabled={openingAccount}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-60"
-                      >
-                        <Plus size={14} strokeWidth={2.5} />
-                        {openingAccount ? 'Creando...' : 'Nueva cuenta'}
-                      </button>
-                    </AdminFilterToolbar>
-                  )}
-                >
-                  {filteredAccounts.length === 0 ? (
-                    <div className="rounded-xl border border-p-border bg-p-surface px-4 py-10 text-center">
-                      <p className="text-[13px] font-semibold text-p-text-secondary">No hay cuentas para este período</p>
-                      <p className="mt-1 text-[12px] text-p-text-muted">Cambiá el rango o ajustá los filtros para encontrar registros.</p>
-                    </div>
-                  ) : (
-                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-                    <div className="max-h-[560px] overflow-y-auto pr-1">
-                      <CashAccountsList
-                        accounts={cashAccountItems}
-                        selectedId={selectedAccountId}
-                        onSelect={handleSelectAccount}
+                {accountsFilter === 'DEBT' && (
+                  <p className="text-[15px] text-p-text-secondary">
+                    {accountsDebtSummary.count === 0 ? (
+                      'Nadie debe nada. 🎉'
+                    ) : (
+                      <>
+                        Te deben <span className="font-bold tabular-nums text-p-text">{formatMoney(accountsDebtSummary.amount)}</span>{' '}
+                        en {accountsDebtSummary.count === 1 ? '1 cuenta' : `${accountsDebtSummary.count} cuentas`}.
+                      </>
+                    )}
+                  </p>
+                )}
+
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                  <div className="lg:max-h-[640px] lg:overflow-y-auto lg:pr-1">
+                    <CashAccountsList
+                      accounts={cashAccountItems}
+                      selectedId={selectedAccountId}
+                      onSelect={handleSelectAccount}
+                      onPay={(accountId) => openAccountDrawer(accountId, 'payment')}
+                      emptyTitle={
+                        accountsSearchTerm.trim()
+                          ? 'Sin resultados'
+                          : accountsFilter === 'DEBT'
+                            ? 'No hay nada por cobrar'
+                            : 'No hay cuentas en este período'
+                      }
+                      emptyDescription={
+                        accountsSearchTerm.trim()
+                          ? 'Probá con otro nombre o cancha.'
+                          : accountsFilter === 'DEBT'
+                            ? 'Todas las cuentas están al día.'
+                            : 'Cambiá el período para ver otras fechas.'
+                      }
+                    />
+                  </div>
+
+                  <div
+                    ref={selectedAccountDetailFocusRef}
+                    tabIndex={-1}
+                    className="min-w-0 scroll-mt-4 outline-none lg:sticky lg:top-0 lg:max-h-[640px]"
+                  >
+                    {selectedAccountVisible && selectedAccountItem ? (
+                      <CashAccountDetailPanel
+                        account={selectedAccountItem}
+                        detail={selectedAccountDetail}
+                        loading={selectedAccountDetailLoading}
+                        error={accountDetailError}
+                        onManage={() => openAccountDrawer(selectedAccountItem.id, 'add_item')}
+                        onPay={() => openAccountDrawer(selectedAccountItem.id, 'payment')}
+                        onRefund={() => void openRefundRequestForAccount(selectedAccountItem.id)}
+                        onCloseAccount={() => openAccountDrawer(selectedAccountItem.id, 'close')}
+                        onValidateMember={(item) => void handleValidateMemberFromCash(selectedAccountItem.id, item as AccountDetailItem)}
+                        validatingItemId={validatingMemberItemId}
                       />
-                    </div>
-
-                    <div
-                      ref={selectedAccountDetailFocusRef}
-                      tabIndex={-1}
-                      className="min-w-0 scroll-mt-4 outline-none"
-                    >
-                      {selectedAccountVisible && selectedAccount ? (
+                    ) : (
+                      cashAccountItems.length > 0 && (
                         <CashAccountDetailPanel
-                          account={selectedAccount}
-                          detail={selectedAccountDetail}
-                          loading={selectedAccountDetailLoading}
-                          error={accountDetailError}
-                          onManage={() => openAccountDrawer(selectedAccount.id, 'overview')}
-                          onPay={() => openAccountDrawer(selectedAccount.id, 'payment')}
-                          onRefund={() => void openRefundRequestForAccount(selectedAccount.id)}
-                          onCloseAccount={() => openAccountDrawer(selectedAccount.id, 'close')}
+                          account={null}
+                          detail={null}
+                          loading={false}
+                          error=""
+                          onManage={() => undefined}
+                          onPay={() => undefined}
+                          onRefund={() => undefined}
+                          onCloseAccount={() => undefined}
                         />
-                      ) : (
-                        <div className="rounded-xl border border-p-border bg-p-surface px-4 py-10 text-center">
-                          <p className="text-[13px] font-semibold text-p-text-secondary">Seleccioná una cuenta</p>
-                          <p className="mt-1 text-[12px] text-p-text-muted">Elegí un registro de la lista para ver su detalle y deuda actual.</p>
-                        </div>
-                      )}
-                    </div>
+                      )
+                    )}
                   </div>
-                  )}
-                </AdminPanel>
+                </div>
               </div>
             ) : isCashSectionTab(activeTab) ? (
               <div className="space-y-4">
                 {cashActiveView === 'live' && (
                   <>
+                    <CashShiftPanel
+                      shift={cashCurrentShift}
+                      loading={loadingCashShift}
+                      onToggleShift={() => {
+                        if (cashCurrentShift && shouldBlockCloseShiftWithOpenAccounts) {
+                          showAdminToast(closeShiftBlockedMessage, 'warning');
+                          return;
+                        }
+                        if (cashCurrentShift) setCashCloseShiftForm({ countedCash: '' });
+                        setCashSidebarView(cashCurrentShift ? 'close_shift' : 'open_shift');
+                      }}
+                      onRegisterMovement={() => setCashSidebarView('movement_create')}
+                      onProductSale={() => setCashSidebarView('product_sale')}
+                      onViewLastClose={cashClosedShifts.length > 0 ? () => openCashClosesView() : undefined}
+                    />
+                    <CashTodayToCollect
+                      items={cashTodayToCollect.items}
+                      olderDebt={cashTodayToCollect.olderDebt}
+                      loading={loading}
+                      onPay={(accountId) => openAccountDrawer(accountId, 'payment')}
+                      onSeeAccounts={() => {
+                        setAccountsFilter('DEBT');
+                        navigateToPaymentsTab('ACCOUNTS');
+                      }}
+                    />
                     <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
@@ -2037,53 +2490,16 @@ export default function AdminPaymentsPlaygroundPage() {
                       </div>
                     </div>
 
-                    <CashSummaryCards balance={cashBalance} loading={loadingCashSummary} />
+                    <CashSummaryCards
+                      balance={cashBalance}
+                      loading={loadingCashSummary}
+                      emptyText={
+                        cashActivePeriod === 'hoy' && cashPeriodOffset === 0
+                          ? 'Hoy todavía no entró ni salió plata.'
+                          : `En ${cashPeriodLabel.toLowerCase()} no entró ni salió plata.`
+                      }
+                    />
                   </>
-                )}
-
-                {cashActiveView === 'movements' && (
-                  <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
-                        {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
-                          <button
-                            key={`movements-${period}`}
-                            type="button"
-                            onClick={() => {
-                              setCashActivePeriod(period);
-                              setCashPeriodOffset(0);
-                            }}
-                            className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
-                              cashActivePeriod === period
-                                ? 'bg-p-surface text-p-accent shadow-sm'
-                                : 'text-p-text-muted hover:text-p-text-secondary'
-                            }`}
-                          >
-                            {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface px-1 py-1">
-                        <button
-                          type="button"
-                          onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                          className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
-                        >
-                          <ChevronLeft size={16} />
-                        </button>
-                        <span className="min-w-[120px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
-                        <button
-                          type="button"
-                          onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
-                          disabled={cashPeriodOffset === 0}
-                          className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:text-p-text-muted disabled:hover:bg-transparent"
-                        >
-                          <ChevronRight size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
                 )}
 
                 {(cashSummaryError || cashShiftError || cashMovementError) && (
@@ -2094,139 +2510,125 @@ export default function AdminPaymentsPlaygroundPage() {
                   </div>
                 )}
 
-                {cashActiveView === 'live' && (
-                  <CashShiftPanel
-                    shift={cashCurrentShift}
-                    loading={loadingCashShift}
-                    onToggleShift={() => {
-                      if (cashCurrentShift && shouldBlockCloseShiftWithOpenAccounts) {
-                        showAdminToast(closeShiftBlockedMessage, 'warning');
-                        return;
-                      }
-                      setCashSidebarView(cashCurrentShift ? 'close_shift' : 'open_shift');
-                    }}
-                    onRegisterMovement={() => {
-                      navigateToPaymentsTab('MOVEMENTS');
-                      setCashSidebarView('movement_create');
-                    }}
-                    onGoToClosures={() => navigateToPaymentsTab('CLOSURE')}
-                    onProductSale={() => setCashSidebarView('product_sale')}
-                  />
-                )}
 
                 {cashActiveView === 'movements' && (
-                  <AdminPanel
-                    title="Movimientos"
-                    description="Timeline de ingresos y egresos del período visible."
-                    headerClassName="pl-4 pr-2 py-3"
-                    actions={(
-                      <div className="flex items-center gap-2">
+                  <div className="space-y-4">
+                    {/* Qué mirar, buscar y agregar: una sola fila. */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <CashPeriodPicker
+                        period={cashActivePeriod}
+                        label={cashPeriodLabel}
+                        offset={cashPeriodOffset}
+                        onPeriod={(period) => {
+                          setCashActivePeriod(period);
+                          setCashPeriodOffset(0);
+                        }}
+                        onOffset={setCashPeriodOffset}
+                      />
+                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+                        {([
+                          { id: 'ALL', label: 'Todo' },
+                          { id: 'INCOME', label: 'Entradas' },
+                          { id: 'EXPENSE', label: 'Salidas' },
+                        ] as Array<{ id: MovementTypeFilter; label: string }>).map((option) => (
+                          <button
+                            key={`movement-type-${option.id}`}
+                            type="button"
+                            aria-pressed={cashTypeFilter === option.id}
+                            onClick={() => setCashTypeFilter(option.id)}
+                            className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold transition ${
+                              cashTypeFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+                        {([
+                          { id: 'ALL', label: 'Todos' },
+                          { id: 'CASH', label: 'Efectivo' },
+                          { id: 'TRANSFER', label: 'Transferencia' },
+                          { id: 'CARD', label: 'Tarjeta' },
+                        ] as Array<{ id: MovementMethodFilter; label: string }>).map((option) => (
+                          <button
+                            key={`movement-method-${option.id}`}
+                            type="button"
+                            aria-pressed={cashMethodFilter === option.id}
+                            onClick={() => setCashMethodFilter(option.id)}
+                            className={`h-7 whitespace-nowrap rounded-lg px-2.5 text-[12px] font-semibold transition ${
+                              cashMethodFilter === option.id ? 'bg-p-surface-3 text-p-text' : 'text-p-text-muted hover:text-p-text-secondary'
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <label className="relative min-w-[180px] flex-1 sm:max-w-[260px]">
+                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                        <input
+                          type="text"
+                          value={cashSearchTerm}
+                          onChange={(event) => setCashSearchTerm(event.target.value)}
+                          placeholder="Buscar"
+                          className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+                        />
+                      </label>
+                      <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
                         <button
                           type="button"
                           onClick={() => setCashSidebarView('product_sale')}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-2.5 text-[11px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+                          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3.5 text-[13px] font-semibold text-p-text hover:bg-p-surface-2"
                         >
-                          <Plus size={14} strokeWidth={2.5} />
+                          <Plus size={15} strokeWidth={2.5} />
                           Venta mostrador
                         </button>
                         <button
                           type="button"
                           onClick={() => setCashSidebarView('movement_create')}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800"
+                          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
                         >
-                          <Plus size={14} strokeWidth={2.5} />
-                          Nuevo movimiento
+                          <Plus size={15} strokeWidth={2.5} />
+                          Ingreso o egreso
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setCashShowFilters((prev) => !prev)}
-                          className="h-8 rounded-lg border border-p-border bg-p-surface px-2.5 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
-                        >
-                          {cashShowFilters ? 'Ocultar filtros' : 'Mostrar filtros'}
-                        </button>
-                        <div className="inline-flex items-center gap-2 text-[12px] text-p-text-muted">
-                          <Landmark size={14} />
-                          <span>{loadingCashSummary ? 'Actualizando...' : `${filteredCashMovements.length} de ${cashMovements.length}`}</span>
-                        </div>
                       </div>
-                    )}
-                    bodyClassName="p-4"
-                  >
-
-                    <div className="mb-3 grid grid-cols-3 gap-2">
-                      <MetricCard
-                        label="Resultado visible"
-                        value={Math.abs(filteredNetAmount)}
-                        format="money"
-                        valueColor={filteredNetAmount >= 0 ? 'var(--positive-fg)' : 'var(--error-fg)'}
-                      />
-                      <MetricCard
-                        label="Ingresos visibles"
-                        value={filteredIncomeAmount}
-                        format="money"
-                        valueColor="var(--positive-fg)"
-                      />
-                      <MetricCard
-                        label="Egresos visibles"
-                        value={filteredExpenseAmount}
-                        format="money"
-                        valueColor="var(--error-fg)"
-                      />
                     </div>
 
-                    {cashShowFilters && (
-                      <AdminFilterToolbar className="mb-3 grid grid-cols-1 md:grid-cols-[1fr_140px_160px_auto]">
-                        <label className="relative">
-                          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                          <input
-                            type="text"
-                            value={cashSearchTerm}
-                            onChange={(event) => setCashSearchTerm(event.target.value)}
-                            placeholder="Buscar por concepto o método"
-                            className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] outline-none focus:border-p-accent"
-                          />
-                        </label>
+                    {/* El resultado del período en una frase. */}
+                    <p className="text-[15px] text-p-text-secondary">
+                      {loadingCashSummary && filteredCashMovements.length === 0 ? (
+                        'Cargando…'
+                      ) : (
+                        <>
+                          Entró <span className="font-bold tabular-nums text-p-positive">{formatMoney(filteredIncomeAmount)}</span>
+                          {' · '}salió <span className="font-bold tabular-nums text-p-error">{formatMoney(filteredExpenseAmount)}</span>
+                          {' · '}
+                          {'en total '}
+                          <span className="font-bold tabular-nums text-p-text">
+                            {filteredNetAmount < 0 ? '−' : '+'}
+                            {formatMoney(Math.abs(filteredNetAmount))}
+                          </span>
+                        </>
+                      )}
+                    </p>
 
-                        <select
-                          value={cashTypeFilter}
-                          onChange={(event) => setCashTypeFilter(event.target.value as MovementTypeFilter)}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                        >
-                          <option value="ALL">Todos los tipos</option>
-                          <option value="INCOME">Solo ingresos</option>
-                          <option value="EXPENSE">Solo egresos</option>
-                        </select>
-
-                        <select
-                          value={cashMethodFilter}
-                          onChange={(event) => setCashMethodFilter(event.target.value as MovementMethodFilter)}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                        >
-                          <option value="ALL">Todos los métodos</option>
-                          <option value="CASH">Efectivo</option>
-                          <option value="TRANSFER">Transferencia</option>
-                          <option value="CARD">Tarjeta</option>
-                        </select>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCashSearchTerm('');
-                            setCashTypeFilter('ALL');
-                            setCashMethodFilter('ALL');
-                          }}
-                          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
-                        >
-                          <X size={13} />
-                          Limpiar filtros
-                        </button>
-                      </AdminFilterToolbar>
-                    )}
-
-                    <div className="overflow-auto rounded-xl border border-p-border bg-p-surface max-h-[68vh] px-4 py-2">
-                      <CashMovementsTimeline movements={filteredCashMovements} />
-                    </div>
-                  </AdminPanel>
+                    <CashMovementsTimeline
+                      movements={filteredCashMovements}
+                      allMovements={cashMovements}
+                      onOpenAccount={(accountId) => openAccountDrawer(accountId, 'overview')}
+                      loading={loadingCashSummary}
+                      emptyTitle={
+                        cashSearchTerm.trim() || cashTypeFilter !== 'ALL' || cashMethodFilter !== 'ALL'
+                          ? 'Sin resultados'
+                          : 'No hubo movimientos'
+                      }
+                      emptyDescription={
+                        cashSearchTerm.trim() || cashTypeFilter !== 'ALL' || cashMethodFilter !== 'ALL'
+                          ? 'Probá sacando algún filtro.'
+                          : 'En este período no entró ni salió plata.'
+                      }
+                    />
+                  </div>
                 )}
 
                 {cashActiveView === 'closures' && (
@@ -2245,477 +2647,162 @@ export default function AdminPaymentsPlaygroundPage() {
                   />
                 )}
               </div>
-            ) : activeTab === 'REPORTS' ? (
-              <div className="space-y-5">
-                <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {cashCurrentShift?.id ? (
-                        <AdminSegmentedControl
-                          ariaLabel="Alcance del reporte POS"
-                          value={posReportScope}
-                          onChange={(nextValue) => setPosReportScope(nextValue as PosReportScope)}
-                          options={[
-                            { value: 'shift', label: 'Turno actual' },
-                            { value: 'period', label: 'Período' },
-                          ]}
-                          className="w-fit"
-                        />
-                      ) : (
-                        <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2 text-[12px] font-semibold text-p-text-secondary">
-                          Reporte por período
-                        </div>
-                      )}
-
-                      <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2 text-[12px] text-p-text-muted">
-                        {posReportScope === 'shift' && cashCurrentShift
-                          ? `Caja ${cashCurrentShift.cashRegister?.name || '-'} · Turno abierto`
-                          : `Período ${cashPeriodLabel}`}
-                      </div>
-                    </div>
-
-                    {posReportScope === 'period' ? (
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
-                          {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
-                            <button
-                              key={`reports-${period}`}
-                              type="button"
-                              onClick={() => {
-                                setCashActivePeriod(period);
-                                setCashPeriodOffset(0);
-                              }}
-                              className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
-                                cashActivePeriod === period
-                                  ? 'bg-p-surface text-p-accent shadow-sm'
-                                  : 'text-p-text-muted hover:text-p-text-secondary'
-                              }`}
-                            >
-                              {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface px-1 py-1">
-                          <button
-                            type="button"
-                            onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
-                          >
-                            <ChevronLeft size={16} />
-                          </button>
-                          <span className="min-w-[120px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
-                          <button
-                            type="button"
-                            onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
-                            disabled={cashPeriodOffset === 0}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:text-p-text-muted disabled:hover:bg-transparent"
-                          >
-                            <ChevronRight size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                {posReportError && (
-                  <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] text-p-error">
-                    {posReportError}
-                  </div>
-                )}
-                {posReportLoading ? (
-                  <div className="flex h-40 items-center justify-center">
-                    <div className="inline-flex items-center gap-2 text-[13px] text-p-text-muted">
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-p-accent border-t-transparent" />
-                      Cargando reporte...
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {[
-                        { label: 'Ventas POS', value: formatMoney(posReport?.totals.salesTotal || 0), help: posReportScope === 'shift' && cashCurrentShift ? 'Turno actual' : `Período ${cashPeriodLabel}` },
-                        { label: 'Cobrado', value: formatMoney(posReport?.totals.paidTotal || 0), help: 'Pagos registrados en el alcance actual' },
-                        { label: 'Pendiente', value: formatMoney(posReport?.totals.pendingTotal || 0), help: 'Saldo abierto de cuentas POS' },
-                        { label: 'Anulado', value: formatMoney(posReport?.totals.voidedTotal || 0), help: 'Ventas anuladas sin cobro' },
-                        { label: 'Productos', value: formatMoney(posReport?.totals.productTotal || 0), help: 'Facturación de productos' },
-                        { label: 'Servicios', value: formatMoney(posReport?.totals.serviceTotal || 0), help: 'Facturación de servicios' },
-                      ].map((card) => (
-                        <AdminPanel
-                          key={card.label}
-                          title={card.label}
-                          description={card.help}
-                          headerClassName="pl-4 pr-4 py-3"
-                          bodyClassName="px-4 pb-4 pt-0"
-                        >
-                          <p className="text-[22px] font-semibold text-p-text">{card.value}</p>
-                        </AdminPanel>
-                      ))}
-                    </div>
-
-                    {/* Open BAR Accounts */}
-                    <AdminPanel
-                      title="Cuentas BAR abiertas"
-                      description={`${(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length} cuenta${(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length !== 1 ? 's' : ''} pendiente${(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length !== 1 ? 's' : ''} de cobro`}
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {(posReport?.accounts || []).filter((account) => account.status === 'OPEN').length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">No hay cuentas BAR abiertas</p>
-                      ) : (
-                        <div className="divide-y divide-p-border">
-                          {(posReport?.accounts || []).filter((account) => account.status === 'OPEN').map((account) => (
-                            <div key={account.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                              <div className="min-w-0">
-                                <p className="truncate text-[13px] font-medium text-p-text">
-                                  {account.clientName || `Cuenta ${shortCode(account.id)}`}
-                                </p>
-                                <p className="text-[11px] text-p-text-muted">
-                                  {formatRelativeDate(account.createdAt)} · Pendiente {formatMoney(account.pending)}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => navigateToPaymentsTab('ACCOUNTS')}
-                                className="shrink-0 text-[11px] text-p-accent underline underline-offset-2"
-                              >
-                                Ver en Cuentas
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </AdminPanel>
-
-                    {/* Sales by Product */}
-                    <AdminPanel
-                      title="Ventas por producto"
-                      description="Facturación POS agrupada por producto."
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {!posReport || posReport.byProduct.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
-                      ) : (
-                        <>
-                          <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted sm:grid">
-                            <p>Producto</p><p className="text-right">Cantidad</p><p className="text-right">Total</p>
-                          </div>
-                          <div className="divide-y divide-p-border">
-                            {posReport.byProduct.map((row, i) => (
-                              <div key={i} className="grid grid-cols-[minmax(0,1fr)_100px_120px] px-4 py-3">
-                                <p className="truncate text-[13px] font-medium text-p-text">{row.name}</p>
-                                <p className="text-right text-[13px] text-p-text-secondary">×{row.quantity}</p>
-                                <p className="text-right text-[13px] font-semibold text-p-text">{formatMoney(row.total)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </AdminPanel>
-
-                    {/* Sales by Service */}
-                    <AdminPanel
-                      title="Ventas por servicio"
-                      description="Facturación POS agrupada por servicio."
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {!posReport || posReport.byService.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
-                      ) : (
-                        <>
-                          <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted sm:grid">
-                            <p>Servicio</p><p className="text-right">Cantidad</p><p className="text-right">Total</p>
-                          </div>
-                          <div className="divide-y divide-p-border">
-                            {posReport.byService.map((row) => (
-                              <div key={row.name} className="grid grid-cols-[minmax(0,1fr)_100px_120px] px-4 py-3">
-                                <p className="truncate text-[13px] font-medium text-p-text">{row.name}</p>
-                                <p className="text-right text-[13px] text-p-text-secondary">×{row.quantity}</p>
-                                <p className="text-right text-[13px] font-semibold text-p-text">{formatMoney(row.total)}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </AdminPanel>
-
-                    <AdminPanel
-                      title="Cuentas POS"
-                      description="Estado de cuentas creadas en el alcance actual."
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {!posReport || posReport.accounts.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin cuentas para el período</p>
-                      ) : (
-                        <>
-                          <div className="hidden grid-cols-[minmax(0,1.2fr)_120px_120px_120px_96px] border-b border-p-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted xl:grid">
-                            <p>Cuenta</p>
-                            <p className="text-right">Total</p>
-                            <p className="text-right">Cobrado</p>
-                            <p className="text-right">Pendiente</p>
-                            <p className="text-right">Estado</p>
-                          </div>
-                          <div className="divide-y divide-p-border">
-                            {posReport.accounts.map((account) => (
-                              <div key={account.id} className="grid gap-2 px-4 py-3 xl:grid-cols-[minmax(0,1.2fr)_120px_120px_120px_96px] xl:items-center">
-                                <div className="min-w-0">
-                                  <p className="truncate text-[13px] font-medium text-p-text">{account.clientName}</p>
-                                  <p className="text-[11px] text-p-text-muted">{account.label} · {formatRelativeDate(account.createdAt)}</p>
-                                </div>
-                                <p className="text-[13px] font-semibold text-p-text xl:text-right">{formatMoney(account.total)}</p>
-                                <p className="text-[13px] text-p-positive xl:text-right">{formatMoney(account.paid)}</p>
-                                <p className="text-[13px] text-p-text-secondary xl:text-right">{formatMoney(account.pending)}</p>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted xl:text-right">{account.status === 'VOIDED' ? 'Anulada' : account.status === 'OPEN' ? 'Abierta' : 'Cerrada'}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </AdminPanel>
-
-                    {/* Payments by Method */}
-                    <AdminPanel
-                      title="Pagos por método"
-                      description="Cobros de cuentas BAR desglosados por medio de pago."
-                      headerClassName="pl-4 pr-3 py-3"
-                      bodyClassName="p-0"
-                    >
-                      {!posReport || posReport.paymentsByMethod.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-[13px] text-p-text-muted">Sin datos para el período</p>
-                      ) : (
-                        <div className="divide-y divide-p-border">
-                          {posReport.paymentsByMethod.map((row) => (
-                            <div key={row.method} className="flex items-center justify-between gap-3 px-4 py-3">
-                              <div>
-                                <p className="text-[13px] font-medium text-p-text">{paymentMethodLabel(row.method)}</p>
-                                <p className="text-[11px] text-p-text-muted">{row.count} cobro{row.count !== 1 ? 's' : ''}</p>
-                              </div>
-                              <p className="shrink-0 text-[13px] font-semibold text-p-positive">{formatMoney(row.total)}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </AdminPanel>
-                  </>
-                )}
-              </div>
             ) : (
               <div className="space-y-4">
-                <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
-                      {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
-                        <button
-                          key={`refunds-${period}`}
-                          type="button"
-                          onClick={() => {
-                            setCashActivePeriod(period);
-                            setCashPeriodOffset(0);
-                          }}
-                          className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
-                            cashActivePeriod === period
-                              ? 'bg-p-surface text-p-accent shadow-sm'
-                              : 'text-p-text-muted hover:text-p-text-secondary'
-                          }`}
-                        >
-                          {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface px-1 py-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
+                    {([
+                      { id: 'ALL', label: 'Todas' },
+                      { id: 'TODO', label: refundsTodo.count > 0 ? `Por hacer (${refundsTodo.count})` : 'Por hacer' },
+                      { id: 'DONE', label: 'Devueltas' },
+                    ] as Array<{ id: 'ALL' | 'TODO' | 'DONE'; label: string }>).map((option) => (
                       <button
+                        key={`refund-stage-${option.id}`}
                         type="button"
-                        onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
-                      >
-                        <ChevronLeft size={16} />
-                      </button>
-                      <span className="min-w-[120px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
-                      <button
-                        type="button"
-                        onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
-                        disabled={cashPeriodOffset === 0}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:text-p-text-muted disabled:hover:bg-transparent"
-                      >
-                        <ChevronRight size={16} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <MetricCard label="Pendientes (período)" value={filteredPendingRefunds.length} format="number" valueColor="var(--accent-fg)" />
-                  <MetricCard label="Total recientes (período)" value={filteredRecentRefunds.length} format="number" valueColor="var(--positive-fg)" />
-                  <MetricCard label="Monto pendiente (período)" value={filteredPendingRefundAmount} format="money" />
-                </div>
-
-                <AdminPanel
-                  title="Devoluciones recientes"
-                  description="Listado real del período según filtros seleccionados."
-                  headerClassName="pl-4 pr-2 py-3"
-                  actions={(
-                    <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
-                      <button
-                        type="button"
-                        onClick={openRefundRequestSelector}
-                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800"
-                      >
-                        <Plus size={14} strokeWidth={2.5} />
-                        Nueva devolución
-                      </button>
-
-                      <label className="relative w-full sm:w-[260px] sm:flex-none">
-                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                        <input
-                          type="text"
-                          value={refundSearchTerm}
-                          onChange={(event) => setRefundSearchTerm(event.target.value)}
-                          placeholder="Buscar por código, motivo o referencia"
-                          className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
-                        />
-                      </label>
-
-                      <select
-                        value={refundStatusFilter}
-                        onChange={(event) => setRefundStatusFilter(event.target.value as RefundStatusFilter)}
-                        className="h-8 min-w-[145px] rounded-xl border border-p-border bg-p-surface px-2.5 text-[12px] outline-none focus:border-p-accent"
-                      >
-                        <option value="ALL">Todos los estados</option>
-                        <option value="REQUESTED">Solicitada</option>
-                        <option value="APPROVED">Aprobada</option>
-                        <option value="READY_TO_EXECUTE">Lista</option>
-                        <option value="EXECUTED">Ejecutada</option>
-                        <option value="FAILED">Fallida</option>
-                        <option value="CANCELLED">Cancelada</option>
-                      </select>
-
-                      <select
-                        value={refundMethodFilter}
-                        onChange={(event) => setRefundMethodFilter(event.target.value as RefundMethodFilter)}
-                        className="h-8 min-w-[165px] rounded-xl border border-p-border bg-p-surface px-2.5 text-[12px] outline-none focus:border-p-accent"
-                      >
-                        <option value="ALL">Todos los métodos</option>
-                        <option value="CASH">Efectivo</option>
-                        <option value="TRANSFER">Transferencia</option>
-                        <option value="CARD_REVERSAL">Reverso tarjeta</option>
-                        <option value="CREDIT_NOTE">Nota de crédito</option>
-                      </select>
-                    </AdminFilterToolbar>
-                  )}
-                  bodyClassName="p-0"
-                >
-                  {filteredRecentRefunds.length > 0 && (
-                    <>
-                      <div className="hidden grid-cols-[130px_140px_minmax(0,1fr)_140px_140px_120px_120px_110px] border-b border-p-border px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted lg:grid">
-                        <p>Código</p>
-                        <p>Fecha</p>
-                        <p>Motivo</p>
-                        <p>Método</p>
-                        <p>Pago / Cuenta</p>
-                        <p>Estado</p>
-                        <p className="text-right">Monto</p>
-                        <p className="text-right">Acciones</p>
-                      </div>
-                      <div className="hidden divide-y divide-p-border lg:block">
-                        {filteredRecentRefunds.map((refund) => {
-                          const isSelected = selectedRefundId === refund.id;
-                          return (
-                          <button
-                            key={`refund-grid-${refund.id}`}
-                            type="button"
-                            onClick={() => setSelectedRefundId(refund.id)}
-                            className={`group relative grid min-h-[46px] w-full grid-cols-[130px_140px_minmax(0,1fr)_140px_140px_120px_120px_110px] items-center px-4 py-3 text-left text-[13px] transition ${
-                              isSelected ? 'bg-p-surface-2 text-p-text' : 'text-p-text-secondary hover:bg-p-surface-2'
-                            }`}
-                          >
-                            {isSelected ? <span className="absolute -inset-y-px left-0 w-0.5 rounded-r-full bg-ink-900" aria-hidden="true" /> : null}
-                            <p className="font-semibold text-p-text">{refundCodeLabel(refund)}</p>
-                            <p>{formatDateTime24(refund.createdAt)}</p>
-                            <p className="truncate">{refund.reason?.trim() || refundReasonTypeLabel(refund.reasonType)}</p>
-                            <p>{refundExecutionMethodLabel(refund.executionMethod)}</p>
-                            <p className="truncate text-p-text-secondary">P:{shortId(refund.paymentId)} · C:{shortId(refund.accountId)}</p>
-                            <div>
-                              <span className="rounded-full bg-p-surface-3 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
-                                {formatRefundStatus(refund.status)}
-                              </span>
-                            </div>
-                            <p className="text-right font-semibold text-p-text">{formatMoney(refund.amount)}</p>
-                            <div
-                              className={`flex min-h-8 items-center justify-end gap-1.5 transition-opacity ${
-                                isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                              }`}
-                              onClick={(event) => event.stopPropagation()}
-                            >
-                              {refundQuickActions(refund).length === 0 ? (
-                                <span className="inline-flex h-8 w-8 items-center justify-center opacity-0" aria-hidden="true">
-                                  Acción
-                                </span>
-                              ) : null}
-                              {refundQuickActions(refund).map((quickAction) => (
-                                <button
-                                  key={`${refund.id}-${quickAction.key}`}
-                                  type="button"
-                                  title={quickAction.label}
-                                  aria-label={quickAction.label}
-                                  onClick={() => openRefundActionConfirm(refund, quickAction.action)}
-                                  className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${
-                                    quickAction.tone === 'danger'
-                                      ? 'border-p-error bg-p-error-bg text-p-error hover:bg-p-error-bg'
-                                      : quickAction.tone === 'muted'
-                                        ? 'border-p-border bg-p-surface text-p-text-muted hover:bg-p-surface-2'
-                                        : 'border-p-border bg-p-surface text-p-accent hover:bg-p-positive-bg'
-                                  }`}
-                                >
-                                  {quickAction.icon}
-                                </button>
-                              ))}
-                            </div>
-                          </button>
-                        )})}
-                      </div>
-                    </>
-                  )}
-                  {filteredRecentRefunds.length === 0 && (
-                    <div className="hidden px-3 py-8 text-center lg:block">
-                      <p className="text-[13px] font-semibold text-p-text-secondary">No hay devoluciones para este período</p>
-                      <p className="mt-1 text-[12px] text-p-text-muted">Proba otro rango o ajustá los filtros para ver resultados.</p>
-                    </div>
-                  )}
-                  <div className="divide-y divide-p-border lg:hidden">
-                    {filteredRecentRefunds.map((refund) => {
-                      const isSelected = selectedRefundId === refund.id;
-                      return (
-                      <button
-                        key={refund.id}
-                        type="button"
-                        onClick={() => setSelectedRefundId(refund.id)}
-                        className={`relative block min-h-[46px] w-full px-4 py-3 text-left text-[13px] transition ${
-                          isSelected ? 'bg-p-surface-2 text-p-text' : 'text-p-text-secondary hover:bg-p-surface-2'
+                        aria-pressed={refundStageFilter === option.id}
+                        onClick={() => setRefundStageFilter(option.id)}
+                        className={`h-9 rounded-lg px-3.5 text-[13px] font-semibold transition ${
+                          refundStageFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
                         }`}
                       >
-                        {isSelected ? <span className="absolute -inset-y-px left-0 w-0.5 rounded-r-full bg-ink-900" aria-hidden="true" /> : null}
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="font-semibold text-p-text">{refundCodeLabel(refund)}</p>
-                          <span className="rounded-full bg-p-surface-3 px-2 py-0.5 text-[10px] font-semibold text-p-text-secondary">
-                            {formatRefundStatus(refund.status)}
-                          </span>
-                        </div>
-                        <p>{formatMoney(refund.amount)} · {formatDateTime24(refund.createdAt)}</p>
+                        {option.label}
                       </button>
-                    )})}
-                    {filteredRecentRefunds.length === 0 && (
-                      <div className="px-3 py-8 text-center">
-                        <p className="text-[13px] font-semibold text-p-text-secondary">No hay devoluciones para este período</p>
-                        <p className="mt-1 text-[12px] text-p-text-muted">Proba otro rango o ajustá los filtros para ver resultados.</p>
-                      </div>
-                    )}
+                    ))}
                   </div>
-                </AdminPanel>
+                  {refundStageFilter !== 'TODO' && (
+                    <CashPeriodPicker
+                      period={cashActivePeriod}
+                      label={cashPeriodLabel}
+                      offset={cashPeriodOffset}
+                      onPeriod={(period) => {
+                        setCashActivePeriod(period);
+                        setCashPeriodOffset(0);
+                      }}
+                      onOffset={setCashPeriodOffset}
+                    />
+                  )}
+                  <label className="relative min-w-[180px] flex-1 sm:max-w-[280px]">
+                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                    <input
+                      type="text"
+                      value={refundSearchTerm}
+                      onChange={(event) => setRefundSearchTerm(event.target.value)}
+                      placeholder="Buscar cliente o motivo"
+                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={openRefundRequestSelector}
+                    className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+                  >
+                    <Plus size={15} strokeWidth={2.5} />
+                    Devolver plata
+                  </button>
+                </div>
+
+                {refundsTodo.count > 0 && refundStageFilter !== 'TODO' && (
+                  <button
+                    type="button"
+                    onClick={() => setRefundStageFilter('TODO')}
+                    className="w-full rounded-xl bg-p-warning-bg px-4 py-3 text-left text-[14px] text-p-warning"
+                  >
+                    <span className="font-semibold">
+                      {refundsTodo.count === 1 ? 'Hay 1 devolución por hacer' : `Hay ${refundsTodo.count} devoluciones por hacer`}
+                    </span>{' '}
+                    ({formatMoney(refundsTodo.amount)}). Ver →
+                  </button>
+                )}
+
+                {filteredRecentRefunds.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-p-border px-4 py-10 text-center">
+                    <p className="text-[14px] font-semibold text-p-text-secondary">
+                      {refundStageFilter === 'TODO' ? 'No hay nada por devolver' : 'No hay devoluciones en este período'}
+                    </p>
+                    <p className="mt-1 text-[12px] text-p-text-muted">
+                      {refundStageFilter === 'TODO'
+                        ? 'Todas las devoluciones están hechas.'
+                        : 'Cambiá el período para ver otras fechas.'}
+                    </p>
+                  </div>
+                ) : (
+                  <ul className="space-y-2">
+                    {filteredRecentRefunds.map((refund) => {
+                      const isSelected = selectedRefundId === refund.id;
+                      const account = allAccounts.find((row) => row.id === refund.accountId);
+                      const who =
+                        account?.booking?.clientName?.trim() ||
+                        account?.client?.name?.trim() ||
+                        (account ? accountKindLabel[account.sourceType] : 'Cuenta');
+                      const status = String(refund.status || '').toUpperCase();
+                      const rawReason = refund.reason?.trim() || '';
+                      const reason = /^Cancelaci[oó]n reserva/i.test(rawReason)
+                        ? 'Reserva cancelada'
+                        : rawReason.replace(/\s*#\S+/g, '').trim() || refundReasonTypeLabel(refund.reasonType);
+                      const bookingWhere = account?.booking?.courtName
+                        ? ` · ${account.booking.courtName}${
+                            account.booking.startDateTime ? ` ${formatAccountDay(new Date(account.booking.startDateTime))}` : ''
+                          }`
+                        : '';
+                      const actions = refundQuickActions(refund);
+                      const created = new Date(refund.createdAt);
+                      const when = Number.isNaN(created.getTime())
+                        ? ''
+                        : `${formatAccountDay(created)} ${formatAccountTime(refund.createdAt) || ''}`;
+                      return (
+                        <li key={`refund-row-${refund.id}`}>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setSelectedRefundId(refund.id)}
+                            onKeyDown={(event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return;
+                              event.preventDefault();
+                              setSelectedRefundId(refund.id);
+                            }}
+                            className={`grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 rounded-xl border px-4 py-3 outline-none transition sm:grid-cols-[104px_minmax(0,1fr)_auto] ${
+                              isSelected ? 'border-ink-900 bg-p-surface-2' : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                            }`}
+                          >
+                            <p className="col-span-2 text-[12px] text-p-text-muted sm:col-span-1">{when}</p>
+                            <div className="min-w-0">
+                              <p className="truncate text-[14px] font-semibold text-p-text">{who}</p>
+                              <p className="truncate text-[12px] text-p-text-muted">
+                                {reason}
+                                {bookingWhere} · {refundExecutionMethodLabel(refund.executionMethod)}
+                              </p>
+                            </div>
+                            <div className="flex items-center justify-end gap-3">
+                              <div className="text-right">
+                                <p className="text-[14px] font-bold tabular-nums text-p-text">{formatMoney(refund.amount)}</p>
+                                <p className={`text-[11px] font-semibold ${refundStatusTone(status)}`}>{formatRefundStatus(status)}</p>
+                              </div>
+                              {actions.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    openRefundActionConfirm(refund, actions[0].action);
+                                  }}
+                                  onKeyDown={(event) => event.stopPropagation()}
+                                  className="h-9 rounded-lg bg-ink-900 px-3.5 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+                                >
+                                  {actions[0].action === 'approve'
+                                    ? 'Aprobar'
+                                    : actions[0].action === 'execute'
+                                      ? 'Ya la devolví'
+                                      : actions[0].action === 'retry'
+                                        ? 'Reintentar'
+                                        : actions[0].label}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             )}
           </section>
@@ -2959,156 +3046,145 @@ export default function AdminPaymentsPlaygroundPage() {
         </AdminDrawerSection>
       </AdminDrawer>
 
-      <AdminDrawer
-        open={Boolean(selectedRefund)}
-        onClose={closeRefundDetailDrawer}
-        title="Detalle de devolución"
-        subtitle={selectedRefund ? `${refundCodeLabel(selectedRefund)} · ${formatMoney(selectedRefund.amount)}` : undefined}
-        statusChip={selectedRefund ? formatRefundStatus(selectedRefund.status) : undefined}
-        statusChipClassName={
-          selectedRefund?.status === 'EXECUTED'
-            ? 'bg-p-positive-bg text-p-positive'
-            : selectedRefund?.status === 'FAILED' || selectedRefund?.status === 'CANCELLED'
-              ? 'bg-p-error-bg text-p-error'
-              : 'bg-p-positive-bg text-p-accent'
-        }
-        size="md"
-        footer={
-          selectedRefund ? (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {selectedRefund.status === 'REQUESTED' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'cancel')}
-                    className="h-10 rounded-xl border border-p-error bg-p-error-bg px-3 text-[13px] font-semibold text-p-error transition hover:bg-p-error-bg"
-                  >
-                    Cancelar
+      {(() => {
+        // Devolución: a quién, cuánto, cómo y qué pasó. Sin códigos internos.
+        const refund = selectedRefund;
+        const account = refund ? allAccounts.find((row) => row.id === refund.accountId) : null;
+        const who =
+          account?.booking?.clientName?.trim() ||
+          account?.client?.name?.trim() ||
+          (account ? accountKindLabel[account.sourceType] : 'Devolución');
+        const rawReason = refund?.reason?.trim() || '';
+        const reason = refund
+          ? /^Cancelaci[oó]n reserva/i.test(rawReason)
+            ? 'Reserva cancelada'
+            : rawReason.replace(/\s*#\S+/g, '').trim() || refundReasonTypeLabel(refund.reasonType)
+          : '';
+        const bookingLine = account?.booking?.courtName
+          ? [
+              account.booking.startDateTime ? formatAccountDay(new Date(account.booking.startDateTime)) : '',
+              formatAccountTime(account.booking.startDateTime) || '',
+              account.booking.courtName,
+            ]
+              .filter(Boolean)
+              .join(' · ')
+          : '';
+        const when = (value?: string | null) => {
+          if (!value) return '';
+          const d = new Date(value);
+          if (Number.isNaN(d.getTime())) return '';
+          return `${formatAccountDay(d)} ${formatAccountTime(value) || ''}`.trim();
+        };
+        const steps = refund
+          ? ([
+              ['Pedida', refund.createdAt],
+              ['Aprobada', refund.approvedAt],
+              ['Devuelta', refund.executedAt],
+              ['Anulada', refund.cancelledAt],
+              ['No se pudo devolver', refund.failedAt],
+            ] as Array<[string, string | null | undefined]>).filter(([, value]) => Boolean(value))
+          : [];
+        const notes = refund
+          ? ([
+              ['Nota', refund.executionNotes],
+              ['Comprobante', refund.executionReference],
+              ['Por qué se anuló', refund.cancelReason],
+              ['Por qué falló', refund.failedReason],
+            ] as Array<[string, string | null | undefined]>).filter(([, value]) => Boolean(String(value || '').trim()))
+          : [];
+        const status = String(refund?.status || '').toUpperCase();
+        const secondaryClass =
+          'text-[13px] font-semibold text-p-text-secondary hover:underline underline-offset-2';
+        const primaryClass =
+          'h-11 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 transition hover:bg-ink-800';
+        return (
+          <AdminDrawer
+            open={Boolean(refund)}
+            onClose={closeRefundDetailDrawer}
+            title={who}
+            subtitle={refund ? [reason, bookingLine].filter(Boolean).join(' · ') : undefined}
+            statusChip={refund && status !== 'EXECUTED' ? formatRefundStatus(status) : undefined}
+            statusChipClassName={
+              status === 'FAILED' || status === 'CANCELLED'
+                ? 'bg-p-surface-3 text-p-text-secondary'
+                : 'bg-p-warning-bg text-p-warning'
+            }
+            size="md"
+            footer={
+              refund && REFUND_TODO_STATUSES.has(status) ? (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                  <button type="button" onClick={() => openRefundActionConfirm(refund, 'cancel')} className={secondaryClass}>
+                    Anular
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'approve')}
-                    className="h-10 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
-                  >
-                    Aprobar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'approve_execute')}
-                    className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
-                  >
-                    Aprobar y ejecutar
-                  </button>
-                </>
-              )}
-              {(selectedRefund.status === 'APPROVED' || selectedRefund.status === 'READY_TO_EXECUTE') && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'cancel')}
-                    className="h-10 rounded-xl border border-p-error bg-p-error-bg px-3 text-[13px] font-semibold text-p-error transition hover:bg-p-error-bg"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'fail')}
-                    className="h-10 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
-                  >
-                    Marcar fallida
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'execute')}
-                    className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
-                  >
-                    Ejecutar
-                  </button>
-                </>
-              )}
-              {selectedRefund.status === 'FAILED' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'cancel')}
-                    className="h-10 rounded-xl border border-p-error bg-p-error-bg px-3 text-[13px] font-semibold text-p-error transition hover:bg-p-error-bg"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRefundActionConfirm(selectedRefund, 'retry')}
-                    className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
-                  >
-                    Reintentar
-                  </button>
-                </>
-              )}
-            </div>
-          ) : undefined
-        }
-      >
-        {selectedRefund && (
-          <>
-            <AdminDrawerSection title="Resumen" className={drawerSectionCardClass}>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Monto</p>
-                  <p className="mt-1 text-[18px] font-bold text-p-text">{formatMoney(selectedRefund.amount)}</p>
+                  {status === 'REQUESTED' && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'approve')} className={secondaryClass}>
+                      Solo aprobar
+                    </button>
+                  )}
+                  {(status === 'APPROVED' || status === 'READY_TO_EXECUTE') && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'fail')} className={secondaryClass}>
+                      No se pudo devolver
+                    </button>
+                  )}
+                  <div className="flex-1" />
+                  {status === 'REQUESTED' && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'approve_execute')} className={primaryClass}>
+                      Aprobar y devolver
+                    </button>
+                  )}
+                  {(status === 'APPROVED' || status === 'READY_TO_EXECUTE') && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'execute')} className={primaryClass}>
+                      Ya la devolví
+                    </button>
+                  )}
+                  {status === 'FAILED' && (
+                    <button type="button" onClick={() => openRefundActionConfirm(refund, 'retry')} className={primaryClass}>
+                      Reintentar
+                    </button>
+                  )}
                 </div>
-                <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">Método</p>
-                  <p className="mt-1 text-[14px] font-bold text-p-text">{refundExecutionMethodLabel(selectedRefund.executionMethod)}</p>
+              ) : undefined
+            }
+          >
+            {refund && (
+              <div className="space-y-5">
+                <div>
+                  <p className="text-[13px] text-p-text-muted">{status === 'EXECUTED' ? 'Se devolvió' : 'A devolver'}</p>
+                  <p className="text-[30px] font-bold leading-tight tabular-nums text-p-text">{formatMoney(refund.amount)}</p>
+                  <p className="text-[13px] text-p-text-secondary">En {refundExecutionMethodLabel(refund.executionMethod).toLowerCase()}</p>
                 </div>
-              </div>
-            </AdminDrawerSection>
 
-            <AdminDrawerSection title="Referencias" className={drawerSectionCardClass}>
-              <div className="divide-y divide-p-border rounded-xl border border-p-border bg-p-surface-2 px-3 text-[12px] text-p-text-secondary">
-                <div className="flex items-center justify-between gap-3 py-2.5">
-                  <span>Pago</span>
-                  <span className="font-mono font-semibold text-p-text">{shortCode(selectedRefund.paymentId)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 py-2.5">
-                  <span>Cuenta</span>
-                  <span className="font-mono font-semibold text-p-text">{shortCode(selectedRefund.accountId)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 py-2.5">
-                  <span>Turno de caja</span>
-                  <span className="font-mono font-semibold text-p-text">{selectedRefund.cashShiftId ? shortCode(selectedRefund.cashShiftId) : '-'}</span>
-                </div>
-              </div>
-            </AdminDrawerSection>
-
-            <AdminDrawerSection title="Trazabilidad" className={drawerSectionCardClass}>
-              <div className="divide-y divide-p-border rounded-xl border border-p-border bg-p-surface-2 px-3 text-[12px]">
-                {[
-                  ['Creada', selectedRefund.createdAt],
-                  ['Aprobada', selectedRefund.approvedAt],
-                  ['Ejecutada', selectedRefund.executedAt],
-                  ['Cancelada', selectedRefund.cancelledAt],
-                  ['Fallida', selectedRefund.failedAt],
-                ].map(([label, value]) => (
-                  <div key={label} className="grid grid-cols-[104px_minmax(0,1fr)] items-center gap-3 py-2.5">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-p-text-muted">{label}</p>
-                    <p className="font-semibold text-p-text">{value ? formatDateTime24(String(value)) : '-'}</p>
+                {steps.length > 0 && (
+                  <div className="border-t border-p-border pt-4">
+                    <p className="text-[13px] font-semibold text-p-text">Qué pasó</p>
+                    <ul className="mt-1 divide-y divide-p-border">
+                      {steps.map(([label, value]) => (
+                        <li key={label} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
+                          <span className="text-p-text">{label}</span>
+                          <span className="tabular-nums text-p-text-muted">{when(value)}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                ))}
-              </div>
-            </AdminDrawerSection>
+                )}
 
-            <AdminDrawerSection title="Notas" className={drawerSectionCardClass}>
-              <div className="divide-y divide-p-border rounded-xl border border-p-border bg-p-surface-2 px-3 text-[12px] text-p-text-secondary">
-                <p className="py-2.5"><span className="font-semibold text-p-text">Motivo:</span> {selectedRefund.reason?.trim() || refundReasonTypeLabel(selectedRefund.reasonType)}</p>
-                <p className="py-2.5"><span className="font-semibold text-p-text">Nota:</span> {selectedRefund.executionNotes?.trim() || '-'}</p>
-                <p className="py-2.5"><span className="font-semibold text-p-text">Referencia:</span> {selectedRefund.executionReference?.trim() || '-'}</p>
-                <p className="py-2.5"><span className="font-semibold text-p-text">Cancelación:</span> {selectedRefund.cancelReason?.trim() || '-'}</p>
-                <p className="py-2.5"><span className="font-semibold text-p-text">Fallo:</span> {selectedRefund.failedReason?.trim() || '-'}</p>
+                {notes.length > 0 && (
+                  <div className="border-t border-p-border pt-4">
+                    <ul className="space-y-2">
+                      {notes.map(([label, value]) => (
+                        <li key={label} className="text-[13px]">
+                          <span className="text-p-text-muted">{label}: </span>
+                          <span className="text-p-text">{String(value).trim()}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
-            </AdminDrawerSection>
-          </>
-        )}
-      </AdminDrawer>
+            )}
+          </AdminDrawer>
+        );
+      })()}
 
       <AdminAppModal
         show={Boolean(refundActionConfirm && refundActionCopyValue)}
@@ -3172,9 +3248,9 @@ export default function AdminPaymentsPlaygroundPage() {
             : cashSidebarView === 'close_shift'
               ? 'Cerrar caja'
               : cashSidebarView === 'movement_create'
-                ? 'Registrar movimiento'
+                ? 'Ingreso o egreso'
                 : cashSidebarView === 'close_report'
-                  ? 'Detalle de arqueo'
+                  ? 'Cierres de caja'
                   : cashSidebarView === 'product_sale'
                     ? 'Venta mostrador'
                     : 'Caja'
@@ -3183,13 +3259,13 @@ export default function AdminPaymentsPlaygroundPage() {
           cashSidebarView === 'open_shift'
             ? 'Configura caja registradora y monto inicial.'
             : cashSidebarView === 'close_shift'
-              ? 'Ingresa el efectivo contado para cerrar el turno.'
+              ? 'Mirá qué pasó en el turno, contá el efectivo y anotá cuánto hay.'
               : cashSidebarView === 'movement_create'
-                ? 'Crea ingresos o egresos sin saturar la vista principal.'
+                ? 'Plata que entra o sale de la caja sin ser un cobro: un pago a un proveedor, cambio para el cajón…'
                 : cashSidebarView === 'close_report'
-                  ? 'Resumen ampliado del ultimo cierre registrado.'
+                  ? 'Lo que se contó en cada cierre.'
                   : cashSidebarView === 'product_sale'
-                    ? 'Seleccioná productos y creá la cuenta para cobrar.'
+                    ? 'Tocá lo que lleva y cobrá. El medio de pago se elige en el paso siguiente.'
                     : undefined
         }
         statusChip={cashCurrentShift ? 'Caja abierta' : 'Caja cerrada'}
@@ -3226,7 +3302,7 @@ export default function AdminPaymentsPlaygroundPage() {
                 className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Check size={14} />
-                {closingCashShift ? 'Cerrando...' : 'Confirmar cierre'}
+                {closingCashShift ? 'Cerrando...' : 'Cerrar caja'}
               </button>
             )}
 
@@ -3238,7 +3314,7 @@ export default function AdminPaymentsPlaygroundPage() {
                 className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Plus size={14} />
-                {submittingCashMovement ? 'Registrando...' : 'Registrar movimiento'}
+                {submittingCashMovement ? 'Guardando...' : cashNewMovement.type === 'EXPENSE' ? 'Anotar egreso' : 'Anotar ingreso'}
               </button>
             )}
 
@@ -3250,7 +3326,7 @@ export default function AdminPaymentsPlaygroundPage() {
                 className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <CreditCard size={14} />
-                {posSubmitting ? 'Creando cuenta...' : 'Crear cuenta y cobrar'}
+                {posSubmitting ? 'Preparando...' : posQuote && posQuote.finalTotal > 0 ? `Cobrar ${formatMoney(posQuote.finalTotal)}` : 'Cobrar'}
               </button>
             )}
           </div>
@@ -3295,130 +3371,190 @@ export default function AdminPaymentsPlaygroundPage() {
 
         {cashSidebarView === 'close_shift' && (
           <form id="cash-close-shift-form" className="space-y-5" onSubmit={handleCloseShift}>
-            <AdminDrawerSection title="Turno actual" className={drawerSectionCardClass}>
-              <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-[12px] text-p-text-secondary">
-                <p><span className="font-semibold">Caja:</span> {cashCurrentShift?.cashRegister?.name || '-'}</p>
-                <p><span className="font-semibold">Apertura:</span> {cashCurrentShift?.openedAt ? formatDateTime24(cashCurrentShift.openedAt) : '-'}</p>
-                <p><span className="font-semibold">Monto inicial:</span> {formatMoney(Number(cashCurrentShift?.openingAmount || 0))}</p>
-              </div>
-            </AdminDrawerSection>
-
-            <AdminDrawerSection title="Arqueo" className={drawerSectionCardClass}>
-              <label className="block">
-                <span className="text-[12px] font-medium text-p-text-secondary">Dinero contado al cierre</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={cashCloseShiftForm.countedCash}
-                  onChange={(event) => setCashCloseShiftForm({ countedCash: event.target.value })}
-                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                  placeholder="0"
-                />
-              </label>
-            </AdminDrawerSection>
+            {(() => {
+              const expectedCash = Number(
+                cashCurrentShift?.expectedCash ?? cashCurrentShift?.openingAmount ?? 0
+              );
+              const countedRaw = cashCloseShiftForm.countedCash.trim();
+              const counted = Number(countedRaw);
+              const hasCounted = countedRaw.length > 0 && Number.isFinite(counted);
+              const difference = hasCounted ? Math.round((counted - expectedCash) * 100) / 100 : 0;
+              return (
+                <div className="space-y-4">
+                  <CashCloseRecap
+                    openingAmount={Number(cashCurrentShift?.openingAmount || 0)}
+                    breakdown={cashCurrentShift?.breakdown}
+                    expectedCash={expectedCash}
+                    openedAt={cashCurrentShift?.openedAt}
+                    registerName={cashCurrentShift?.cashRegister?.name}
+                  />
+                  {accountsDebtSummary.count > 0 && (
+                    <p className="rounded-xl bg-p-surface-2 px-3 py-2 text-[12px] text-p-text-secondary">
+                      Quedan {accountsDebtSummary.count} {accountsDebtSummary.count === 1 ? 'cuenta' : 'cuentas'} sin cobrar (
+                      {formatMoney(accountsDebtSummary.amount)}). No pasa nada si cerrás: siguen en Cuentas.
+                    </p>
+                  )}
+                  <label className="block">
+                    <span className="text-[13px] font-medium text-p-text">¿Cuánto contaste?</span>
+                    <input
+                      autoFocus
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={cashCloseShiftForm.countedCash}
+                      onChange={(event) => setCashCloseShiftForm({ countedCash: event.target.value })}
+                      className="mt-1 h-12 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[18px] font-semibold tabular-nums text-p-text outline-none focus:border-p-border-strong"
+                      placeholder="0"
+                    />
+                  </label>
+                  {hasCounted && (
+                    <p
+                      className={`rounded-xl px-3 py-2.5 text-[14px] font-semibold ${
+                        Math.abs(difference) <= 0.009
+                          ? 'bg-p-positive-bg text-p-positive'
+                          : 'bg-p-warning-bg text-p-warning'
+                      }`}
+                    >
+                      {Math.abs(difference) <= 0.009
+                        ? 'Coincide con lo esperado.'
+                        : difference > 0
+                          ? `Sobran ${formatMoney(difference)}. Queda anotado en el cierre.`
+                          : `Faltan ${formatMoney(Math.abs(difference))}. Queda anotado en el cierre.`}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </form>
         )}
 
         {cashSidebarView === 'movement_create' && (
           <form id="cash-new-movement-form" className="space-y-5" onSubmit={handleCreateMovement}>
-            <AdminDrawerSection title="Tipo" className={drawerSectionCardClass}>
-              <div className="grid grid-cols-2 gap-2">
+            {cashMovementError && (
+              <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2 text-[12px] text-p-error">{cashMovementError}</div>
+            )}
+            {!cashCurrentShift && (
+              <p className="rounded-xl bg-p-surface-2 px-3 py-2 text-[12px] text-p-text-muted">Abrí la caja para anotar ingresos o egresos.</p>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { id: 'EXPENSE', label: 'Sale plata', hint: 'Pago, compra, retiro', active: 'border-p-error bg-p-error-bg text-p-error' },
+                { id: 'INCOME', label: 'Entra plata', hint: 'Cambio, aporte', active: 'border-p-positive bg-p-positive-bg text-p-positive' },
+              ] as const).map((option) => (
                 <button
+                  key={option.id}
                   type="button"
-                  onClick={() => setCashNewMovement((prev) => ({ ...prev, type: 'INCOME' }))}
-                  className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border text-[12px] font-semibold ${
-                    cashNewMovement.type === 'INCOME'
-                      ? 'border-p-positive bg-p-positive-bg text-p-positive'
-                      : 'border-p-border bg-p-surface text-p-text-secondary'
-                  }`}
-                >
-                  <Plus size={12} />
-                  Ingreso
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCashNewMovement((prev) => ({ ...prev, type: 'EXPENSE' }))}
-                  className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border text-[12px] font-semibold ${
-                    cashNewMovement.type === 'EXPENSE'
-                      ? 'border-p-error bg-p-error-bg text-p-error'
-                      : 'border-p-border bg-p-surface text-p-text-secondary'
-                  }`}
-                >
-                  <X size={12} />
-                  Egreso
-                </button>
-              </div>
-            </AdminDrawerSection>
-
-            <AdminDrawerSection title="Detalle" className={drawerSectionCardClass}>
-              <label className="block">
-                <span className="text-[12px] font-medium text-p-text-secondary">Concepto</span>
-                <input
-                  type="text"
-                  value={cashNewMovement.description}
-                  onChange={(event) => setCashNewMovement((prev) => ({ ...prev, description: event.target.value }))}
-                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                  placeholder="Descripción del movimiento"
-                />
-              </label>
-
-              <label className="mt-3 block">
-                <span className="text-[12px] font-medium text-p-text-secondary">Monto</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={cashNewMovement.amount}
-                  onChange={(event) => setCashNewMovement((prev) => ({ ...prev, amount: event.target.value }))}
-                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                  placeholder="0"
-                />
-              </label>
-            </AdminDrawerSection>
-
-            <AdminDrawerSection title="Método" className={drawerSectionCardClass}>
-              <label className="block">
-                <span className="text-[12px] font-medium text-p-text-secondary">Método</span>
-                <select
-                  value={cashNewMovement.method}
-                  onChange={(event) =>
-                    setCashNewMovement((prev) => ({ ...prev, method: event.target.value as 'CASH' | 'TRANSFER' | 'CARD' }))
+                  aria-pressed={cashNewMovement.type === option.id}
+                  onClick={() =>
+                    setCashNewMovement((prev) => ({
+                      ...prev,
+                      type: option.id,
+                      // Una opción rápida del otro tipo no tiene sentido acá.
+                      description: CASH_MOVEMENT_PRESETS.includes(prev.description) ? '' : prev.description,
+                    }))
                   }
-                  className="mt-1 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
+                  className={`rounded-xl border px-3 py-2.5 text-left ${
+                    cashNewMovement.type === option.id ? option.active : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
+                  }`}
                 >
-                  <option value="CASH">Efectivo</option>
-                  <option value="TRANSFER">Transferencia</option>
-                  <option value="CARD">Tarjeta</option>
-                </select>
-              </label>
+                  <span className="block text-[14px] font-bold">{option.label}</span>
+                  <span className="block text-[11px] opacity-80">{option.hint}</span>
+                </button>
+              ))}
+            </div>
 
-              {!cashCurrentShift && (
-                <p className="mt-3 text-[12px] text-p-text-muted">Abrí caja para habilitar movimientos.</p>
+            <div>
+              <p className="text-[12px] font-semibold text-p-text-secondary">¿Para qué?</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {(cashNewMovement.type === 'EXPENSE' ? CASH_EXPENSE_PRESETS : CASH_INCOME_PRESETS).map((concept) => (
+                  <button
+                    key={concept}
+                    type="button"
+                    aria-pressed={cashNewMovement.description === concept}
+                    onClick={() => setCashNewMovement((prev) => ({ ...prev, description: concept }))}
+                    className={`h-8 rounded-lg px-3 text-[12px] font-semibold ${
+                      cashNewMovement.description === concept
+                        ? 'bg-ink-900 text-ink-50'
+                        : 'bg-p-surface-2 text-p-text-secondary hover:brightness-95'
+                    }`}
+                  >
+                    {concept}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={cashNewMovement.description}
+                onChange={(event) => setCashNewMovement((prev) => ({ ...prev, description: event.target.value }))}
+                className="mt-2 h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
+                placeholder={cashNewMovement.type === 'EXPENSE' ? 'O escribí: compra de pelotas, luz…' : 'O escribí de dónde vino'}
+                aria-label="Para qué"
+              />
+            </div>
+
+            <label className="block">
+              <span className="text-[12px] font-semibold text-p-text-secondary">¿Cuánto?</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={cashNewMovement.amount}
+                onChange={(event) => setCashNewMovement((prev) => ({ ...prev, amount: event.target.value }))}
+                className="mt-1 h-12 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[18px] font-semibold tabular-nums text-p-text outline-none focus:border-p-accent"
+                placeholder="0"
+              />
+            </label>
+
+            <div>
+              <p className="text-[12px] font-semibold text-p-text-secondary">¿Cómo?</p>
+              <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+                {([
+                  { id: 'CASH', label: 'Efectivo' },
+                  { id: 'TRANSFER', label: 'Transferencia' },
+                  { id: 'CARD', label: 'Tarjeta' },
+                ] as const).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-pressed={cashNewMovement.method === option.id}
+                    onClick={() => setCashNewMovement((prev) => ({ ...prev, method: option.id }))}
+                    className={`h-9 rounded-lg text-[12px] font-semibold ${
+                      cashNewMovement.method === option.id
+                        ? 'bg-ink-900 text-ink-50'
+                        : 'border border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {cashNewMovement.method === 'CASH' && (
+                <p className="mt-1.5 text-[11px] text-p-text-muted">
+                  {cashNewMovement.type === 'EXPENSE' ? 'Se descuenta del efectivo del cajón.' : 'Se suma al efectivo del cajón.'}
+                </p>
               )}
-            </AdminDrawerSection>
+            </div>
           </form>
         )}
 
         {cashSidebarView === 'close_report' && (
-          <AdminDrawerSection title="Arqueo" className={drawerSectionCardClass}>
-            <div className="space-y-3 text-[13px] text-p-text-secondary">
-              {cashLastCloseReport ? (
-                <>
-                  <div className="rounded-xl border border-p-border bg-p-surface-2 p-3">
-                    <p><span className="font-semibold">Esperado:</span> {formatMoney(cashLastCloseReport.expectedCash)}</p>
-                    <p><span className="font-semibold">Contado:</span> {formatMoney(cashLastCloseReport.countedCash)}</p>
-                    <p><span className="font-semibold">Diferencia:</span> {formatMoney(cashLastCloseReport.difference)}</p>
-                  </div>
-                  <p className="text-[12px] text-p-text-muted">
-                    ID cierre: {cashLastCloseReport.shift?.id || '-'}
-                  </p>
-                </>
-              ) : (
-                <p className="text-[12px] text-p-text-muted">No hay arqueo disponible en esta sesión.</p>
-              )}
+          <div className="space-y-5">
+            {(() => {
+              const selected =
+                cashClosedShifts.find((item) => item.id === cashSelectedClosedId) || cashClosedShifts[0] || null;
+              return selected ? <CashClosedShiftCard shift={selected} /> : null;
+            })()}
+            <div className="space-y-2">
+              <p className="text-[13px] font-semibold text-p-text">Cierres anteriores</p>
+              <CashClosesHistory
+                items={cashClosedShifts}
+                selectedId={cashSelectedClosedId || cashClosedShifts[0]?.id || ''}
+                onSelect={setCashSelectedClosedId}
+              />
             </div>
-          </AdminDrawerSection>
+          </div>
         )}
 
         {cashSidebarView === 'product_sale' && (
@@ -3497,123 +3633,148 @@ export default function AdminPaymentsPlaygroundPage() {
               </p>
             </AdminDrawerSection>
 
-            {/* Productos y Servicios */}
-            <AdminDrawerSection title="Ítems" className={drawerSectionCardClass}>
-              <div className="space-y-2">
-                {posItems.map((item, index) => {
-                  const selectedProduct = (() => {
-                    if (!item.productId.includes(':')) return undefined;
-                    const [itemType, itemIdStr] = item.productId.split(':');
-                    const itemId = Number(itemIdStr);
-                    return posProducts.find((p) => p.type === itemType && p.id === itemId);
-                  })();
-                  const isService = selectedProduct?.type === 'service';
-                  const stock = (selectedProduct && !isService) ? selectedProduct.stock : null;
-                  const qty = Number(item.quantity) || 0;
-                  const stockOver = stock !== null && stock > 0 && qty > stock;
-                  const stockEmpty = stock === 0;
-                  const stockBorderClass = !isService && (stockEmpty || stockOver)
-                    ? 'border-p-error'
-                    : !isService && selectedProduct && stock !== null && stock <= 3
-                    ? 'border-amber-300'
-                    : 'border-p-border';
-
-                  return (
-                    <div
-                      key={index}
-                      className={`rounded-xl border bg-p-surface-2 ${stockBorderClass} transition-colors`}
-                    >
-                      {/* Fila principal: select + qty */}
-                      <div className="flex items-center gap-2 p-2">
-                        <select
-                          value={item.productId}
-                          onChange={(event) => {
-                            const next = [...posItems];
-                            next[index] = { ...next[index], productId: event.target.value };
-                            setPosItems(next);
-                            setPosError('');
-                          }}
-                          disabled={posSubmitting || posLoadingProducts}
-                          className="h-9 min-w-0 flex-1 rounded-lg border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent disabled:opacity-60"
-                        >
-                          <option value="">{posLoadingProducts ? 'Cargando...' : 'Seleccionar ítem'}</option>
-                          {posProducts.filter((p) => p.type === 'product').length > 0 && (
-                            <optgroup label="Productos">
-                              {posProducts.filter((p) => p.type === 'product').map((product) => (
-                                <option key={`product:${product.id}`} value={`product:${product.id}`} disabled={product.stock === 0}>
-                                  {product.name} — {formatMoney(product.price)}{product.stock === 0 ? ' (sin stock)' : ''}
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {posProducts.filter((p) => p.type === 'service').length > 0 && (
-                            <optgroup label="Servicios">
-                              {posProducts.filter((p) => p.type === 'service').map((service) => (
-                                <option key={`service:${service.id}`} value={`service:${service.id}`}>
-                                  {service.name} — {formatMoney(service.price)}
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                        </select>
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={item.quantity}
-                          onChange={(event) => {
-                            const next = [...posItems];
-                            next[index] = { ...next[index], quantity: event.target.value };
-                            setPosItems(next);
-                            setPosError('');
-                          }}
-                          disabled={posSubmitting}
-                          className="h-9 w-14 shrink-0 rounded-lg border border-p-border bg-p-surface px-2 text-center text-[13px] text-p-text outline-none focus:border-p-accent disabled:opacity-60"
-                          placeholder="1"
-                        />
-                        {posItems.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => setPosItems((prev) => prev.filter((_, i) => i !== index))}
-                            disabled={posSubmitting}
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-p-border bg-p-surface text-p-text-muted transition hover:bg-p-error-bg hover:text-p-error disabled:opacity-60"
-                          >
-                            <X size={13} />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Footer del card: stock (solo para productos) */}
-                      {selectedProduct && !isService && (
-                        <div className="flex items-center gap-2 border-t border-p-border px-3 py-1.5">
-                          {stockEmpty ? (
-                            <span className="text-[11px] font-medium text-p-error">Sin stock — no se puede vender</span>
-                          ) : stockOver ? (
-                            <>
-                              <span className="text-[11px] font-medium text-p-error">Stock insuficiente</span>
-                              <span className="text-[11px] text-p-text-muted">· solo hay {stock}</span>
-                            </>
-                          ) : stock !== null && stock <= 3 ? (
-                            <span className="text-[11px] font-medium text-amber-600">Stock bajo · {stock} {stock === 1 ? 'disponible' : 'disponibles'}</span>
-                          ) : (
-                            <span className="text-[11px] text-p-text-muted">{stock} disponibles en stock</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+            {/* Productos y servicios: tocar suma uno */}
+            <AdminDrawerSection title="¿Qué lleva?" className={drawerSectionCardClass}>
+              {(() => {
+                const qtyOf = (key: string) =>
+                  posItems.filter((i) => i.productId === key).reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+                const addOne = (key: string) => {
+                  setPosError('');
+                  setPosItems((prev) => {
+                    const clean = prev.filter((i) => i.productId);
+                    const idx = clean.findIndex((i) => i.productId === key);
+                    if (idx >= 0) {
+                      const next = [...clean];
+                      next[idx] = { ...next[idx], quantity: String((Number(next[idx].quantity) || 0) + 1) };
+                      return next;
+                    }
+                    return [...clean, { productId: key, quantity: '1' }];
+                  });
+                };
+                const removeOne = (key: string) => {
+                  setPosError('');
+                  setPosItems((prev) =>
+                    prev
+                      .filter((i) => i.productId)
+                      .flatMap((i) =>
+                        i.productId !== key
+                          ? [i]
+                          : (Number(i.quantity) || 0) > 1
+                            ? [{ ...i, quantity: String((Number(i.quantity) || 0) - 1) }]
+                            : []
+                      )
                   );
-                })}
+                };
+                const chosen = posItems
+                  .filter((i) => i.productId)
+                  .map((i) => {
+                    const [itemType, itemId] = i.productId.split(':');
+                    return {
+                      key: i.productId,
+                      qty: Number(i.quantity) || 0,
+                      product: posProducts.find((p) => p.type === itemType && p.id === Number(itemId)),
+                    };
+                  })
+                  .filter((row) => row.product && row.qty > 0);
+                const sections = [
+                  { label: 'Productos', rows: posProducts.filter((p) => p.type === 'product') },
+                  { label: 'Servicios', rows: posProducts.filter((p) => p.type === 'service') },
+                ].filter((section) => section.rows.length > 0);
+                return (
+                  <div className="space-y-3">
+                    {posLoadingProducts && <p className="text-[12px] text-p-text-muted">Cargando productos...</p>}
+                    {!posLoadingProducts && sections.length === 0 && (
+                      <p className="text-[12px] text-p-text-muted">No hay productos cargados. Se cargan en Tienda.</p>
+                    )}
+                    {sections.map((section) => (
+                      <div key={section.label}>
+                        {sections.length > 1 && (
+                          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">{section.label}</p>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                          {section.rows.map((product) => {
+                            const key = `${product.type}:${product.id}`;
+                            const qty = qtyOf(key);
+                            const stock = product.type === 'product' ? product.stock : null;
+                            const soldOut = stock === 0;
+                            const atLimit = stock !== null && stock > 0 && qty >= stock;
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => addOne(key)}
+                                disabled={posSubmitting || soldOut || atLimit}
+                                className={`relative min-h-[64px] rounded-xl border px-3 py-2 text-left transition disabled:cursor-not-allowed ${
+                                  qty > 0
+                                    ? 'border-ink-900 bg-p-surface'
+                                    : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                                } ${soldOut ? 'opacity-50' : ''}`}
+                              >
+                                <span className="block pr-6 text-[13px] font-semibold leading-tight text-p-text">{product.name}</span>
+                                <span className="mt-0.5 block text-[12px] tabular-nums text-p-text-secondary">{formatMoney(product.price)}</span>
+                                {stock !== null && (
+                                  <span
+                                    className={`block text-[11px] ${
+                                      soldOut || atLimit ? 'text-p-error' : stock <= 3 ? 'text-amber-600' : 'text-p-text-muted'
+                                    }`}
+                                  >
+                                    {soldOut ? 'Sin stock' : atLimit ? `No hay más (${stock})` : stock <= 3 ? `Quedan ${stock}` : `${stock} en stock`}
+                                  </span>
+                                )}
+                                {qty > 0 && (
+                                  <span className="absolute right-2 top-2 grid h-6 min-w-6 place-items-center rounded-full bg-ink-900 px-1.5 text-[12px] font-bold text-ink-50">
+                                    {qty}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
 
-                <button
-                  type="button"
-                  onClick={() => setPosItems((prev) => [...prev, { productId: '', quantity: '1' }])}
-                  disabled={posSubmitting}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-secondary transition hover:bg-p-surface-2 disabled:opacity-60"
-                >
-                  <Plus size={12} />
-                  Agregar ítem
-                </button>
-              </div>
+                    {chosen.length > 0 && (
+                      <div className="rounded-xl border border-p-border">
+                        <p className="border-b border-p-border px-3 py-2 text-[12px] font-semibold text-p-text-secondary">Lleva</p>
+                        <ul className="divide-y divide-p-border">
+                          {chosen.map((row) => (
+                            <li key={row.key} className="flex items-center gap-2 px-3 py-2 text-[13px]">
+                              <span className="min-w-0 flex-1 truncate text-p-text">{row.product?.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeOne(row.key)}
+                                disabled={posSubmitting}
+                                aria-label={`Sacar uno de ${row.product?.name}`}
+                                className="grid h-7 w-7 place-items-center rounded-lg border border-p-border text-p-text-secondary hover:bg-p-surface-2"
+                              >
+                                −
+                              </button>
+                              <span className="w-5 text-center font-semibold tabular-nums">{row.qty}</span>
+                              <button
+                                type="button"
+                                onClick={() => addOne(row.key)}
+                                disabled={
+                                  posSubmitting ||
+                                  (row.product?.type === 'product' &&
+                                    row.product.stock !== null &&
+                                    row.qty >= Number(row.product.stock))
+                                }
+                                aria-label={`Sumar uno de ${row.product?.name}`}
+                                className="grid h-7 w-7 place-items-center rounded-lg border border-p-border text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
+                              >
+                                +
+                              </button>
+                              <span className="w-20 text-right font-semibold tabular-nums text-p-text">
+                                {formatMoney(Number(row.product?.price || 0) * row.qty)}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Total real del quote (con descuentos si aplica) */}
               {(posQuoteLoading || posQuote) && (
@@ -3644,10 +3805,6 @@ export default function AdminPaymentsPlaygroundPage() {
               )}
             </AdminDrawerSection>
 
-            {/* Aviso de siguiente paso */}
-            <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2.5 text-[12px] text-p-text-muted">
-              Al crear la cuenta podrás elegir el método de pago (efectivo, transferencia, tarjeta) desde el flujo de cobro.
-            </div>
 
             {/* Error */}
             {posError && (

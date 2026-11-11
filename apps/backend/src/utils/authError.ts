@@ -6,7 +6,8 @@ export type AuthErrorCode =
   | 'AUTH_EXPIRED'
   | 'AUTH_REVOKED'
   | 'AUTH_FORBIDDEN'
-  | 'AUTH_CONTEXT_INVALID';
+  | 'AUTH_CONTEXT_INVALID'
+  | 'ACCOUNT_PENDING_ACTIVATION';
 
 export const sendAuthError = (
   res: Response,

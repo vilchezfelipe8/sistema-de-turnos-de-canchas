@@ -110,6 +110,7 @@ export class ClientService {
       userId: Number(client.userId || 0) || null,
       linkedUser: client.linkedUser || null,
       isProfessor: Boolean(client.isProfessor),
+      member: client.member ?? null,
       totalBookings: Number(client.totalBookings || 0),
       totalDebt: Number(client.totalDebt || 0),
       clubTimeZone: client.clubTimeZone ? String(client.clubTimeZone) : null,

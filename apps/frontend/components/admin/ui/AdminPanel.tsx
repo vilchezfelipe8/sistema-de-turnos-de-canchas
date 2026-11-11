@@ -31,7 +31,7 @@ export default function AdminPanel({
             {title && <h2 className="text-[13px] font-semibold text-p-text">{title}</h2>}
             {description && <p className="mt-1 text-[12px] text-p-text-muted">{description}</p>}
           </div>
-          {actions && <div className="shrink-0">{actions}</div>}
+          {actions && <div className="w-full min-w-0 sm:w-auto sm:shrink-0">{actions}</div>}
         </header>
       )}
       <div className={resolvedBodyClassName}>{children}</div>

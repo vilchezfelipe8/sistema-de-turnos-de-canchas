@@ -30,7 +30,7 @@ export default function AdminIndex() {
       {!authChecked || !user
         ? <RouteTransitionScreen message={authChecked ? 'Redirigiendo...' : 'Validando acceso...'} />
         : !hasOperatorAccess(user)
-          ? <NotFound message="No tenes permiso para acceder al panel de administracion." />
+          ? <NotFound title="Sin acceso" message="Tu usuario no tiene acceso al panel del club." />
           : null}
     </>
   );

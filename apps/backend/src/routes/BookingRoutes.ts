@@ -8,6 +8,7 @@ import { UserRepository } from '../repositories/UserRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
 import { CashRepository } from '../repositories/CashRepository';
 import { requireTenantRole } from '../middleware/RoleMiddleware';
+import { PlayerSlotController } from '../controllers/PlayerSlotController';
 import { setAdminClubFromUser } from '../middleware/ClubMiddleware';
 import { ProductRepository } from '../repositories/ProductRepository';
 import { bookingLimiter } from '../middleware/rateLimit';
@@ -58,6 +59,11 @@ router.get('/:id/history', authMiddleware, setAdminClubFromUser, requireTenantRo
 router.get('/:id/participants', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), (req, res) => bookingController.getAdminBookingParticipants(req, res));
 router.post('/:id/participants', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), (req, res) => bookingController.addAdminBookingParticipant(req, res));
 router.delete('/:id/participants/:participantId', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), (req, res) => bookingController.removeAdminBookingParticipant(req, res));
+// Precio por jugador: lugares, validación de socio en el mostrador y recálculo
+const playerSlotController = new PlayerSlotController();
+router.get('/:id/player-slots', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), (req, res) => playerSlotController.getAdminSlots(req, res));
+router.post('/:id/player-slots/:slotIndex/validate-member', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), (req, res) => playerSlotController.validateMemberAtCounter(req, res));
+router.post('/:id/reprice', authMiddleware, setAdminClubFromUser, requireTenantRole('ADMIN'), (req, res) => playerSlotController.reprice(req, res));
 
 // Commit 3 — Cambio explícito de titular (solo OWNER/ADMIN, bloqueado si hay pagos/devoluciones)
 router.patch('/:id/client', authMiddleware, setAdminClubFromUser, requireTenantRole(['OWNER', 'ADMIN']), (req, res) => bookingController.changeBookingClient(req, res));

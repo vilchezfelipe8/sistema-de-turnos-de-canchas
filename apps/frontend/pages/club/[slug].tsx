@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
+import Head from 'next/head';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import BookingGrid from '../../components/BookingGrid';
 import DarkPageLayout from '../../components/DarkPageLayout';
@@ -16,13 +18,51 @@ import { getMyBookings } from '../../services/BookingService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { isAuthSessionInvalidatedError } from '../../utils/apiClient';
-import { MapPin, Calendar, Phone, Instagram, Share2, Trophy, Star, Heart, ChevronRight, X } from 'lucide-react';
+import { MapPin, Calendar, Phone, Instagram, Facebook, Globe, Share2, Trophy, Star, Heart, X, Navigation, SearchX } from 'lucide-react';
+import ClubAppHome from '../../components/clubApp/ClubAppHome';
+import ClubInstallButton from '../../components/clubApp/ClubInstallButton';
+import { useClubApp } from '../../hooks/useClubApp';
+import { clubIconHref, clubManifestHref, isValidClubSlug, updateClubAppIdentity } from '../../utils/clubApp';
+import type { GetServerSideProps } from 'next';
+import { fetchClubBasics, resolveRequestOrigin } from '../../utils/serverClubLookup';
+import BusyLabel from '../../components/ui/BusyLabel';
+import Skeleton, { SkeletonText } from '../../components/ui/Skeleton';
+import Modal from '../../components/ui/Modal';
+
+type ClubPageProps = { appSlug: string | null; appName: string | null };
+
+// El manifest y el ícono del club tienen que venir en la primera carga: iPhone (Safari y Chrome)
+// toma el manifest que trae la página y no el que se cambia después en el navegador.
+export const getServerSideProps: GetServerSideProps<ClubPageProps> = async ({ params, req }) => {
+  const slug = typeof params?.slug === 'string' && isValidClubSlug(params.slug) ? params.slug : null;
+  // Navegaciones dentro de la app (/_next/data): no hace falta buscar el club en el servidor,
+  // la página ya lo tiene o lo carga; así volver atrás o cambiar de pestaña es inmediato.
+  const isClientNavigation = String(req.url || '').startsWith('/_next/data');
+  const basics = slug && !isClientNavigation ? await fetchClubBasics(slug, resolveRequestOrigin(req)) : null;
+  return { props: { appSlug: slug, appName: basics?.name ?? null } };
+};
+
+// Clubes ya cargados en esta visita (solo navegador): al volver a la página se muestran al instante
+// y se actualizan por detrás, sin pasar por "Cargando club...".
+const clubPageCache = new Map<string, Club>();
+const readCachedClub = (slug: unknown) =>
+  typeof window !== 'undefined' && typeof slug === 'string' ? clubPageCache.get(slug) ?? null : null;
 
 const APP_NOTICE_EVENT = 'app:notice';
 type AppNoticeTone = 'success' | 'error' | 'info' | 'warning';
 
+const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const REVIEWS_SHOWN = 3;
+
 const formatClubAddress = (club: Club) =>
   [club.addressLine, club.city, club.province, club.country].filter(Boolean).join(', ');
+
+// En la portada alcanza con la zona; la dirección completa queda en "Información".
+const formatClubArea = (club: Club) =>
+  [club.city, club.province].filter(Boolean).join(', ') || club.addressLine || '';
+
+const directionsUrl = (club: Club) =>
+  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${club.name} ${formatClubAddress(club)}`)}`;
 
 const formatRatingLabel = (value: number) => {
   const safe = Number(value || 0);
@@ -30,118 +70,157 @@ const formatRatingLabel = (value: number) => {
   return Number.isInteger(safe) ? String(safe) : safe.toFixed(1);
 };
 
+const formatReviewCount = (count: number) => `${count} ${count === 1 ? 'reseña' : 'reseñas'}`;
+
+// Acepta "https://instagram.com/club/?igsh=..", "instagram.com/club", "@club" o "club".
+const instagramLink = (raw: string) => {
+  const value = raw.trim();
+  if (!/[/.]/.test(value)) {
+    const handle = value.replace(/^@/, '');
+    return { href: `https://instagram.com/${handle}`, label: `@${handle}` };
+  }
+  try {
+    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    const handle = url.pathname.split('/').filter(Boolean)[0];
+    return { href: url.toString(), label: handle ? `@${handle}` : 'Instagram' };
+  } catch {
+    return { href: value, label: 'Instagram' };
+  }
+};
+
+const externalLink = (raw: string, fallbackLabel: string) => {
+  const value = raw.trim();
+  try {
+    const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
+    const host = url.hostname.replace(/^www\./, '');
+    return { href: url.toString(), label: fallbackLabel === 'Facebook' ? 'Facebook' : host };
+  } catch {
+    return { href: value, label: fallbackLabel };
+  }
+};
+
+// Imágenes servidas por la propia app (/clubs/...) pasan por la optimización de Next;
+// las externas se muestran tal cual porque no hay dominios remotos configurados.
+const isLocalAsset = (src: string) => src.startsWith('/') && !src.startsWith('//');
+
 const PAGE_CSS = `
-  .cl-hero { position:relative; border-radius:24px; overflow:hidden; border:1px solid var(--border); margin-bottom:32px; }
+  .p-public-theme-light .cl-page { --accent-fg:var(--positive-fg); }
+  .p-public-page.cl-page { padding-top:28px; }
+  /* Hero */
+  .cl-hero { position:relative; border-radius:24px; overflow:hidden; border:1px solid var(--border); margin-bottom:28px; }
   .cl-hero-bg { position:absolute; inset:0; background:linear-gradient(135deg,var(--brand-on) 0%,var(--ink-900) 50%,var(--positive-bg) 100%); }
   .cl-hero-img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
   .cl-hero-overlay { position:absolute; inset:0; background:var(--hero-image-overlay); }
-  .cl-hero-body { position:relative; z-index:2; padding:36px 40px 32px; display:flex; align-items:flex-end; gap:28px; flex-wrap:wrap; }
-  .cl-logo-wrap { position:relative; flex-shrink:0; }
-  .cl-logo { position:relative; width:100px; height:100px; border-radius:20px; background:var(--surface-1); border:2px solid var(--border); overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-  .cl-hero-info { flex:1; min-width:0; }
-  .cl-hero-rating { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:10px; }
-  .cl-hero-h { font-size:clamp(28px,4vw,52px); font-weight:800; color:var(--text-primary); letter-spacing:-.04em; line-height:1; margin:0 0 12px; }
-  .cl-hero-h i { font-style:italic; color:var(--accent-fg); }
-  .cl-hero-meta { display:flex; flex-wrap:wrap; gap:16px; align-items:center; }
-  .cl-hero-meta-item { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary); font-weight:500; }
-  .cl-hero-actions { display:flex; gap:10px; flex-shrink:0; }
+  .cl-hero-body { position:relative; z-index:2; padding:36px 40px 32px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"logo info actions"; align-items:end; gap:28px; }
+  .cl-logo { grid-area:logo; position:relative; width:100px; height:100px; border-radius:20px; background:var(--surface-1); border:2px solid var(--border); overflow:hidden; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .cl-hero-info { grid-area:info; min-width:0; }
+  .cl-hero-rating { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:10px; }
+  .cl-hero-rating b { color:var(--accent-fg); font-weight:800; }
+  .cl-hero-h { font-size:clamp(28px,4vw,52px); font-weight:800; color:var(--text-primary); letter-spacing:-.04em; line-height:1; margin:0 0 12px; overflow-wrap:anywhere; }
+  .cl-hero-meta { display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; }
+  .cl-hero-meta-item { display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary); font-weight:500; }
+  .cl-hero-meta-item svg { color:var(--accent-fg); flex-shrink:0; }
+  .cl-directions { display:inline-flex; align-items:center; gap:5px; min-height:32px; padding:0 2px; font-size:13px; font-weight:700; color:var(--accent-fg); text-decoration:none; }
+  .cl-directions:hover { text-decoration:underline; text-underline-offset:3px; }
+  .cl-hero-actions { grid-area:actions; display:flex; gap:10px; }
   .cl-icon-btn { width:44px; height:44px; border-radius:14px; border:1px solid var(--border); background:var(--surface-2); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s,border-color .15s,transform .15s; color:var(--text-secondary); }
   .cl-icon-btn:hover:not(:disabled) { background:var(--surface-3); border-color:var(--border-strong); transform:translateY(-1px); }
   .cl-icon-btn.cl-fav-on { background:var(--positive-bg); border-color:var(--accent-border); color:var(--accent-fg); }
+  .cl-icon-btn.cl-fav-on svg { fill:currentColor; }
   .cl-icon-btn:disabled { opacity:.5; cursor:not-allowed; }
   /* Grid */
   .cl-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:24px; align-items:start; }
   .cl-grid > * { min-width:0; }
   .cl-sidebar { display:flex; flex-direction:column; gap:16px; min-width:0; }
-  /* Sidebar panels */
+  /* Paneles */
   .cl-panel { background:var(--surface-1); border:1px solid var(--border); border-radius:18px; padding:22px 24px; }
-  .cl-panel-h { font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin-bottom:16px; }
-  .cl-panel-description { font-size:13px; color:var(--text-secondary); line-height:1.6; margin:0 0 12px; padding-bottom:12px; border-bottom:1px solid var(--border); }
-  .cl-panel-row { display:flex; align-items:flex-start; gap:10px; font-size:13px; color:var(--text-secondary); font-weight:500; line-height:1.5; padding:8px 0; border-bottom:1px solid var(--border-subtle); }
-  .cl-panel-row:last-child { border-bottom:none; }
-  .cl-panel-row a { color:var(--text-secondary); text-decoration:none; transition:color .15s; }
-  .cl-panel-row a:hover { color:var(--accent-fg); }
-  .cl-panel-icon { color:var(--text-muted); flex-shrink:0; margin-top:1px; }
+  .cl-panel-h { font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); margin:0 0 14px; }
+  .cl-panel-description { font-size:13px; color:var(--text-secondary); line-height:1.6; margin:0 0 8px; padding-bottom:12px; border-bottom:1px solid var(--border-subtle); }
+  .cl-panel-rows { display:flex; flex-direction:column; }
+  .cl-panel-row { display:flex; align-items:flex-start; gap:10px; font-size:13px; color:var(--text-secondary); font-weight:500; line-height:1.5; padding:9px 0; border-bottom:1px solid var(--border-subtle); text-decoration:none; overflow-wrap:anywhere; }
+  .cl-panel-row:last-child { border-bottom:none; padding-bottom:0; }
+  a.cl-panel-row { transition:color .15s; }
+  a.cl-panel-row:hover { color:var(--accent-fg); }
+  .cl-panel-icon { color:var(--text-muted); flex-shrink:0; margin-top:2px; }
+  .cl-days { display:flex; flex-wrap:wrap; gap:4px; }
   .cl-day-chip { padding:3px 8px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); border-radius:6px; font-size:10px; font-weight:800; color:var(--accent-fg); }
-  /* Reviews */
+  /* Reseñas */
+  .cl-rating-sum { display:flex; align-items:center; gap:12px; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border-subtle); }
+  .cl-rating-big { font-size:28px; font-weight:800; color:var(--accent-fg); letter-spacing:-.03em; line-height:1; }
+  .cl-rating-sub { font-size:11px; color:var(--text-muted); font-weight:700; margin-top:4px; }
+  .cl-stars { display:flex; gap:3px; }
+  .cl-reviews { display:flex; flex-direction:column; gap:8px; }
   .cl-review-card { background:var(--surface-2); border:1px solid var(--border-subtle); border-radius:14px; padding:14px 16px; }
-  .cl-review-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
-  .cl-review-name { font-size:12px; font-weight:800; color:var(--text-primary); letter-spacing:.01em; }
+  .cl-review-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px; }
+  .cl-review-name { font-size:12px; font-weight:800; color:var(--text-primary); }
   .cl-review-score { display:flex; align-items:center; gap:4px; font-size:12px; font-weight:800; color:var(--accent-fg); }
-  .cl-review-comment { font-size:13px; color:var(--text-muted); line-height:1.55; }
-  .cl-review-overlay { position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center; padding:20px; background:var(--overlay); }
-  .cl-review-panel { width:100%; max-width:480px; border-radius:24px; border:1px solid var(--border); background:var(--surface-1); padding:30px; box-shadow:var(--shadow-lg); }
-  .cl-review-modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:8px; }
-  .cl-review-modal-title { font-size:20px; font-weight:800; color:var(--text-primary); letter-spacing:-.02em; }
-  .cl-review-modal-sub { font-size:13px; color:var(--text-muted); margin-bottom:22px; line-height:1.45; }
+  .cl-review-comment { margin:0; font-size:13px; color:var(--text-secondary); line-height:1.55; }
+  .cl-review-comment.is-empty { font-style:italic; color:var(--text-muted); }
+  .cl-review-empty { margin:0 0 14px; font-size:13px; color:var(--text-muted); line-height:1.5; }
+  .cl-review-cta { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:44px; margin-top:14px; padding:0 16px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); border-radius:12px; color:var(--accent-fg); font-family:inherit; font-size:13px; font-weight:800; cursor:pointer; transition:border-color .15s; }
+  .cl-review-cta:hover:not(:disabled) { border-color:var(--accent-border); }
+  .cl-review-cta:disabled { opacity:.6; cursor:not-allowed; }
+  .cl-feedback { padding:10px 16px; border-radius:12px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); font-size:12px; font-weight:700; color:var(--accent-fg); margin-top:12px; }
+  /* Contenido del modal de reseña (el modal en sí: pique.css .p-modal-*) */
   .cl-review-stars { display:flex; gap:8px; }
-  .cl-review-star { width:40px; height:40px; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-muted); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s,border-color .15s,color .15s; }
+  .cl-review-star { width:44px; height:44px; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-muted); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background .15s,border-color .15s,color .15s; }
   .cl-review-star.cl-star-on { background:var(--positive-bg); border-color:var(--accent-border); color:var(--accent-fg); }
-  .cl-review-textarea { width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:14px 16px; color:var(--text-primary); font-family:var(--font-sans); font-size:14px; outline:none; resize:none; transition:border-color .2s; }
+  .cl-review-textarea { width:100%; box-sizing:border-box; background:var(--surface-2); border:1px solid var(--border); border-radius:14px; padding:14px 16px; color:var(--text-primary); font-family:var(--font-sans); font-size:14px; outline:none; resize:none; transition:border-color .2s; }
   .cl-review-textarea:focus { border-color:var(--accent-border); }
-  .cl-review-action-row { display:flex; gap:10px; margin-top:24px; }
-  .cl-review-secondary { flex:1; height:46px; border-radius:12px; background:none; border:1px solid var(--border); color:var(--text-muted); font-family:inherit; font-size:12px; font-weight:700; letter-spacing:.01em; cursor:pointer; }
-  .cl-review-primary { flex:1; height:46px; border-radius:12px; background:var(--brand); border:none; color:var(--brand-on); font-family:inherit; font-size:12px; font-weight:800; letter-spacing:.01em; cursor:pointer; }
-  .cl-review-primary:disabled { opacity:.5; cursor:not-allowed; }
-  /* Feedback toast */
-  .cl-feedback { padding:10px 16px; border-radius:12px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); font-size:12px; font-weight:700; color:var(--brand-hover); margin-top:12px; }
-  /* Loading/error */
-  .cl-loading { min-height:60vh; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:16px; }
+  .cl-review-count { margin-top:8px; text-align:right; font-size:11px; color:var(--text-muted); font-weight:700; }
+  /* Error */
+  .cl-state { min-height:56vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center; padding:24px 0; }
+  .cl-state-icon { width:52px; height:52px; border-radius:16px; display:flex; align-items:center; justify-content:center; background:var(--surface-2); color:var(--text-muted); margin-bottom:6px; }
+  .cl-state-title { margin:0; font-size:22px; font-weight:800; letter-spacing:-.03em; color:var(--text-primary); }
+  .cl-state-copy { margin:0 0 14px; max-width:360px; font-size:14px; color:var(--text-muted); line-height:1.5; }
+  .cl-state-btn { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:0 22px; border-radius:999px; background:var(--brand); color:var(--brand-on); font-size:13px; font-weight:800; text-decoration:none; }
+  /* Esqueleto */
+  .cl-skel-hero { height:172px; border-radius:24px; margin-bottom:28px; }
+  .cl-skel-panel { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; padding:28px; display:flex; flex-direction:column; gap:18px; }
+  .cl-skel-row { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+  .cl-skel-slots { display:grid; grid-template-columns:repeat(auto-fill,minmax(76px,1fr)); gap:8px; }
   @media(max-width:900px){
     .cl-grid { grid-template-columns:1fr; }
     .cl-hero-body { padding:24px 24px 20px; }
     .cl-hero-h { font-size:28px; }
   }
   @media(max-width:600px){
-    .cl-page { padding-top:24px !important; padding-inline:24px !important; }
-    .cl-hero-body { flex-direction:column; align-items:flex-start; gap:16px; }
-    .cl-hero-actions { align-self:flex-end; }
+    .p-public-page.cl-page { padding:16px 20px var(--page-end-gap); }
+    .cl-hero { margin-bottom:20px; border-radius:20px; }
+    /* Logo y acciones en la misma fila; nombre y datos debajo */
+    .cl-hero-body { grid-template-columns:auto 1fr; grid-template-areas:"logo actions" "info info"; align-items:center; gap:16px; padding:18px; }
+    .cl-logo { width:64px; height:64px; border-radius:16px; }
+    .cl-hero-actions { justify-self:end; gap:8px; }
+    .cl-hero-h { font-size:26px; margin-bottom:8px; }
     .cl-grid { gap:20px; }
     .cl-sidebar { gap:14px; }
     .cl-panel { padding:20px; }
+    .cl-skel-hero { height:190px; border-radius:20px; margin-bottom:20px; }
+    .cl-skel-panel { padding:20px; }
+    .cl-skel-row { grid-template-columns:1fr; }
   }
-  .p-public-root.p-public-theme-light .cl-hero { border-color:var(--border); box-shadow:0 12px 28px var(--border); }
+  /* Tema claro: solo lo que cambia respecto de la base */
+  .p-public-root.p-public-theme-light .cl-hero { box-shadow:0 12px 28px var(--border); }
   .p-public-root.p-public-theme-light .cl-hero-bg { background:linear-gradient(135deg,var(--surface-1) 0%,var(--surface-2) 52%,var(--surface-3) 100%); }
   .p-public-root.p-public-theme-light .cl-hero-overlay { background:var(--hero-image-overlay-soft); }
-  .p-public-root.p-public-theme-light .cl-logo { background:var(--surface-1); border-color:var(--border-strong); }
-  .p-public-root.p-public-theme-light .cl-hero-rating,
-  .p-public-root.p-public-theme-light .cl-hero-meta-item { color:var(--text-secondary); }
-  .p-public-root.p-public-theme-light .cl-hero-h { color:var(--text-primary); }
-  .p-public-root.p-public-theme-light .cl-icon-btn { background:var(--surface-1); border-color:var(--border); color:var(--text-secondary); box-shadow:0 4px 12px var(--border-subtle); }
-  .p-public-root.p-public-theme-light .cl-icon-btn:hover:not(:disabled) { background:var(--surface-2); border-color:var(--border-strong); }
-  .p-public-root.p-public-theme-light .cl-panel { background:var(--surface-1); border-color:var(--border); box-shadow:0 10px 24px var(--border-subtle); }
-  .p-public-root.p-public-theme-light .cl-panel-icon,
-  .p-public-root.p-public-theme-light .cl-review-modal-sub { color:var(--text-muted); }
-  .p-public-root.p-public-theme-light .cl-panel-h { color:var(--text-muted); }
-  .p-public-root.p-public-theme-light .cl-panel-description { color:var(--text-secondary); border-bottom-color:var(--border); }
-  .p-public-root.p-public-theme-light .cl-panel-row { color:var(--text-secondary); border-bottom-color:var(--border-subtle); }
-  .p-public-root.p-public-theme-light .cl-panel-row a { color:var(--text-primary); }
-  .p-public-root.p-public-theme-light .cl-review-card { background:var(--surface-2); border-color:var(--border-subtle); }
-  .p-public-root.p-public-theme-light .cl-review-name { color:var(--text-primary); }
-  .p-public-root.p-public-theme-light .cl-review-comment { color:var(--text-secondary); }
-  .p-public-root.p-public-theme-light .cl-feedback { background:var(--positive-bg); border-color:var(--accent-border-subtle); color:var(--positive-fg); }
-  .p-public-root.p-public-theme-light .cl-review-overlay { background:var(--overlay-strong); }
-  .p-public-root.p-public-theme-light .cl-review-panel { background:var(--surface-1); border-color:var(--border); box-shadow:0 22px 46px var(--border-strong); }
-  .p-public-root.p-public-theme-light .cl-review-modal-title { color:var(--text-primary); }
-  .p-public-root.p-public-theme-light .cl-review-star { border-color:var(--border); background:var(--surface-2); color:var(--text-muted); }
-  .p-public-root.p-public-theme-light .cl-review-textarea { background:var(--surface-1); border-color:var(--border); color:var(--text-primary); }
-  .p-public-root.p-public-theme-light .cl-review-secondary { border-color:var(--border); color:var(--text-secondary); }
-  .cl-login-btn { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; margin-top:14px; padding:11px 16px; background:var(--brand); border:1px solid var(--accent-border); border-radius:12px; color:var(--brand-on); font-size:12px; font-weight:800; letter-spacing:.01em; cursor:pointer; font-family:var(--font-sans); transition:background .15s,border-color .15s,color .15s; }
-  .cl-login-btn:hover { background:var(--brand-hover); border-color:var(--accent-border-strong); color:var(--brand-on); }
-  .p-public-root.p-public-theme-light .cl-login-btn { background:var(--brand); border-color:var(--accent-border); color:var(--brand-on); }
-  .p-public-root.p-public-theme-light .cl-login-btn:hover { background:var(--brand-hover); border-color:var(--accent-border-strong); color:var(--brand-on); }
+  .p-public-root.p-public-theme-light .cl-logo { border-color:var(--border-strong); }
+  .p-public-root.p-public-theme-light .cl-icon-btn { background:var(--surface-1); box-shadow:0 4px 12px var(--border-subtle); }
+  .p-public-root.p-public-theme-light .cl-icon-btn:hover:not(:disabled) { background:var(--surface-2); }
+  .p-public-root.p-public-theme-light .cl-panel,
+  .p-public-root.p-public-theme-light .cl-skel-panel { box-shadow:0 10px 24px var(--border-subtle); }
+  .p-public-root.p-public-theme-light .cl-feedback { color:var(--positive-fg); }
+  .p-public-root.p-public-theme-light .cl-review-textarea { background:var(--surface-1); }
 `;
 
-export default function ClubPage() {
+export default function ClubPage({ appSlug, appName }: ClubPageProps) {
   const router = useRouter();
   const { slug } = router.query;
   const { authChecked, user } = useValidateAuth({ allowGuest: true });
-  const [club, setClub] = useState<Club | null>(null);
-  const [loadingClub, setLoadingClub] = useState(true);
+  const [club, setClub] = useState<Club | null>(() => readCachedClub(slug));
+  const [loadingClub, setLoadingClub] = useState(() => !readCachedClub(slug));
   const [error, setError] = useState<string | null>(null);
   const [reviewsSummary, setReviewsSummary] = useState<{ count: number; averageRating: number }>({ count: 0, averageRating: 0 });
   const [reviews, setReviews] = useState<ClubReviewItem[]>([]);
-  const [reviewCtaLoading, setReviewCtaLoading] = useState(false);
   const [canReviewClub, setCanReviewClub] = useState(false);
   const [hasExistingClubReview, setHasExistingClubReview] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
@@ -152,18 +231,28 @@ export default function ClubPage() {
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewSaving, setReviewSaving] = useState(false);
   const [reviewFeedback, setReviewFeedback] = useState<string | null>(null);
-  const reviewBackdropMouseDownRef = useRef(false);
+  // App instalada de este club: inicio simplificado y reserva a pantalla completa.
+  const clubApp = useClubApp();
+  const isClubAppMode = Boolean(clubApp && clubApp.slug === slug);
 
   useEffect(() => {
     const loadClub = async () => {
       if (!slug || typeof slug !== 'string') { setLoadingClub(false); return; }
+      const cached = clubPageCache.get(slug);
       try {
-        setLoadingClub(true);
+        if (cached) {
+          setClub(cached);
+          setLoadingClub(false);
+        } else {
+          setLoadingClub(true);
+        }
         setError(null);
-        setClub(await ClubService.getClubBySlug(slug));
+        const fresh = await ClubService.getClubBySlug(slug);
+        clubPageCache.set(slug, fresh);
+        setClub(fresh);
       } catch (err: any) {
         reportUiError({ area: 'ClubPage', action: 'loadClubBySlug' }, err);
-        setError('Club no encontrado');
+        if (!cached) setError('Club no encontrado');
       } finally {
         setLoadingClub(false);
       }
@@ -171,11 +260,16 @@ export default function ClubPage() {
     loadClub();
   }, [slug]);
 
+  useEffect(() => {
+    if (!club || typeof slug !== 'string') return;
+    updateClubAppIdentity({ slug, name: club.name, logoUrl: club.logoUrl || null });
+  }, [club, slug]);
+
   const loadReviews = useCallback(async (clubSlug: string) => {
     try {
       const [summary, list] = await Promise.all([
         getClubReviewsSummary(clubSlug),
-        listClubReviews(clubSlug, { take: 6 })
+        listClubReviews(clubSlug, { take: REVIEWS_SHOWN })
       ]);
       setReviewsSummary({ count: Number(summary?.count || 0), averageRating: Number(summary?.averageRating || 0) });
       setReviews(Array.isArray(list?.items) ? list.items : []);
@@ -197,7 +291,6 @@ export default function ClubPage() {
         setCanReviewClub(false); setHasExistingClubReview(false); return;
       }
       try {
-        setReviewCtaLoading(true);
         const [myBookings, existing] = await Promise.all([
           getMyBookings(user.id),
           getMyReviewForClub(slug).catch(() => null)
@@ -213,18 +306,13 @@ export default function ClubPage() {
             return status === 'COMPLETED';
           })
           : [];
-        if (eligibleInClub.length === 0) {
-          setCanReviewClub(false);
-          setHasExistingClubReview(Boolean(existing));
-          return;
-        }
-        setCanReviewClub(true);
+        setCanReviewClub(eligibleInClub.length > 0);
         setHasExistingClubReview(Boolean(existing));
       } catch (err) {
         if (isAuthSessionInvalidatedError(err)) return;
         reportUiError({ area: 'ClubPage', action: 'loadReviewEligibility' }, err);
         setCanReviewClub(false); setHasExistingClubReview(false);
-      } finally { setReviewCtaLoading(false); }
+      }
     };
     void loadReviewEligibility();
   }, [authChecked, slug, user?.id]);
@@ -259,14 +347,6 @@ export default function ClubPage() {
     return () => window.clearTimeout(timer);
   }, [reviewFeedback]);
 
-  const handleShare = async () => {
-    if (typeof window === 'undefined') return;
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      window.dispatchEvent(new CustomEvent(APP_NOTICE_EVENT, { detail: { message: 'Enlace copiado.', tone: 'success' } }));
-    } catch (err) { reportUiError({ area: 'ClubPage', action: 'copyShareLink' }, err); }
-  };
-
   const showAppNotice = useCallback((message: string, tone: AppNoticeTone = 'info') => {
     if (typeof window === 'undefined') return;
     const safe = String(message || '').trim();
@@ -274,6 +354,23 @@ export default function ClubPage() {
     window.dispatchEvent(new CustomEvent(APP_NOTICE_EVENT, { detail: { message: safe, tone } }));
   }, []);
 
+  // En el celular abre el menú nativo para compartir; si no está disponible, copia el enlace.
+  const handleShare = async () => {
+    if (typeof window === 'undefined') return;
+    const url = window.location.href.split('?')[0];
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: club?.name || 'Pique', url });
+        return;
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      showAppNotice('Enlace copiado.', 'success');
+    } catch (err) { reportUiError({ area: 'ClubPage', action: 'copyShareLink' }, err); }
+  };
 
   const handleToggleFavorite = async () => {
     if (!club?.id || favoriteBusy) return;
@@ -299,10 +396,6 @@ export default function ClubPage() {
 
   const handleOpenReviewModal = async () => {
     if (!slug || typeof slug !== 'string') return;
-    if (!user?.id) {
-      void router.push(`/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`);
-      return;
-    }
     if (!canReviewClub && !hasExistingClubReview) return;
     setReviewModalOpen(true);
     setReviewLoading(true);
@@ -354,13 +447,49 @@ export default function ClubPage() {
     { label: club?.name || 'Club' },
   ];
 
-  // ── LOADING STATE ──
+  // Manifest propio del club: el acceso directo abre esta página y se instala con su nombre e ícono.
+  // Solo depende de datos del servidor (slug y nombre) para que esté igual desde la primera carga.
+  const headSlug = appSlug || (typeof slug === 'string' ? slug : '');
+  const headName = appName || club?.name || '';
+  const clubAppHead = headSlug ? (
+    <Head>
+      <link rel="manifest" href={clubManifestHref(headSlug, headName)} key="manifest" />
+      <link rel="apple-touch-icon" href={clubIconHref(headSlug, headName, 180)} key="apple-touch-icon" />
+      <meta name="apple-mobile-web-app-capable" content="yes" key="apple-capable" />
+      <meta name="mobile-web-app-capable" content="yes" key="mobile-capable" />
+      {headName ? <meta name="apple-mobile-web-app-title" content={headName} key="apple-title" /> : null}
+    </Head>
+  ) : null;
+
+  // ── LOADING STATE ── (la app del club conserva su pantalla de carga propia)
   if (stillLoading) {
     return (
-      <DarkPageLayout title={pageTitle} extraCss={PAGE_CSS} breadcrumbs={clubBreadcrumbs}>
-        <div className="cl-loading">
-          <UserLoadingState mode="inline" message="Cargando club..." />
-        </div>
+      <DarkPageLayout title={pageTitle} extraCss={PAGE_CSS} breadcrumbs={isClubAppMode ? undefined : clubBreadcrumbs}>
+        {clubAppHead}
+        {isClubAppMode ? (
+          <UserLoadingState mode="block" minHeight="60vh" message="Cargando club..." />
+        ) : (
+          <div className="p-public-page cl-page" role="status" aria-label="Cargando club">
+            <Skeleton className="cl-skel-hero" />
+            <div className="cl-grid">
+              <div className="cl-skel-panel">
+                <Skeleton variant="line" width="40%" height={18} />
+                <div className="cl-skel-row">
+                  <Skeleton height={46} radius={12} />
+                  <Skeleton height={46} radius={12} />
+                  <Skeleton height={46} radius={12} />
+                </div>
+                <div className="cl-skel-slots">
+                  {Array.from({ length: 10 }, (_, index) => <Skeleton key={index} height={38} radius={12} />)}
+                </div>
+                <Skeleton height={48} radius={16} />
+              </div>
+              <div className="cl-sidebar">
+                <div className="cl-panel"><SkeletonText lines={4} /></div>
+              </div>
+            </div>
+          </div>
+        )}
       </DarkPageLayout>
     );
   }
@@ -368,143 +497,146 @@ export default function ClubPage() {
   // ── ERROR STATE ──
   if (error || !club) {
     return (
-      <DarkPageLayout title={pageTitle} extraCss={PAGE_CSS} breadcrumbs={clubBreadcrumbs}>
-        <div className="cl-loading" style={{ textAlign: 'center', gap: 20 }}>
-          <div style={{ fontSize: 48, color: 'var(--text-muted)' }}>⚽</div>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Club no encontrado</div>
-            <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 24 }}>{error || 'El club solicitado no existe'}</div>
-            <button
-              onClick={() => router.push('/')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 24px', background: 'var(--brand)', color: 'var(--brand-on)', border: 'none', borderRadius: 999, fontSize: 13, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit' }}
-            >
-              Volver al inicio
-            </button>
+      <DarkPageLayout title="Club no encontrado | Pique" extraCss={PAGE_CSS} breadcrumbs={clubBreadcrumbs}>
+        {clubAppHead}
+        <div className="p-public-page cl-page">
+          <div className="cl-state">
+            <span className="cl-state-icon" aria-hidden="true"><SearchX size={24} /></span>
+            <h1 className="cl-state-title">No encontramos este club</h1>
+            <p className="cl-state-copy">Puede que el enlace esté mal escrito o que el club ya no esté en Pique.</p>
+            <Link href="/complejos" className="cl-state-btn">Ver complejos</Link>
           </div>
         </div>
       </DarkPageLayout>
     );
   }
 
-  const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  if (isClubAppMode) {
+    const loginHref = `/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`;
+    return (
+      <DarkPageLayout title={pageTitle} extraCss={PAGE_CSS}>
+        {clubAppHead}
+        {router.query.view === 'reservar' ? (
+          <div style={{ maxWidth: 760, width: '100%', margin: '0 auto', padding: '20px 12px 12px' }}>
+            <BookingGrid clubSlug={slug as string} variant="clubApp" />
+          </div>
+        ) : (
+          <ClubAppHome club={club} slug={slug as string} user={user as any} loginHref={loginHref} />
+        )}
+      </DarkPageLayout>
+    );
+  }
+
+  const clubArea = formatClubArea(club);
+  const fullAddress = formatClubAddress(club);
+  const instagram = club.instagramUrl ? instagramLink(club.instagramUrl) : null;
+  const facebook = club.facebookUrl ? externalLink(club.facebookUrl, 'Facebook') : null;
+  const website = club.websiteUrl ? externalLink(club.websiteUrl, 'Sitio web') : null;
+  const openingDays = Array.isArray(club.openingDays) ? club.openingDays : [];
+  const canWriteReview = canReviewClub || hasExistingClubReview;
+  const showReviewsPanel = reviewsSummary.count > 0 || canWriteReview;
+  const roundedRating = Math.round(reviewsSummary.averageRating);
 
   return (
     <DarkPageLayout title={pageTitle} extraCss={PAGE_CSS} breadcrumbs={clubBreadcrumbs}>
-      <div className="p-public-page cl-page" style={{ paddingTop: 32 }}>
+      {clubAppHead}
+      <div className="p-public-page cl-page">
 
         {/* ── HERO ── */}
         <div className="cl-hero">
-          {/* Background */}
           <div className="cl-hero-bg" />
           {club.clubImageUrl && (
             <>
               <Image
                 src={club.clubImageUrl}
-                alt={`Banner de ${club.name}`}
+                alt=""
                 fill
-                sizes="100vw"
+                priority
+                sizes="(max-width: 1360px) 100vw, 1360px"
                 className="cl-hero-img"
-                unoptimized
+                unoptimized={!isLocalAsset(club.clubImageUrl)}
               />
               <div className="cl-hero-overlay" />
             </>
           )}
 
-          {/* Body */}
           <div className="cl-hero-body">
-
-            {/* Logo */}
-            <div className="cl-logo-wrap">
-              <div className="cl-logo">
-                {club.logoUrl ? (
-                  <Image src={club.logoUrl} alt={club.name} fill sizes="100px" style={{ objectFit: 'contain' }} unoptimized />
-                ) : (
-                  <Trophy size={32} style={{ color: 'var(--text-muted)' }} />
-                )}
-              </div>
+            <div className="cl-logo">
+              {club.logoUrl ? (
+                <Image
+                  src={club.logoUrl}
+                  alt={`Logo de ${club.name}`}
+                  fill
+                  sizes="100px"
+                  style={{ objectFit: 'contain' }}
+                  unoptimized={!isLocalAsset(club.logoUrl)}
+                />
+              ) : (
+                <Trophy size={28} style={{ color: 'var(--text-muted)' }} />
+              )}
             </div>
 
-            {/* Info */}
             <div className="cl-hero-info">
               {reviewsSummary.count > 0 && (
                 <div className="cl-hero-rating">
-                  <Star size={13} style={{ color: 'var(--brand)', fill: 'var(--brand)' }} />
-                  <span style={{ color: 'var(--brand)', fontWeight: 800 }}>{formatRatingLabel(reviewsSummary.averageRating)}</span>
-                  <span style={{ color: 'var(--text-muted)' }}>({reviewsSummary.count} reseñas)</span>
+                  <Star size={13} style={{ color: 'var(--accent-fg)', fill: 'var(--accent-fg)' }} />
+                  <b>{formatRatingLabel(reviewsSummary.averageRating)}</b>
+                  <span>({formatReviewCount(reviewsSummary.count)})</span>
                 </div>
               )}
               <h1 className="cl-hero-h">{club.name}</h1>
               <div className="cl-hero-meta">
-                {(club.addressLine || club.city) && (
+                {clubArea && (
                   <span className="cl-hero-meta-item">
-                    <MapPin size={14} style={{ color: 'var(--brand)', flexShrink: 0 }} />
-                    {[club.addressLine, club.city].filter(Boolean).join(', ')}
+                    <MapPin size={14} />
+                    {clubArea}
                   </span>
                 )}
-                {club.instagramUrl && (
-                  <a
-                    href={club.instagramUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="cl-hero-meta-item"
-                    style={{ textDecoration: 'none', transition: 'color .15s' }}
-                  >
-                    <Instagram size={14} style={{ color: 'var(--brand)', flexShrink: 0 }} />
-                    @{club.instagramUrl.replace(/\/$/, '').split('/').pop() || 'Instagram'}
+                {fullAddress && (
+                  <a href={directionsUrl(club)} target="_blank" rel="noopener noreferrer" className="cl-directions">
+                    <Navigation size={13} />
+                    Cómo llegar
                   </a>
                 )}
               </div>
             </div>
 
-            {/* Actions */}
             <div className="cl-hero-actions">
               <button
+                type="button"
                 className={`cl-icon-btn${isFavorite ? ' cl-fav-on' : ''}`}
                 onClick={handleToggleFavorite}
                 disabled={favoriteBusy}
                 title={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
                 aria-label={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+                aria-pressed={isFavorite}
               >
-                <Heart size={20} style={{ fill: isFavorite ? 'var(--brand)' : 'none', transition: 'fill .2s' }} />
+                <Heart size={20} />
               </button>
-              <button className="cl-icon-btn" onClick={handleShare} title="Copiar enlace">
+              <button type="button" className="cl-icon-btn" onClick={handleShare} title="Compartir" aria-label="Compartir">
                 <Share2 size={20} />
               </button>
+              <ClubInstallButton clubName={club.name} logoUrl={club.logoUrl || null} />
             </div>
-
           </div>
-
         </div>
 
         {/* ── MAIN GRID ── */}
         <div className="cl-grid">
 
-          {/* BookingGrid — unchanged */}
           <BookingGrid clubSlug={slug} />
 
-          {/* Sidebar */}
           <div className="cl-sidebar">
 
-            {/* Info */}
-            <div className="cl-panel">
-              <div className="cl-panel-h">Información</div>
-              {club.description && (
-                <p className="cl-panel-description">
-                  {club.description}
-                </p>
-              )}
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {(club.addressLine || club.city) && (
-                  <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(club.name + ' ' + formatClubAddress(club))}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="cl-panel-row"
-                  >
+            {/* Información: un solo panel con todo lo de contacto */}
+            <section className="cl-panel" aria-labelledby="club-info-title">
+              <h2 id="club-info-title" className="cl-panel-h">Información</h2>
+              {club.description && <p className="cl-panel-description">{club.description}</p>}
+              <div className="cl-panel-rows">
+                {fullAddress && (
+                  <a href={directionsUrl(club)} target="_blank" rel="noopener noreferrer" className="cl-panel-row">
                     <MapPin size={14} className="cl-panel-icon" />
-                    <span style={{ textDecoration: 'underline', textDecorationColor: 'transparent', transition: 'text-decoration-color .15s' }}>
-                      {formatClubAddress(club)}
-                    </span>
+                    <span>{fullAddress}</span>
                   </a>
                 )}
                 {club.phone && (
@@ -513,208 +645,151 @@ export default function ClubPage() {
                     <span>{club.phone}</span>
                   </a>
                 )}
-                {Array.isArray(club.openingDays) && club.openingDays.length > 0 && (
-                  <div className="cl-panel-row" style={{ alignItems: 'flex-start', gap: 10 }}>
-                    <Calendar size={14} className="cl-panel-icon" style={{ marginTop: 2 }} />
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {openingDays.length > 0 && (
+                  <div className="cl-panel-row">
+                    <Calendar size={14} className="cl-panel-icon" />
+                    <div className="cl-days" aria-label="Días abiertos">
                       {DAY_LABELS.map((label, idx) =>
-                        club.openingDays!.includes(idx) ? (
-                          <span key={label} className="cl-day-chip">{label}</span>
-                        ) : null
+                        openingDays.includes(idx) ? <span key={label} className="cl-day-chip">{label}</span> : null
                       )}
                     </div>
                   </div>
                 )}
+                {instagram && (
+                  <a href={instagram.href} target="_blank" rel="noopener noreferrer" className="cl-panel-row">
+                    <Instagram size={14} className="cl-panel-icon" />
+                    <span>{instagram.label}</span>
+                  </a>
+                )}
+                {facebook && (
+                  <a href={facebook.href} target="_blank" rel="noopener noreferrer" className="cl-panel-row">
+                    <Facebook size={14} className="cl-panel-icon" />
+                    <span>{facebook.label}</span>
+                  </a>
+                )}
+                {website && (
+                  <a href={website.href} target="_blank" rel="noopener noreferrer" className="cl-panel-row">
+                    <Globe size={14} className="cl-panel-icon" />
+                    <span>{website.label}</span>
+                  </a>
+                )}
               </div>
-            </div>
+            </section>
 
-            {/* Social */}
-            {(club.instagramUrl || club.facebookUrl || club.websiteUrl) && (
-              <div className="cl-panel">
-                <div className="cl-panel-h">Social</div>
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  {club.instagramUrl && (
-                    <a href={club.instagramUrl} target="_blank" rel="noreferrer" className="cl-panel-row">
-                      <Instagram size={14} className="cl-panel-icon" />
-                      <span>{club.instagramUrl.replace(/^https?:\/\/(www\.)?(instagram\.com\/)?/, '@')}</span>
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Reviews */}
-            {reviewsSummary.count > 0 && (
-              <div className="cl-panel">
-                <div className="cl-panel-h">Reseñas</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border-subtle)' }}>
-                  <div>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--brand)', letterSpacing: '-.03em', lineHeight: 1 }}>
-                      {formatRatingLabel(reviewsSummary.averageRating)}
-                    </div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '.03em', marginTop: 4 }}>
-                      de 5 · {reviewsSummary.count} reseñas
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 3 }}>
-                    {[1, 2, 3, 4, 5].map(v => (
-                      <Star key={v} size={14} style={{ color: v <= Math.round(reviewsSummary.averageRating) ? 'var(--brand)' : 'var(--border-strong)', fill: v <= Math.round(reviewsSummary.averageRating) ? 'var(--brand)' : 'none' }} />
-                    ))}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {reviews.slice(0, 3).map(review => (
-                    <div key={review.id} className="cl-review-card">
-                      <div className="cl-review-head">
-                        <span className="cl-review-name">{review.user.name}</span>
-                        <span className="cl-review-score">
-                          <Star size={11} style={{ fill: 'var(--brand)' }} />
-                          {formatRatingLabel(Number(review.rating || 0))}
-                        </span>
+            {/* Reseñas: lo que opinan y, si podés, el acceso a dejar la tuya */}
+            {showReviewsPanel && (
+              <section className="cl-panel" aria-labelledby="club-reviews-title">
+                <h2 id="club-reviews-title" className="cl-panel-h">Reseñas</h2>
+                {reviewsSummary.count > 0 ? (
+                  <>
+                    <div className="cl-rating-sum">
+                      <div>
+                        <div className="cl-rating-big">{formatRatingLabel(reviewsSummary.averageRating)}</div>
+                        <div className="cl-rating-sub">de 5 · {formatReviewCount(reviewsSummary.count)}</div>
                       </div>
-                      {review.comment
-                        ? <p className="cl-review-comment">{review.comment}</p>
-                        : <p className="cl-review-comment" style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>Sin comentario</p>
-                      }
+                      <div className="cl-stars" aria-hidden="true">
+                        {[1, 2, 3, 4, 5].map(v => (
+                          <Star
+                            key={v}
+                            size={14}
+                            style={{ color: v <= roundedRating ? 'var(--accent-fg)' : 'var(--border-strong)', fill: v <= roundedRating ? 'var(--accent-fg)' : 'none' }}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Review CTA */}
-            <div className="cl-panel">
-              <div className="cl-panel-h">Tu reseña</div>
-              {reviewCtaLoading ? (
-                <UserLoadingState mode="inline" message="Validando elegibilidad..." />
-              ) : canReviewClub || hasExistingClubReview ? (
-                <div>
-                  <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14, lineHeight: 1.5 }}>
-                    {hasExistingClubReview
-                      ? 'Ya dejaste una reseña en este club. Podés editarla.'
-                      : 'Podés dejar tu reseña de este club.'}
-                  </p>
+                    <div className="cl-reviews">
+                      {reviews.slice(0, REVIEWS_SHOWN).map(review => (
+                        <div key={review.id} className="cl-review-card">
+                          <div className="cl-review-head">
+                            <span className="cl-review-name">{review.user.name}</span>
+                            <span className="cl-review-score">
+                              <Star size={11} style={{ fill: 'var(--accent-fg)' }} />
+                              {formatRatingLabel(Number(review.rating || 0))}
+                            </span>
+                          </div>
+                          {review.comment
+                            ? <p className="cl-review-comment">{review.comment}</p>
+                            : <p className="cl-review-comment is-empty">Sin comentario</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="cl-review-empty">Todavía no hay reseñas. Contá cómo te fue y ayudá a otros a elegir.</p>
+                )}
+                {canWriteReview && (
                   <button
                     type="button"
+                    className="cl-review-cta"
                     onClick={handleOpenReviewModal}
                     disabled={reviewLoading || reviewSaving}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '11px 16px', background: 'var(--positive-bg)', border: '1px solid var(--accent-border-subtle)', borderRadius: 12, color: 'var(--brand)', fontSize: 12, fontWeight: 800, letterSpacing: '.01em', cursor: reviewLoading || reviewSaving ? 'not-allowed' : 'pointer', opacity: reviewLoading || reviewSaving ? .6 : 1, fontFamily: 'inherit', transition: 'background .15s' }}
                   >
-                    <ChevronRight size={14} />
+                    <Star size={14} />
                     {hasExistingClubReview ? 'Editar mi reseña' : 'Dejar mi reseña'}
                   </button>
-                  {reviewFeedback && <div className="cl-feedback">{reviewFeedback}</div>}
-                </div>
-              ) : (
-                <div>
-                  <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-                    {user ? 'Completá una reserva en este club para poder reseñarlo.' : 'Iniciá sesión y completá una reserva para reseñar.'}
-                  </p>
-                  {!user && (
-                    <button
-                      type="button"
-                      className="cl-login-btn"
-                      onClick={() => router.push(`/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`)}
-                    >
-                      <ChevronRight size={14} />
-                      Iniciar sesión
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+                )}
+                {reviewFeedback && <div className="cl-feedback" role="status">{reviewFeedback}</div>}
+              </section>
+            )}
 
           </div>
         </div>
       </div>
 
-      {reviewModalOpen && (
-        <div
-          className="cl-review-overlay"
-          onMouseDown={(event) => {
-            reviewBackdropMouseDownRef.current = event.target === event.currentTarget;
-          }}
-          onMouseUp={(event) => {
-            if (reviewBackdropMouseDownRef.current && event.target === event.currentTarget && !reviewSaving) {
-              setReviewModalOpen(false);
-            }
-            reviewBackdropMouseDownRef.current = false;
-          }}
-        >
-          <div className="cl-review-panel" role="dialog" aria-modal="true" aria-labelledby="club-review-title">
-            <div className="cl-review-modal-head">
-              <div>
-                <div id="club-review-title" className="cl-review-modal-title">Tu reseña de {club.name}</div>
-                <div className="cl-review-modal-sub">Una reseña por club. Podés editarla cuando quieras.</div>
-              </div>
-              <button
-                type="button"
-                className="p-public-close-btn"
-                onClick={() => !reviewSaving && setReviewModalOpen(false)}
-                disabled={reviewSaving}
-                aria-label="Cerrar"
-                title="Cerrar"
-              >
-                <X size={15} />
-              </button>
+      <Modal
+        open={reviewModalOpen}
+        onClose={() => setReviewModalOpen(false)}
+        title={`Tu reseña de ${club.name}`}
+        subtitle="Una reseña por club. Podés editarla cuando quieras."
+        closeDisabled={reviewSaving}
+        maxWidth={480}
+        footer={reviewLoading ? undefined : (
+          <>
+            <button type="button" className="p-modal-btn p-modal-btn-wide" onClick={() => setReviewModalOpen(false)} disabled={reviewSaving}>
+              Cancelar
+            </button>
+            <button type="button" className="p-modal-btn p-modal-btn-primary p-modal-btn-wide" onClick={handleSubmitReview} disabled={reviewSaving || reviewRating < 1}>
+              <BusyLabel busy={reviewSaving}>Guardar</BusyLabel>
+            </button>
+          </>
+        )}
+      >
+        {reviewLoading ? (
+          <UserLoadingState mode="block" minHeight={180} message="Cargando tu reseña..." />
+        ) : (
+          <>
+            <div className="cl-review-stars" role="group" aria-label="Calificación">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={`cl-review-star${reviewRating >= value ? ' cl-star-on' : ''}`}
+                  onClick={() => setReviewRating(value)}
+                  disabled={reviewSaving}
+                  aria-label={`${value} ${value === 1 ? 'estrella' : 'estrellas'}`}
+                  aria-pressed={reviewRating === value}
+                >
+                  <Star size={20} style={{ fill: reviewRating >= value ? 'currentColor' : 'none' }} />
+                </button>
+              ))}
             </div>
-
-            {reviewLoading ? (
-              <UserLoadingState mode="inline" message="Cargando tu reseña..." />
-            ) : (
-              <>
-                <div className="cl-review-stars" aria-label="Calificación">
-                  {[1, 2, 3, 4, 5].map((value) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={`cl-review-star${reviewRating >= value ? ' cl-star-on' : ''}`}
-                      onClick={() => setReviewRating(value)}
-                      disabled={reviewSaving}
-                      aria-label={`${value} ${value === 1 ? 'estrella' : 'estrellas'}`}
-                    >
-                      <Star size={20} style={{ fill: reviewRating >= value ? 'currentColor' : 'none' }} />
-                    </button>
-                  ))}
-                </div>
-                <div style={{ marginTop: 18 }}>
-                  <textarea
-                    className="cl-review-textarea"
-                    rows={5}
-                    maxLength={220}
-                    value={reviewComment}
-                    onChange={(event) => setReviewComment(event.target.value)}
-                    placeholder="Contá cómo fue tu experiencia..."
-                    disabled={reviewSaving}
-                  />
-                  <div style={{ marginTop: 8, textAlign: 'right', fontSize: 11, color: 'var(--text-muted)', fontWeight: 700 }}>
-                    {reviewComment.length}/220
-                  </div>
-                </div>
-                {reviewFeedback && <div className="cl-feedback">{reviewFeedback}</div>}
-                <div className="cl-review-action-row">
-                  <button
-                    type="button"
-                    className="cl-review-secondary"
-                    onClick={() => setReviewModalOpen(false)}
-                    disabled={reviewSaving}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    className="cl-review-primary"
-                    onClick={handleSubmitReview}
-                    disabled={reviewSaving || reviewRating < 1}
-                  >
-                    {reviewSaving ? 'Guardando...' : 'Guardar'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+            <div style={{ marginTop: 18 }}>
+              <textarea
+                className="cl-review-textarea"
+                rows={5}
+                maxLength={220}
+                value={reviewComment}
+                onChange={(event) => setReviewComment(event.target.value)}
+                placeholder="Contá cómo fue tu experiencia..."
+                aria-label="Comentario"
+                disabled={reviewSaving}
+              />
+              <div className="cl-review-count">{reviewComment.length}/220</div>
+            </div>
+            {reviewFeedback && <div className="cl-feedback">{reviewFeedback}</div>}
+          </>
+        )}
+      </Modal>
     </DarkPageLayout>
   );
 }

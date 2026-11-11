@@ -207,13 +207,14 @@ export class WhatsappV2PreflightService {
           })
         : null;
 
+      const templateName = String(template?.templateName || '').trim();
       checks.push(
-        template?.templateName === required.key
+        templateName
           ? {
               key: `template.${required.key}`,
               severity: 'INFO',
               ok: true,
-              message: `Template activo encontrado: ${required.key}.`
+              message: `Template activo encontrado: ${templateName}.`
             }
           : {
               key: `template.${required.key}`,

@@ -2,6 +2,7 @@ import { prisma } from '../prisma';
 import { Prisma } from '@prisma/client';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { ErrorCodes, badRequest, conflict, notFound } from '../errors';
+import { stockMovementService } from './StockMovementService';
 
 type ProductComponentInput = {
     componentProductId: number;
@@ -15,6 +16,7 @@ type ProductInput = {
     category?: string;
     isCombo?: boolean;
     components?: ProductComponentInput[];
+    minStock?: number;
 };
 
 export class ProductService {
@@ -219,7 +221,7 @@ export class ProductService {
     }
 
     // 2. Crear un producto nuevo
-    async createProduct(clubId: number, data: ProductInput) {
+    async createProduct(clubId: number, data: ProductInput, actorUserId?: number | null) {
         return await prisma.$transaction(async (tx) => {
             const isCombo = Boolean(data.isCombo);
             const components = this.sanitizeComponents(data.components || []);
@@ -234,10 +236,22 @@ export class ProductService {
                     name: data.name,
                     price: data.price,
                     stock: isCombo ? 0 : data.stock,
+                    ...(data.minStock !== undefined ? { minStock: data.minStock } : {}),
                     category: data.category,
                     isCombo
                 }
             });
+
+            if (!isCombo && Number(created.stock) > 0) {
+                await stockMovementService.recordTx(tx, {
+                    clubId,
+                    productId: created.id,
+                    quantity: Number(created.stock),
+                    type: 'INITIAL',
+                    reason: 'Stock inicial',
+                    createdByUserId: actorUserId ?? null
+                });
+            }
 
             if (isCombo && components.length > 0) {
                 await tx.productComponent.createMany({
@@ -275,7 +289,8 @@ export class ProductService {
     async updateProductByClub(
         id: number,
         clubId: number,
-        data: { name?: string; price?: number; stock?: number; category?: string; isCombo?: boolean; components?: ProductComponentInput[] }
+        data: { name?: string; price?: number; stock?: number; minStock?: number; category?: string; isCombo?: boolean; components?: ProductComponentInput[] },
+        actorUserId?: number | null
     ) {
         return prisma.$transaction(async (tx) => {
             const product = await tx.product.findFirst({ where: { id, clubId } });
@@ -298,9 +313,23 @@ export class ProductService {
                     price: data.price,
                     category: data.category,
                     isCombo: nextIsCombo,
-                    stock: nextIsCombo ? 0 : data.stock
+                    stock: nextIsCombo ? 0 : data.stock,
+                    ...(data.minStock !== undefined ? { minStock: data.minStock } : {})
                 }
             });
+
+            const previousStock = Number(product.stock || 0);
+            const nextStock = nextIsCombo ? 0 : (data.stock !== undefined ? Number(data.stock) : previousStock);
+            if (!product.isCombo && nextStock !== previousStock) {
+                await stockMovementService.recordTx(tx, {
+                    clubId,
+                    productId: id,
+                    quantity: nextStock - previousStock,
+                    type: 'MANUAL_EDIT',
+                    reason: 'Edición del producto',
+                    createdByUserId: actorUserId ?? null
+                });
+            }
 
             if (!nextIsCombo) {
                 await tx.productComponent.deleteMany({ where: { parentProductId: id } });
@@ -338,7 +367,13 @@ export class ProductService {
         return stockMap.get(productId) ?? 0;
     }
 
-    async consumeStock(clubId: number, productId: number, quantity: number, txClient: Prisma.TransactionClient) {
+    async consumeStock(
+        clubId: number,
+        productId: number,
+        quantity: number,
+        txClient: Prisma.TransactionClient,
+        meta?: { accountId?: string | null; accountItemId?: string | null; actorUserId?: number | null }
+    ) {
         const qty = Number(quantity);
         if (!Number.isFinite(qty) || qty <= 0) throw badRequest('Cantidad inválida', ErrorCodes.INVALID_INPUT);
 
@@ -362,6 +397,15 @@ export class ProductService {
             await txClient.product.update({
                 where: { id: baseProductId },
                 data: { stock: { decrement: requiredQty } }
+            });
+            await stockMovementService.recordTx(txClient, {
+                clubId,
+                productId: baseProductId,
+                quantity: -requiredQty,
+                type: 'SALE',
+                accountId: meta?.accountId ?? null,
+                accountItemId: meta?.accountItemId ?? null,
+                createdByUserId: meta?.actorUserId ?? null
             });
         }
     }

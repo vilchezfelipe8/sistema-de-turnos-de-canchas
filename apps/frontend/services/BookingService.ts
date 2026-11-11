@@ -42,7 +42,22 @@ export type BookingFinancialSummary = {
   };
 };
 
+// Desglose de la cotización en clubes con precio por jugador.
+export type PerPlayerQuote = {
+  activityFormatId: string;
+  formatName: string;
+  playerCount: number;
+  generalPricePerPlayer: number;
+  ownerPricePerPlayer: number;
+  ownerMemberCategoryName: string | null;
+  lightsExtra: number;
+  lightsPerSlot: number;
+  estimatedTotal: number;
+  listTotal: number;
+};
+
 export type BookingQuote = {
+  perPlayer?: PerPlayerQuote | null;
   listPrice: number;
   finalPrice: number;
   discountAmount: number;
@@ -95,6 +110,7 @@ export type PlayerBookingDto = {
     name: string;
     slug: string;
     timeZone: string;
+    logoUrl?: string | null;
   };
   court: {
     name: string;
@@ -102,6 +118,11 @@ export type PlayerBookingDto = {
   activity: {
     name: string;
   } | null;
+  formatName: string | null;
+  playerCount: number | null;
+  owner: {
+    displayName: string;
+  };
   startDateTime: string;
   endDateTime: string;
   status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
@@ -160,6 +181,16 @@ export type PlayerBookingInvitationDto = {
   invitedName?: string | null;
   invitedEmail?: string | null;
   status: 'INVITED';
+  activityName?: string | null;
+  // Precio por jugador: modalidad y parte que pagaría si acepta
+  formatName?: string | null;
+  playerCount?: number | null;
+  invitedByName?: string | null;
+  myShareAmount?: number | null;
+  myMemberCategoryName?: string | null;
+  // Lugares libres además del propio y si la parte se puede pagar online.
+  openSpots?: number | null;
+  onlinePaymentAvailable?: boolean;
 };
 
 export type PlayerBookingCheckoutDto = {
@@ -196,16 +227,57 @@ export type PlayerBookingCheckoutDto = {
     enabled: boolean;
     reason:
       | 'PROVIDER_NOT_CONFIGURED'
+      | 'PAY_AT_CLUB'
       | 'BOOKING_NOT_PAYABLE'
       | 'NO_PENDING_BALANCE'
       | 'ACCOUNT_MISSING'
       | 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED'
       | 'BOOKING_HAS_REFUNDS'
+      | 'MEMBER_PRICE_PENDING'
       | 'UNKNOWN'
       | null;
     futureProvider: 'MERCADO_PAGO' | null;
   };
+  /** Seña (club "Con seña", solo para el titular): cuánto falta para confirmar y hasta cuándo pagarla. */
+  deposit?: {
+    percent: number;
+    requiredAmount: number;
+    remainingAmount: number;
+    covered: boolean;
+    onlineRequired: boolean;
+    dueAt: string | null;
+  } | null;
+  /** Precio efectivo en el club / online con descuento de lo que le toca pagar (null = sin descuento). */
+  priceHints?: {
+    listAmount: number;
+    cashPercent: number;
+    cashAmount: number | null;
+    onlinePercent: number;
+    onlineAmount: number | null;
+  };
+  // Reservas por jugador: cada uno paga su parte. null en reservas por cancha.
+  shares: {
+    // pending incluye los consumos a cargo propio (extrasPending).
+    mine: { amount: number; paid: number; pending: number; extrasPending: number; memberPricePending: boolean } | null;
+    canPayAll: boolean;
+    allPending: number;
+    extras: Array<{ label: string; pending: number; slotIndex: number; isMine: boolean }>;
+    players: Array<{
+      slotIndex: number;
+      participantId: string | null;
+      displayName: string | null;
+      isEmpty: boolean;
+      isMine: boolean;
+      amount: number;
+      paid: boolean;
+      memberPricePending: boolean;
+    }>;
+  } | null;
 };
+
+// OWN_SHARE: la parte propia (por defecto) · ALL_SHARES: todas las partes (solo el titular).
+// DEPOSIT: el titular paga solo la seña (modo "Con seña").
+export type OnlinePaymentScope = 'OWN_SHARE' | 'ALL_SHARES' | 'DEPOSIT';
 
 export type PlayerBookingCheckoutStartDto = {
   attemptId: string;
@@ -234,6 +306,15 @@ export const createBooking = async (
   options?: {
     durationMinutes?: number;
     applyDiscount?: boolean;
+    // Modalidad (clubes con precio por jugador)
+    activityFormatId?: string | null;
+    initialParticipants?: Array<{
+      email?: string;
+      dni?: string;
+      name?: string;
+      // Jugador elegido en la búsqueda por nombre.
+      inviteToken?: string;
+    }>;
     clientId?: string;
     ownerSelection?:
       | {
@@ -277,7 +358,9 @@ export const createBooking = async (
       ...(options?.ownerSelection ? { ownerSelection: options.ownerSelection } : {}),
       ...(options?.client ? { client: options.client } : {}),
       ...(Number.isFinite(options?.durationMinutes) ? { durationMinutes: options?.durationMinutes } : {}),
-      ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount })
+      ...(options?.applyDiscount === undefined ? {} : { applyDiscount: options.applyDiscount }),
+      ...(options?.activityFormatId ? { activityFormatId: options.activityFormatId } : {}),
+      ...(options?.initialParticipants?.length ? { initialParticipants: options.initialParticipants } : {})
     }),
   });
 
@@ -295,10 +378,12 @@ export const getBookingQuote = async (input: {
   slotTime?: string;
   startDateTime?: Date;
   durationMinutes?: number;
+  clientId?: string;
   clientEmail?: string;
   clientPhone?: string;
   clientDni?: string;
   applyDiscount?: boolean;
+  activityFormatId?: string | null;
 }) => {
   const response = await fetchWithAuth(`${apiBase()}/bookings/quote`, {
     method: 'POST',
@@ -315,10 +400,12 @@ export const getBookingQuote = async (input: {
               }
             : {})),
       ...(Number.isFinite(input.durationMinutes) ? { durationMinutes: input.durationMinutes } : {}),
+      ...(input.clientId ? { clientId: input.clientId } : {}),
       ...(input.clientEmail ? { clientEmail: input.clientEmail } : {}),
       ...(input.clientPhone ? { clientPhone: input.clientPhone } : {}),
       ...(input.clientDni ? { clientDni: input.clientDni } : {}),
-      ...(input.applyDiscount === undefined ? {} : { applyDiscount: input.applyDiscount })
+      ...(input.applyDiscount === undefined ? {} : { applyDiscount: input.applyDiscount }),
+      ...(input.activityFormatId ? { activityFormatId: input.activityFormatId } : {})
     })
   });
 
@@ -338,12 +425,25 @@ export const getBookingQuote = async (input: {
           policyName: String(policy.policyName || ''),
           discountAmount: Number(policy.discountAmount || 0)
         }))
-      : []
+      : [],
+    perPlayer: payload?.perPlayer ?? null
   } satisfies BookingQuote;
 };
 
 // --- 2. OBTENER MIS RESERVAS (HISTORIAL) ---
-export const getMyBookings = async (_userId?: number): Promise<PlayerBookingDto[]> => {
+// Pedidos simultáneos (navbar, página del club, inicio...) comparten una sola llamada.
+// No se guarda nada: cuando termina, el siguiente pedido vuelve a consultar.
+let myBookingsInFlight: Promise<PlayerBookingDto[]> | null = null;
+
+export const getMyBookings = (_userId?: number): Promise<PlayerBookingDto[]> => {
+  if (!myBookingsInFlight) {
+    myBookingsInFlight = fetchMyBookings().finally(() => { myBookingsInFlight = null; });
+  }
+  // Cada llamador recibe su propia copia por si la ordena o la modifica.
+  return myBookingsInFlight.then(rows => [...rows]);
+};
+
+const fetchMyBookings = async (): Promise<PlayerBookingDto[]> => {
     try {
       const res = await fetchWithAuth(`${apiBase()}/me/bookings`, {
           method: 'GET',
@@ -448,16 +548,19 @@ export const getPlayerBookingCheckout = async (bookingId: number | string): Prom
   return await res.json() as PlayerBookingCheckoutDto;
 };
 
+// Se invita por email, por DNI exacto de una cuenta existente o con el token de la búsqueda por nombre.
 export const inviteBookingParticipant = async (
   bookingId: number | string,
-  input: { email: string; name?: string }
+  input: { email?: string; dni?: string; name?: string; inviteToken?: string }
 ): Promise<PlayerBookingParticipantDto> => {
   const res = await fetchWithAuth(`${apiBase()}/me/bookings/${bookingId}/participants/invite`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: String(input?.email || '').trim(),
-      ...(String(input?.name || '').trim() ? { name: String(input.name).trim() } : {})
+      ...(String(input?.email || '').trim() ? { email: String(input.email).trim() } : {}),
+      ...(String(input?.dni || '').trim() ? { dni: String(input.dni).trim() } : {}),
+      ...(String(input?.name || '').trim() ? { name: String(input.name).trim() } : {}),
+      ...(String(input?.inviteToken || '').trim() ? { inviteToken: String(input.inviteToken).trim() } : {})
     })
   });
 
@@ -483,11 +586,13 @@ export const removeBookingParticipant = async (bookingId: number | string, parti
 };
 
 export const createMercadoPagoCheckout = async (
-  bookingId: number | string
+  bookingId: number | string,
+  scope: OnlinePaymentScope = 'OWN_SHARE'
 ): Promise<PlayerBookingCheckoutStartDto> => {
   const res = await fetchWithAuth(`${apiBase()}/me/bookings/${bookingId}/checkout/mercadopago`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope })
   });
 
   if (!res.ok) {
@@ -495,6 +600,74 @@ export const createMercadoPagoCheckout = async (
   }
 
   return res.json();
+};
+
+// Se dispara al aceptar o rechazar una invitación para que la barra actualice el aviso.
+export const BOOKING_INVITATIONS_CHANGED_EVENT = 'booking-invitations:changed';
+
+export type PlayerLookupResult = {
+  status: 'FOUND' | 'SELF' | 'DNI_NOT_FOUND' | 'EMAIL_WITHOUT_ACCOUNT';
+  displayName: string | null;
+};
+
+// Busca al jugador por DNI o email antes de invitarlo (devuelve nombre e inicial del apellido).
+export const lookupPlayerForInvitation = async (
+  identity: { dni: string } | { email: string }
+): Promise<PlayerLookupResult> => {
+  const res = await fetchWithAuth(`${apiBase()}/me/players/lookup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(identity)
+  });
+
+  if (!res.ok) {
+    await throwApiErrorFromResponse(res, 'No pudimos buscar al jugador.');
+  }
+
+  return res.json();
+};
+
+// Jugador para invitar encontrado por nombre o entre los que jugaron con vos.
+// Sin datos de contacto: `ref` es estable (para no repetir) e `inviteToken` sirve para invitarlo.
+export type PlayerInviteCandidate = {
+  ref: string;
+  inviteToken: string;
+  displayName: string;
+  initials: string;
+  playedWithCount: number;
+};
+
+// Búsqueda por nombre acotada al club de la reserva (por slug en el checkout o por reserva ya creada).
+export const searchPlayersForInvitation = async (
+  input: { q: string; clubSlug?: string | null; bookingId?: number | string | null },
+  options?: { signal?: AbortSignal }
+): Promise<PlayerInviteCandidate[]> => {
+  const params = new URLSearchParams({ q: input.q });
+  if (input.clubSlug) params.set('clubSlug', String(input.clubSlug));
+  if (input.bookingId) params.set('bookingId', String(input.bookingId));
+  const res = await fetchWithAuth(`${apiBase()}/me/players/search?${params.toString()}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    signal: options?.signal
+  });
+  if (!res.ok) {
+    await throwApiErrorFromResponse(res, 'No pudimos buscar jugadores.');
+  }
+  const payload = await res.json();
+  return Array.isArray(payload?.items) ? payload.items : [];
+};
+
+// Personas con las que el usuario jugó más seguido.
+export const getFrequentPlayers = async (): Promise<PlayerInviteCandidate[]> => {
+  const res = await fetchWithAuth(`${apiBase()}/me/players/frequent`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) {
+    await throwApiErrorFromResponse(res, 'No pudimos cargar tus compañeros frecuentes.');
+  }
+  const payload = await res.json();
+  return Array.isArray(payload?.items) ? payload.items : [];
 };
 
 export const getMyBookingInvitations = async (): Promise<PlayerBookingInvitationDto[]> => {
@@ -837,6 +1010,7 @@ export const createFixedBooking = async (
     everyDays?: number;
     repetitions?: number;
     previewConflictsOnly?: boolean;
+    activityFormatId?: string | null;
   }
 ) => {
   const rawUser = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
@@ -868,7 +1042,8 @@ export const createFixedBooking = async (
     ...(Number.isFinite(options?.everyDays) ? { everyDays: Number(options?.everyDays) } : {}),
     ...(Number.isFinite(options?.repetitions) ? { repetitions: Number(options?.repetitions) } : {}),
     ...(options?.previewConflictsOnly ? { previewConflictsOnly: true } : {}),
-    ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {})
+    ...(options?.allowOverlappingSeries ? { allowOverlappingSeries: true } : {}),
+    ...(options?.activityFormatId ? { activityFormatId: options.activityFormatId } : {})
   });
 };
 

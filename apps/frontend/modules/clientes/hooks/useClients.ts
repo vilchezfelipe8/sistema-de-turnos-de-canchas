@@ -8,6 +8,8 @@ import { extractErrorMessage } from '../../../utils/uiError';
 // ---------------------------------------------------------------------------
 
 /** Shape returned by ClientService.listDebtors for each client row. */
+import type { MemberSummary } from '../../../services/MemberAdminService';
+
 export type AdminClient = {
   id: string | number;
   name: string;
@@ -21,6 +23,8 @@ export type AdminClient = {
     email?: string | null;
   } | null;
   isProfessor: boolean;
+  /** Condición de socio (null = no socio o módulo apagado). */
+  member?: MemberSummary | null;
   totalBookings: number;
   totalDebt: number;
   clubTimeZone?: string | null;

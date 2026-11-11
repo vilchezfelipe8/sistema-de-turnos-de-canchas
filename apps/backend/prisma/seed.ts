@@ -54,6 +54,11 @@ async function main() {
     update: {}, create: { city: 'Madrid', province: 'Madrid', country: 'España' }
   });
 
+  const locationCordoba = await prismaAny.location.upsert({
+    where: { city_province_country: { city: 'Córdoba', province: 'Córdoba', country: 'Argentina' } },
+    update: {}, create: { city: 'Córdoba', province: 'Córdoba', country: 'Argentina' }
+  });
+
   // 3. Clubes
   const club1 = await prismaAny.club.upsert({
     where: { slug: 'las-tejas' },
@@ -106,6 +111,23 @@ async function main() {
   });
   console.log(`✅ Club: ${club3.name} (TimeZone: Europe/Madrid)`);
 
+  const club4 = await prismaAny.club.upsert({
+    where: { slug: 'club-atletico-barrio-parque' },
+    update: {
+      name: 'Club Atlético Barrio Parque', addressLine: 'Lagunilla 2227', city: 'Córdoba', province: 'Córdoba', country: 'Argentina',
+      locationId: locationCordoba.id, contactInfo: 'contacto@barrioparque.com', phone: '+54 9 3571 538801',
+      instagramUrl: 'https://www.instagram.com/clubatleticobarrioparque/',
+      description: 'Club de tenis - cuenta de prueba'
+    },
+    create: {
+      slug: 'club-atletico-barrio-parque', name: 'Club Atlético Barrio Parque', addressLine: 'Lagunilla 2227', city: 'Córdoba', province: 'Córdoba', country: 'Argentina',
+      locationId: locationCordoba.id, contactInfo: 'contacto@barrioparque.com', phone: '+54 9 3571 538801',
+      instagramUrl: 'https://www.instagram.com/clubatleticobarrioparque/',
+      description: 'Club de tenis - cuenta de prueba'
+    }
+  });
+  console.log(`✅ Club: ${club4.name}`);
+
   const upsertClubSettings = async (club: { id: number }, timeZone: string) => {
     await prisma.clubSettings.upsert({
       where: { clubId: club.id },
@@ -136,6 +158,7 @@ async function main() {
   await upsertClubSettings(club1, 'America/Argentina/Buenos_Aires');
   await upsertClubSettings(club2, 'America/Argentina/Buenos_Aires');
   await upsertClubSettings(club3, 'Europe/Madrid');
+  await upsertClubSettings(club4, 'America/Argentina/Cordoba');
   console.log('✅ ClubSettings creado/actualizado');
 
   // 4. Actividades por club (multi-tenant)
@@ -167,6 +190,8 @@ async function main() {
   const padelClub3 = await ensureActivityType(club3.id, 'Pádel', 'Deporte de paleta', 90);
   const tenisClub3 = await ensureActivityType(club3.id, 'Tenis', 'Deporte de raqueta', 90);
   const futbolClub3 = await ensureActivityType(club3.id, 'Fútbol', 'Deporte de equipo', 60);
+
+  const tenisClub4 = await ensureActivityType(club4.id, 'Tenis', 'Deporte de raqueta', 90);
 
   const lasTejasPadelFixedSlots = [
     '08:00',
@@ -234,6 +259,26 @@ async function main() {
     update: { name: 'Pista Central WPT', clubId: club3.id, isIndoor: true, surface: 'Sintético', price: 40000, activityTypeId: padelClub3.id },
     create: { id: 106, name: 'Pista Central WPT', clubId: club3.id, isIndoor: true, surface: 'Sintético', price: 40000, activityTypeId: padelClub3.id }
   });
+  await prisma.court.upsert({
+    where: { id: 107 },
+    update: { name: 'Cancha 1', clubId: club4.id, isIndoor: true, surface: 'Polvo de ladrillo', price: 28000, activityTypeId: tenisClub4.id },
+    create: { id: 107, name: 'Cancha 1', clubId: club4.id, isIndoor: true, surface: 'Polvo de ladrillo', price: 28000, activityTypeId: tenisClub4.id }
+  });
+  await prisma.court.upsert({
+    where: { id: 108 },
+    update: { name: 'Cancha 2', clubId: club4.id, isIndoor: true, surface: 'Polvo de ladrillo', price: 28000, activityTypeId: tenisClub4.id },
+    create: { id: 108, name: 'Cancha 2', clubId: club4.id, isIndoor: true, surface: 'Polvo de ladrillo', price: 28000, activityTypeId: tenisClub4.id }
+  });
+  await prisma.court.upsert({
+    where: { id: 109 },
+    update: { name: 'Cancha 3', clubId: club4.id, isIndoor: false, surface: 'Polvo de ladrillo', price: 28000, activityTypeId: tenisClub4.id },
+    create: { id: 109, name: 'Cancha 3', clubId: club4.id, isIndoor: false, surface: 'Polvo de ladrillo', price: 28000, activityTypeId: tenisClub4.id }
+  });
+  await prisma.court.upsert({
+    where: { id: 110 },
+    update: { name: 'Cancha 4', clubId: club4.id, isIndoor: false, surface: 'Polvo de ladrillo', price: 28000, activityTypeId: tenisClub4.id },
+    create: { id: 110, name: 'Cancha 4', clubId: club4.id, isIndoor: false, surface: 'Polvo de ladrillo', price: 28000, activityTypeId: tenisClub4.id }
+  });
   console.log('✅ Canchas creadas');
 
   const upsertProduct = async (clubId: number, name: string, price: number, stock: number, category: string) => {
@@ -258,6 +303,14 @@ async function main() {
 
   await upsertProduct(club3.id, 'Isotónica', 3500, 35, 'Bebidas');
   await upsertProduct(club3.id, 'Grip over', 6000, 30, 'Insumos');
+
+  await upsertProduct(club4.id, 'Agua 500ml', 1800, 50, 'Bebidas');
+  await upsertProduct(club4.id, 'Gatorade', 3000, 40, 'Bebidas');
+  await upsertProduct(club4.id, 'Coca-Cola 500ml', 2500, 40, 'Bebidas');
+  await upsertProduct(club4.id, 'Pelotas de Tenis (tubo x3)', 8500, 25, 'Insumos');
+  await upsertProduct(club4.id, 'Grip over', 6000, 30, 'Insumos');
+  await upsertProduct(club4.id, 'Muñequera', 4500, 15, 'Insumos');
+  await upsertProduct(club4.id, 'Alquiler de raqueta', 5000, 8, 'Alquiler');
   console.log('✅ Productos creados/actualizados');
 
   // 6. Usuarios
@@ -292,6 +345,13 @@ async function main() {
     create: { firstName: 'Admin', lastName: 'Madrid', email: 'admin@madridpadel.es', password: adminPassword, phoneNumber: '+34600000000', role: Role.ADMIN },
   });
 
+  // Admin Barrio Parque
+  const adminBarrioParque = await prisma.user.upsert({
+    where: { email: 'admin@barrioparque.com' },
+    update: { firstName: 'Admin', lastName: 'Barrio Parque', password: adminPassword, phoneNumber: '000-000002', role: Role.ADMIN },
+    create: { firstName: 'Admin', lastName: 'Barrio Parque', email: 'admin@barrioparque.com', password: adminPassword, phoneNumber: '000-000002', role: Role.ADMIN },
+  });
+
   // Miembro Central
   const memberCentral = await prisma.user.upsert({
     where: { email: 'usuario@clubcentral.com' },
@@ -311,6 +371,7 @@ async function main() {
   await upsertMembership(adminTejas.id, club1.id, MembershipRole.OWNER);
   await upsertMembership(adminCentral.id, club2.id, MembershipRole.OWNER);
   await upsertMembership(adminMadrid.id, club3.id, MembershipRole.OWNER);
+  await upsertMembership(adminBarrioParque.id, club4.id, MembershipRole.OWNER);
   await upsertMembership(memberCentral.id, club2.id, MembershipRole.CUSTOMER);
 
   // Membership opcional para pruebas cross-club
@@ -415,6 +476,7 @@ async function main() {
   const register1 = await upsertCashRegister(club1.id);
   const register2 = await upsertCashRegister(club2.id);
   const register3 = await upsertCashRegister(club3.id);
+  const register4 = await upsertCashRegister(club4.id);
 
   const ensureOpenShift = async (cashRegisterId: string, openedByUserId: number, clubId: number) => {
     const openShift = await prisma.cashShift.findFirst({
@@ -437,6 +499,7 @@ async function main() {
   await ensureOpenShift(register1.id, adminTejas.id, register1.clubId);
   await ensureOpenShift(register2.id, adminCentral.id, register2.clubId);
   await ensureOpenShift(register3.id, adminMadrid.id, register3.clubId);
+  await ensureOpenShift(register4.id, adminBarrioParque.id, register4.clubId);
   console.log('✅ Caja principal y turnos de caja abiertos');
 }
 

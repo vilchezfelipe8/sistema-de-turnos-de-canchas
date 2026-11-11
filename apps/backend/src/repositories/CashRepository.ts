@@ -44,7 +44,8 @@ export class CashRepository {
               select: {
                 id: true,
                 sourceType: true,
-                sourceId: true
+                sourceId: true,
+                client: { select: { name: true } }
               }
             },
             allocations: {
@@ -70,7 +71,8 @@ export class CashRepository {
               select: {
                 id: true,
                 sourceType: true,
-                sourceId: true
+                sourceId: true,
+                client: { select: { name: true } }
               }
             },
             payment: {

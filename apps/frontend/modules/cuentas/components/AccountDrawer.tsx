@@ -35,6 +35,7 @@ import {
   resolveCustomDraftAmount,
   computeConceptBasedMaxAmount,
   buildPaymentPreviewRows,
+  computeMethodDiscount,
   type AccountDetail,
   type PaymentQuickPreset,
   type PaymentResultData,
@@ -144,6 +145,8 @@ export default function AccountDrawer({
   // ── View state ──────────────────────────────────────────────────────────────
   const [view, setView] = useState<AccountDrawerView>('overview');
   const initialViewAppliedKeyRef = useRef('');
+  /** Vista con la que se abrió el panel. Si no fue el detalle, "Cancelar" cierra en vez de volver. */
+  const entryViewRef = useRef<AccountDrawerInitialView>('overview');
 
   // ── Action state ────────────────────────────────────────────────────────────
   const [actionError, setActionError] = useState('');
@@ -163,6 +166,7 @@ export default function AccountDrawer({
   const [payCustomAmountById, setPayCustomAmountById] = useState<Record<string, string>>({});
   const [payError, setPayError] = useState('');
   const [payResult, setPayResult] = useState<PaymentResultData | null>(null);
+  const [payApplyMethodDiscount, setPayApplyMethodDiscount] = useState(true);
 
   const normalizeDrawerDetail = useCallback(
     (raw: any, fallbackId: string) => {
@@ -194,6 +198,7 @@ export default function AccountDrawer({
     const allIds = rows.map((r) => String(r.id));
     setPayMethod('CASH');
     setPayChannel('BANK_ACCOUNT');
+    setPayApplyMethodDiscount(true);
     setPayPreset('FULL');
     setPaySelectedIds(allIds);
     setPayCustomAmountById({});
@@ -207,6 +212,7 @@ export default function AccountDrawer({
     (targetDetail: AccountDetail) => {
       setActionError('');
       setPayError('');
+      entryViewRef.current = initialView;
 
       if (initialView === 'add_item') {
         if (targetDetail.status === 'OPEN') {
@@ -287,6 +293,9 @@ export default function AccountDrawer({
 
   useEffect(() => {
     if (!open || !accountId || !detail) return;
+    // Si cambió la cuenta con el panel abierto, esperar a que llegue el detalle nuevo:
+    // aplicar la vista inicial sobre la cuenta anterior la abría con datos equivocados.
+    if (String(detail.id) !== String(accountId)) return;
     const key = `${accountId}:${initialView}`;
     if (initialViewAppliedKeyRef.current === key) return;
     initialViewAppliedKeyRef.current = key;
@@ -310,10 +319,21 @@ export default function AccountDrawer({
     if (payResult?.variant === 'success') {
       await reloadDetail();
     }
+    entryViewRef.current = 'overview';
     setView('overview');
     setActionError('');
     setPayError('');
   }, [payResult, reloadDetail]);
+
+  // Cancelar: si el panel se abrió directo en esta acción, se cierra; si no, vuelve al detalle.
+  const cancelCurrentStep = useCallback(() => {
+    if (entryViewRef.current !== 'overview') {
+      if (submitting) return;
+      onClose();
+      return;
+    }
+    void goToOverview();
+  }, [goToOverview, onClose, submitting]);
 
   // ── Payment derived state ─────────────────────────────────────────────────
   const pendingRows = useMemo(() => buildPendingItemRows(detail), [detail]);
@@ -389,6 +409,29 @@ export default function AccountDrawer({
       ),
     [payPreset, pendingRows, paySelectedIds, payCustomAmountById, amountNumeric]
   );
+
+  // ── Descuento por medio de pago (ej. precio efectivo) ────────────────────
+  const methodDiscountPercent =
+    payMethod === 'CASH' || payMethod === 'TRANSFER' || payMethod === 'CARD'
+      ? Number(detail?.paymentMethodDiscounts?.[payMethod] || 0)
+      : 0;
+  const methodDiscountActive = methodDiscountPercent > 0 && payApplyMethodDiscount;
+  const methodDiscountAmount = useMemo(() => {
+    if (!methodDiscountActive || !Number.isFinite(amountNumeric) || amountNumeric <= 0) return 0;
+    const rowAmounts = previewRows
+      .filter((row) => row.id !== SYNTHETIC_ACCOUNT_TOTAL_ITEM_ID)
+      .map((row) => row.amount);
+    const rowsTotal = rowAmounts.reduce((sum, amount) => sum + amount, 0);
+    return Math.abs(rowsTotal - amountNumeric) <= ACCOUNT_PAYMENT_EPSILON
+      ? computeMethodDiscount(rowAmounts, methodDiscountPercent)
+      : computeMethodDiscount([amountNumeric], methodDiscountPercent);
+  }, [methodDiscountActive, methodDiscountPercent, amountNumeric, previewRows]);
+  const chargeAmount = Number(((Number.isFinite(amountNumeric) ? amountNumeric : 0) - methodDiscountAmount).toFixed(2));
+  // Cobro directo: si se cobra todo lo pendiente tal cual, el resumen previo no aporta nada.
+  const canChargeDirectly =
+    amountIsValid &&
+    payPreset !== 'CUSTOM_ITEMS' &&
+    Math.abs(amountNumeric - maxAllowed) <= ACCOUNT_PAYMENT_EPSILON;
 
   // ── Open payment flow ─────────────────────────────────────────────────────
   const openPaymentFlow = useCallback(() => {
@@ -514,7 +557,9 @@ export default function AccountDrawer({
   );
 
   // ── Submit payment ────────────────────────────────────────────────────────
-  const submitPayment = useCallback(async () => {
+  // quick: cobro directo del total. Si sale bien, avisa con un toast y cierra en vez de
+  // mostrar la pantalla de resultado (que solo repetiría lo que ya se vio en el botón).
+  const submitPayment = useCallback(async (options?: { quick?: boolean }) => {
     if (!accountId || !detail) return;
     const amount = amountNumeric;
     if (!Number.isFinite(amount) || amount <= ACCOUNT_PAYMENT_EPSILON) {
@@ -557,13 +602,24 @@ export default function AccountDrawer({
     try {
       setSubmitting(true);
       setPayError('');
-      await registerPayment({
+      const created = await registerPayment({
         accountId,
         amount: roundedAmount,
         method: payMethod,
         channel: payMethod === 'TRANSFER' ? payChannel : undefined,
         allocations: canSendAllocations ? itemAllocations : undefined,
+        applyMethodDiscount: methodDiscountActive || undefined,
       });
+      const chargedAmount = Number(Number(created?.amount ?? roundedAmount).toFixed(2));
+      const discountApplied = Number(created?.methodDiscountAmount || 0);
+      if (options?.quick) {
+        showAdminToast(
+          `Cobro registrado: ${formatMoney(chargedAmount)} en ${paymentMethodLabel(payMethod).toLowerCase()}.`
+        );
+        onSuccess?.('payment', getSuccessMeta());
+        onClose();
+        return;
+      }
       await reloadDetail();
       const reloaded = await getAccountById(accountId).then((r) =>
         normalizeDrawerDetail(r, accountId)
@@ -572,9 +628,12 @@ export default function AccountDrawer({
       setPayResult({
         variant: 'success',
         title: 'Cobro registrado',
-        detail: 'El cobro se registró correctamente.',
+        detail:
+          discountApplied > 0
+            ? `Se cobraron ${formatMoney(chargedAmount)} con ${formatMoney(discountApplied)} de descuento por pago en ${paymentMethodLabel(payMethod).toLowerCase()}.`
+            : 'El cobro se registró correctamente.',
         requestedAmount: roundedAmount,
-        appliedAmount: roundedAmount,
+        appliedAmount: chargedAmount,
         remainingAfter: Number(reloaded.remaining || 0),
         methodLabel: paymentMethodLabel(payMethod),
         appliedItems,
@@ -606,10 +665,12 @@ export default function AccountDrawer({
     payMethod,
     payChannel,
     previewRows,
+    methodDiscountActive,
     reloadDetail,
     getSuccessMeta,
     normalizeDrawerDetail,
     onSuccess,
+    onClose,
   ]);
 
   // ── Submit add item ────────────────────────────────────────────────────────
@@ -734,7 +795,7 @@ export default function AccountDrawer({
   const accountTitle = contextTitle || `Cuenta ${detail ? `#${shortCode(detail.id)}` : ''}`;
   const drawerSubtitle =
     view === 'payment_form'
-      ? 'Elegi método y monto. Si hace falta, ajusta conceptos.'
+      ? 'Elegí el medio de pago y el monto.'
       : detail && contextSubtitle
       ? contextSubtitle
       : detail && contextTitle
@@ -752,14 +813,7 @@ export default function AccountDrawer({
     ? 'Cerrar cuenta'
     : accountTitle;
 
-  const statusChip =
-    view === 'overview' && detail
-      ? detail.status === 'OPEN'
-        ? hasPendingDebt
-          ? 'Con deuda'
-          : 'Al día'
-        : 'Cerrada'
-      : undefined;
+  const statusChip = view === 'overview' && detail && detail.status !== 'OPEN' ? 'Cerrada' : undefined;
 
   const statusChipClassName =
     detail?.status === 'CLOSED'
@@ -772,26 +826,16 @@ export default function AccountDrawer({
   const footer = (() => {
     if (view === 'overview') {
       if (loading || !detail) return undefined;
+      const linkClass = 'text-[13px] font-semibold hover:underline underline-offset-2 disabled:opacity-40';
       return (
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {isOpen && (
             <button
               type="button"
               onClick={() => { setActionError(''); setView('add_item'); }}
-              className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-accent transition hover:bg-p-surface-2"
+              className={`${linkClass} text-p-accent`}
             >
-              <Plus size={14} />
-              Concepto
-            </button>
-          )}
-          {isOpen && hasPendingDebt && (
-            <button
-              type="button"
-              onClick={openPaymentFlow}
-              className="flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
-            >
-              <CreditCard size={14} />
-              Cobrar
+              + Consumo
             </button>
           )}
           {onRefundRequest && detail.payments.length > 0 && (
@@ -801,33 +845,39 @@ export default function AccountDrawer({
                 onClose();
                 onRefundRequest(detail.id);
               }}
-              className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+              className={`${linkClass} text-p-text-secondary`}
             >
-              <Minus size={14} />
-              Devolución
+              Devolver un pago
             </button>
           )}
-          {isOpen && !hasPendingDebt && (
-            <button
-              type="button"
-              onClick={() => { setActionError(''); setView('close_confirm'); }}
-              className="flex h-10 items-center gap-1.5 rounded-xl border border-p-error bg-p-error-bg px-4 text-[13px] font-semibold text-[var(--error-fg)] transition hover:bg-[var(--error-fg)] hover:text-ink-50"
-            >
-              Cerrar cuenta
-            </button>
-          )}
-          {/* P2-B: Anular venta mostrador */}
           {isOpen && isPosOrBar && hasNoPayments && (
             <button
               type="button"
               onClick={() => { setActionError(''); setVoidConfirmOpen((v) => !v); }}
               disabled={submitting}
-              className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:border-p-error hover:text-p-error disabled:opacity-40"
+              className={`${linkClass} text-p-text-muted hover:text-p-error`}
             >
-              <Trash2 size={14} />
               Anular venta
             </button>
           )}
+          <div className="flex-1" />
+          {isOpen && hasPendingDebt ? (
+            <button
+              type="button"
+              onClick={openPaymentFlow}
+              className="h-11 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 transition hover:bg-ink-800"
+            >
+              Cobrar {formatMoney(detail.remaining)}
+            </button>
+          ) : isOpen ? (
+            <button
+              type="button"
+              onClick={() => { setActionError(''); setView('close_confirm'); }}
+              className="h-11 rounded-xl border border-p-border bg-p-surface px-5 text-[14px] font-semibold text-p-text transition hover:bg-p-surface-2"
+            >
+              Cerrar cuenta
+            </button>
+          ) : null}
         </div>
       );
     }
@@ -837,11 +887,11 @@ export default function AccountDrawer({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={goToOverview}
+            onClick={cancelCurrentStep}
             disabled={submitting}
             className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
           >
-            <ArrowLeft size={14} />
+            {entryViewRef.current === 'overview' && <ArrowLeft size={14} />}
             Cancelar
           </button>
           <div className="flex-1" />
@@ -862,21 +912,25 @@ export default function AccountDrawer({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={goToOverview}
+            onClick={cancelCurrentStep}
             disabled={submitting}
             className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
           >
-            <ArrowLeft size={14} />
+            {entryViewRef.current === 'overview' && <ArrowLeft size={14} />}
             Cancelar
           </button>
           <div className="flex-1" />
           <button
             type="button"
             disabled={!amountIsValid || submitting}
-            onClick={() => setView('payment_preconfirm')}
+            onClick={() => (canChargeDirectly ? void submitPayment({ quick: true }) : setView('payment_preconfirm'))}
             className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
           >
-            {submitting ? 'Cargando...' : 'Continuar'}
+            {submitting
+              ? 'Registrando...'
+              : canChargeDirectly
+                ? `Cobrar ${formatMoney(chargeAmount)}`
+                : 'Continuar'}
           </button>
         </div>
       );
@@ -898,7 +952,7 @@ export default function AccountDrawer({
           <button
             type="button"
             disabled={submitting}
-            onClick={submitPayment}
+            onClick={() => void submitPayment()}
             className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
           >
             {submitting ? 'Registrando...' : 'Confirmar cobro'}
@@ -921,12 +975,31 @@ export default function AccountDrawer({
             </button>
           )}
           <div className="flex-1" />
+          {payResult?.variant === 'success' && entryViewRef.current === 'payment' && (
+            <button
+              type="button"
+              onClick={() => void goToOverview()}
+              className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+            >
+              Ver cuenta
+            </button>
+          )}
           <button
             type="button"
-            onClick={goToOverview}
+            onClick={() => {
+              if (payResult?.variant === 'success' && entryViewRef.current === 'payment') {
+                onClose();
+                return;
+              }
+              void goToOverview();
+            }}
             className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
           >
-            {payResult?.variant === 'success' ? 'Ver cuenta' : 'Cerrar'}
+            {payResult?.variant === 'success'
+              ? entryViewRef.current === 'payment'
+                ? 'Listo'
+                : 'Ver cuenta'
+              : 'Cerrar'}
           </button>
         </div>
       );
@@ -937,11 +1010,11 @@ export default function AccountDrawer({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={goToOverview}
+            onClick={cancelCurrentStep}
             disabled={submitting}
             className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
           >
-            <ArrowLeft size={14} />
+            {entryViewRef.current === 'overview' && <ArrowLeft size={14} />}
             Cancelar
           </button>
           <div className="flex-1" />
@@ -1013,48 +1086,50 @@ export default function AccountDrawer({
             </div>
           )}
 
-          {/* Summary cards */}
-          <AdminDrawerSection className={sectionCardClass}>
-            <div className="flex gap-2">
-              <SummaryCard label="Total" value={formatMoney(detail.total)} />
-              <SummaryCard
-                label="Pagado"
-                value={formatMoney(detail.paid)}
-                variant={Number(detail.paid || 0) > ACCOUNT_PAYMENT_EPSILON ? 'paid' : 'default'}
-              />
-              <SummaryCard
-                label="Pendiente"
-                value={formatMoney(detail.remaining)}
-                variant={hasPendingDebt ? 'debt' : 'default'}
-              />
-            </div>
-          </AdminDrawerSection>
+          {/* Cuánto: lo primero que se lee. */}
+          <div>
+            {hasPendingDebt && isOpen ? (
+              <>
+                <p className="text-[13px] text-p-text-muted">Debe</p>
+                <p className="text-[32px] font-bold leading-tight tabular-nums text-p-warning">{formatMoney(detail.remaining)}</p>
+                <p className="text-[12px] tabular-nums text-p-text-muted">
+                  Total {formatMoney(detail.total)}
+                  {Number(detail.paid || 0) > ACCOUNT_PAYMENT_EPSILON ? ` · pagó ${formatMoney(detail.paid)}` : ''}
+                </p>
+              </>
+            ) : Number(detail.total || 0) <= ACCOUNT_PAYMENT_EPSILON ? (
+              <>
+                <p className="text-[18px] font-semibold text-p-text-secondary">Sin cargo</p>
+                <p className="text-[12px] text-p-text-muted">No tiene nada para cobrar.</p>
+              </>
+            ) : hasPendingDebt ? (
+              <>
+                <p className="text-[18px] font-semibold text-p-text-secondary">Cerrada sin cobrar</p>
+                <p className="text-[12px] tabular-nums text-p-text-muted">Quedaron {formatMoney(detail.remaining)} sin cobrar.</p>
+              </>
+            ) : (
+              <>
+                <p className="inline-flex items-center gap-1.5 text-[20px] font-bold text-p-positive">
+                  <Check size={20} />
+                  Pagado
+                </p>
+                <p className="text-[12px] tabular-nums text-p-text-muted">Total {formatMoney(detail.total)}</p>
+              </>
+            )}
+            {detail.client && (detail.client.phone || detail.client.email) && (
+              <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-p-text-muted">
+                <User size={12} />
+                {detail.client.name} · {detail.client.phone || detail.client.email}
+              </p>
+            )}
+          </div>
 
-          {/* Cliente (P2-A) */}
-          {detail.client && (
-            <AdminDrawerSection className={sectionCardClass}>
-              <div className="flex items-center gap-3 px-4 py-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-p-accent/10">
-                  <User size={14} className="text-p-accent" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-medium text-p-text">{detail.client.name}</p>
-                  {(detail.client.phone || detail.client.email) && (
-                    <p className="truncate text-[11px] text-p-text-muted">
-                      {detail.client.phone || detail.client.email}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </AdminDrawerSection>
-          )}
-
-          {/* Conceptos */}
+          {/* Qué incluye */}
           {detail.items.length > 0 && (
-            <AdminDrawerSection title="Conceptos" className={sectionCardClass}>
-              <div className={sectionListClass}>
+            <div className="border-t border-p-border pt-4">
+              <p className="text-[13px] font-semibold text-p-text">Qué incluye</p>
+              <ul className="mt-1 divide-y divide-p-border">
                 {detail.items.map((item) => {
-                  // Calcular cuánto se pagó de este item
                   const paidForItem = detail.payments.reduce(
                     (sum, payment) =>
                       sum +
@@ -1064,75 +1139,51 @@ export default function AccountDrawer({
                     0
                   );
                   const remainingForItem = Math.max(0, Number(item.total || 0) - paidForItem);
-                  const itemIsPaid = remainingForItem < ACCOUNT_PAYMENT_EPSILON;
-
+                  const itemIsPaid = remainingForItem < ACCOUNT_PAYMENT_EPSILON && Number(item.total || 0) > ACCOUNT_PAYMENT_EPSILON;
                   return (
-                    <div
-                      key={item.id}
-                      className={`flex flex-col gap-2 px-4 py-3 ${
-                        itemIsPaid ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] font-medium text-p-text">
-                            {item.type === 'BOOKING' ? 'Cancha' : item.description}
-                            {itemIsPaid && (
-                              <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                                ✓ Pagado
-                              </span>
-                            )}
+                    <li key={item.id} className="flex items-start justify-between gap-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-[13px] text-p-text">
+                          {item.description || itemTypeLabel(item.type)}
+                          {item.quantity > 1 && <span className="text-p-text-muted"> × {item.quantity}</span>}
+                        </p>
+                        {itemIsPaid ? (
+                          <p className="text-[11px] font-semibold text-p-positive">Pagado</p>
+                        ) : paidForItem > ACCOUNT_PAYMENT_EPSILON ? (
+                          <p className="text-[11px] tabular-nums text-p-text-muted">
+                            Pagó {formatMoney(paidForItem)} · falta {formatMoney(remainingForItem)}
                           </p>
-                          <p className="mt-0.5 text-[11px] text-p-text-muted">
-                            {itemTypeLabel(item.type)}
-                            {item.quantity > 1 && ` · ×${item.quantity}`}
-                          </p>
-                        </div>
-                        <span className="shrink-0 text-[13px] font-semibold text-p-text">
-                          {formatMoney(item.total)}
-                        </span>
+                        ) : null}
                       </div>
-                      {!itemIsPaid && paidForItem > ACCOUNT_PAYMENT_EPSILON && (
-                        <div className="flex items-center justify-between gap-2 border-t border-p-border pt-2 text-[11px]">
-                          <span className="text-p-text-muted">
-                            Pagado: {formatMoney(paidForItem)} | Pendiente: {formatMoney(remainingForItem)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
+                      <span className="shrink-0 text-[13px] font-semibold tabular-nums text-p-text">{formatMoney(item.total)}</span>
+                    </li>
                   );
                 })}
-              </div>
-            </AdminDrawerSection>
+              </ul>
+            </div>
           )}
 
-          {/* Pagos registrados */}
+          {/* Pagos */}
           {detail.payments.length > 0 && (
-            <AdminDrawerSection title="Pagos" className={sectionCardClass}>
-              <div className={sectionListClass}>
+            <div className="border-t border-p-border pt-4">
+              <p className="text-[13px] font-semibold text-p-text">Pagos</p>
+              <ul className="mt-1 divide-y divide-p-border">
                 {detail.payments.map((payment) => (
-                  <div key={payment.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <li key={payment.id} className="flex items-center justify-between gap-3 py-2.5">
                     <div className="min-w-0">
-                      <p className="text-[13px] font-medium text-p-text">
+                      <p className="text-[13px] text-p-text">
                         {paymentMethodLabel(payment.method)}
-                        {payment.channel &&
-                          payment.method === 'TRANSFER' && (
-                            <span className="ml-1 text-[11px] font-normal text-p-text-muted">
-                              · {paymentChannelLabel(payment.channel)}
-                            </span>
-                          )}
+                        {payment.channel && payment.method === 'TRANSFER' && (
+                          <span className="text-p-text-muted"> · {paymentChannelLabel(payment.channel)}</span>
+                        )}
                       </p>
-                      <p className="mt-0.5 text-[11px] text-p-text-muted">
-                        {formatRelativeDate(payment.createdAt)}
-                      </p>
+                      <p className="text-[11px] text-p-text-muted">{formatRelativeDate(payment.createdAt)}</p>
                     </div>
-                    <span className="shrink-0 text-[13px] font-semibold text-p-positive">
-                      {formatMoney(payment.amount)}
-                    </span>
-                  </div>
+                    <span className="shrink-0 text-[13px] font-semibold tabular-nums text-p-positive">{formatMoney(payment.amount)}</span>
+                  </li>
                 ))}
-              </div>
-            </AdminDrawerSection>
+              </ul>
+            </div>
           )}
 
           {detail.items.length === 0 && detail.payments.length === 0 && (
@@ -1292,8 +1343,20 @@ export default function AccountDrawer({
           onItemAmountChange={handleCustomItemAmountChange}
           amountDraft={payAmountDraft}
           onAmountChange={setPayAmountDraft}
-          maxInlineLabel={`Maximo: ${maxAllowed.toFixed(2)} $`}
-          maxFooterLabel={`Máximo para este cobro: ${maxAllowed.toFixed(2)} $`}
+          maxInlineLabel={`Máximo ${formatMoney(maxAllowed)}`}
+          maxFooterLabel=""
+          methodDiscount={
+            methodDiscountPercent > 0
+              ? {
+                  percent: methodDiscountPercent,
+                  methodLabel: paymentMethodLabel(payMethod).toLowerCase(),
+                  enabled: payApplyMethodDiscount,
+                  onToggle: setPayApplyMethodDiscount,
+                  discountAmount: methodDiscountAmount,
+                  chargeAmount,
+                }
+              : undefined
+          }
         />
       );
     }
@@ -1304,11 +1367,26 @@ export default function AccountDrawer({
         <>
           <AdminDrawerSection title="Resumen del cobro" className={sectionCardClass}>
             <div className={sectionListClass}>
-              <DataRow
-                label="Monto"
-                value={formatMoney(amountNumeric)}
-                valueClassName="font-bold text-p-text"
-              />
+              {methodDiscountActive && methodDiscountAmount > 0 ? (
+                <>
+                  <DataRow label="Precio de lista" value={formatMoney(amountNumeric)} />
+                  <DataRow
+                    label={`Descuento ${paymentMethodLabel(payMethod).toLowerCase()} (${methodDiscountPercent}%)`}
+                    value={`- ${formatMoney(methodDiscountAmount)}`}
+                  />
+                  <DataRow
+                    label="A cobrar"
+                    value={formatMoney(chargeAmount)}
+                    valueClassName="font-bold text-p-text"
+                  />
+                </>
+              ) : (
+                <DataRow
+                  label="Monto"
+                  value={formatMoney(amountNumeric)}
+                  valueClassName="font-bold text-p-text"
+                />
+              )}
               <DataRow label="Método" value={paymentMethodLabel(payMethod)} />
               {payMethod === 'TRANSFER' && (
                 <DataRow label="Canal" value={paymentChannelLabel(payChannel)} />

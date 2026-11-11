@@ -1,5 +1,6 @@
 import { prisma } from '../prisma';
 import { TimeHelper } from '../utils/TimeHelper';
+import { MemberService } from './MemberService';
 
 export class ClientDebtService {
   private formatBookingLocalDateTime(date: Date, timeZone?: string | null) {
@@ -307,6 +308,8 @@ export class ClientDebtService {
       });
     }
 
+    const memberByClient = await new MemberService().getMemberSummariesForClients(clubId, clientIds);
+
     const rows = clients.map((client) => {
       const history = (accountsByClient.get(client.id) || [])
         .slice()
@@ -347,6 +350,7 @@ export class ClientDebtService {
         email: client.email,
         phoneNumber: client.phone,
         isProfessor: Boolean((client as any).isProfessor),
+        member: memberByClient.get(String(client.id)) ?? null,
         totalBookings: client._count.bookings,
         totalDebt,
         clubTimeZone,

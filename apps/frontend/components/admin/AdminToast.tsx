@@ -2,17 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle2, AlertTriangle, Info } from 'lucide-react';
 import { ADMIN_TOAST_EVENT } from '../../utils/adminToast';
-import type { AdminToastPayload, AdminToastType } from '../../utils/adminToast';
+import type { AdminToastAction, AdminToastPayload, AdminToastType } from '../../utils/adminToast';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 
 interface ToastItem {
   id: number;
   message: string;
   type: AdminToastType;
+  action?: AdminToastAction;
 }
 
 const MAX_TOASTS = 4;
 const DISMISS_MS = 2400;
+const DISMISS_WITH_ACTION_MS = 6000;
 
 /**
  * AdminToast — renders the global admin toast stack.
@@ -36,10 +38,10 @@ export default function AdminToast() {
     };
 
     const onEvent = (e: Event) => {
-      const { message, type } = (e as CustomEvent<AdminToastPayload>).detail;
+      const { message, type, action } = (e as CustomEvent<AdminToastPayload>).detail;
       const id = idRef.current++;
-      setToasts((prev) => [...prev, { id, message, type }].slice(-MAX_TOASTS));
-      const timer = setTimeout(() => dismiss(id), DISMISS_MS);
+      setToasts((prev) => [...prev, { id, message, type, action }].slice(-MAX_TOASTS));
+      const timer = setTimeout(() => dismiss(id), action ? DISMISS_WITH_ACTION_MS : DISMISS_MS);
       timers.set(id, timer);
     };
 
@@ -107,6 +109,28 @@ export default function AdminToast() {
           >
             <Icon size={14} style={{ flexShrink: 0, opacity: 0.9 }} />
             {toast.message}
+            {toast.action && (
+              <button
+                type="button"
+                onClick={() => {
+                  toast.action?.onClick();
+                  setToasts((prev) => prev.filter((t) => t.id !== toast.id));
+                }}
+                style={{
+                  marginLeft: 6,
+                  padding: '2px 8px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(255,255,255,0.35)',
+                  background: 'transparent',
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
           </div>
         );
       })}

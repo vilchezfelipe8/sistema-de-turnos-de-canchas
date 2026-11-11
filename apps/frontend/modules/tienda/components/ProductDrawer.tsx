@@ -1,5 +1,5 @@
-import { X, Tag, DollarSign, Box, Package, Pencil, Plus } from 'lucide-react';
-import AdminDrawer, { AdminDrawerSection } from '../../../components/admin/ui/AdminDrawer';
+import { X } from 'lucide-react';
+import AdminDrawer from '../../../components/admin/ui/AdminDrawer';
 import { AdminInlineError } from '../../../components/admin/ui';
 
 // ---------------------------------------------------------------------------
@@ -15,6 +15,8 @@ export type ProductFormData = {
   name: string;
   price: string;
   stock: string;
+  /** Avisar para reponer cuando queden esta cantidad o menos. */
+  minStock: string;
   category: string;
   isCombo: boolean;
   components: ProductComponentRow[];
@@ -32,6 +34,8 @@ type ProductDrawerProps = {
   editingProduct: { id: number | string; name?: string } | null;
   /** Lista de productos disponibles para seleccionar como componentes de combos. */
   comboOptions: ProductOption[];
+  /** Categorías ya usadas, para sugerir. */
+  categories?: string[];
   formData: ProductFormData;
   formError: string;
   fieldErrors?: Record<string, string>;
@@ -48,25 +52,23 @@ type ProductDrawerProps = {
 // ---------------------------------------------------------------------------
 
 const inputClass =
-  'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text placeholder:text-p-text-muted outline-none transition-all focus:border-p-accent';
-const labelClass = 'mb-1.5 block text-[12px] font-medium text-p-text-secondary';
-const sectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
+  'h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-border-strong';
+const labelClass = 'mb-1 block text-[13px] font-medium text-p-text';
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 /**
- * ProductDrawer — drawer de creación y edición de productos.
- *
- * Puramente presentacional: sin estado propio, sin fetch.
- * Toda la lógica y el estado viven en ProductsPage.
+ * ProductDrawer — crear o editar un producto: nombre, precio, categoría y cuándo avisar
+ * para reponer. El stock solo se carga al crearlo; después se mueve desde la ficha.
  */
 export default function ProductDrawer({
   open,
   onClose,
   editingProduct,
   comboOptions,
+  categories = [],
   formData,
   formError,
   fieldErrors,
@@ -93,10 +95,9 @@ export default function ProductDrawer({
         form="product-drawer-form"
         type="submit"
         disabled={submitting}
-        className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
+        className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
       >
-        {isEditing ? <Pencil size={14} /> : <Plus size={14} />}
-        {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : 'Confirmar ingreso'}
+        {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : formData.isCombo ? 'Crear combo' : 'Crear producto'}
       </button>
     </div>
   );
@@ -105,190 +106,178 @@ export default function ProductDrawer({
     <AdminDrawer
       open={open}
       onClose={onClose}
-      title={isEditing ? 'Editar producto' : 'Nuevo producto'}
-      subtitle="Inventario del club"
+      title={isEditing ? `Editar ${editingProduct?.name || 'producto'}` : formData.isCombo ? 'Nuevo combo' : 'Nuevo producto'}
+      subtitle={!isEditing ? 'Lo que vendés en el mostrador: bebidas, pelotas, alquileres…' : undefined}
       size="md"
       footer={footer}
     >
-      <form id="product-drawer-form" onSubmit={onSubmit}>
-        {/* ── Datos generales ── */}
-        <AdminDrawerSection title="Datos generales" className={sectionCardClass}>
-          <div>
-            <label className={labelClass}>Nombre del producto</label>
-            <div className="relative">
-              <input
-                required
-                placeholder="Ej: Gatorade Blue"
-                className={`${inputClass} pl-10`}
-                value={formData.name}
-                onChange={(e) => onFormChange({ ...formData, name: e.target.value })}
-              />
-              <Tag
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted"
-                size={15}
-                strokeWidth={2.5}
-              />
-            </div>
-            <AdminInlineError>{fieldErrors?.name}</AdminInlineError>
-          </div>
+      <form id="product-drawer-form" onSubmit={onSubmit} className="space-y-4">
+        <label className="block">
+          <span className={labelClass}>Nombre</span>
+          <input
+            required
+            autoFocus={!isEditing}
+            placeholder="Agua 500ml"
+            className={inputClass}
+            value={formData.name}
+            onChange={(e) => onFormChange({ ...formData, name: e.target.value })}
+          />
+          <AdminInlineError>{fieldErrors?.name}</AdminInlineError>
+        </label>
 
-          <div>
-            <label className={labelClass}>Tipo de producto</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => onFormChange({ ...formData, isCombo: false })}
-                className={`h-9 rounded-xl border text-[12px] font-semibold transition ${
-                  !formData.isCombo
-                    ? 'border-p-accent bg-p-positive-bg text-p-accent'
-                    : 'border-p-border bg-p-surface text-p-text-muted hover:bg-p-surface-2'
-                }`}
-              >
-                Producto simple
-              </button>
-              <button
-                type="button"
-                onClick={() => onFormChange({ ...formData, isCombo: true })}
-                className={`h-9 rounded-xl border text-[12px] font-semibold transition ${
-                  formData.isCombo
-                    ? 'border-p-accent bg-p-positive-bg text-p-accent'
-                    : 'border-p-border bg-p-surface text-p-text-muted hover:bg-p-surface-2'
-                }`}
-              >
-                Combo
-              </button>
-            </div>
-          </div>
-        </AdminDrawerSection>
-
-        {/* ── Precio y stock ── */}
-        <AdminDrawerSection title="Precio y stock" className={`${sectionCardClass} mt-5`}>
-          <div>
-            <label className={labelClass}>Precio ($)</label>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className={labelClass}>Precio</span>
             <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[14px] text-p-text-muted">$</span>
               <input
                 required
                 type="number"
                 min="0"
-                placeholder="0"
-                className={`${inputClass} pl-10`}
+                inputMode="decimal"
+                placeholder="1800"
+                className={`${inputClass} pl-7`}
                 value={formData.price}
                 onChange={(e) => onFormChange({ ...formData, price: e.target.value })}
                 onWheel={(e) => e.currentTarget.blur()}
               />
-              <DollarSign
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted"
-                size={15}
-                strokeWidth={2.5}
-              />
             </div>
             <AdminInlineError>{fieldErrors?.price}</AdminInlineError>
-          </div>
+          </label>
 
-          {!formData.isCombo && (
-            <div>
-              <label className={labelClass}>{isEditing ? 'Stock actual' : 'Stock inicial'}</label>
-              <div className="relative">
+          <label className="block">
+            <span className={labelClass}>
+              Categoría <span className="font-normal text-p-text-muted">(opcional)</span>
+            </span>
+            <input
+              list="product-categories"
+              className={inputClass}
+              placeholder="Bebidas"
+              value={formData.category}
+              onChange={(e) => onFormChange({ ...formData, category: e.target.value })}
+            />
+            <datalist id="product-categories">
+              {categories.map((category) => (
+                <option key={category} value={category} />
+              ))}
+            </datalist>
+            <AdminInlineError>{fieldErrors?.category}</AdminInlineError>
+          </label>
+        </div>
+
+        {!formData.isCombo && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {!isEditing && (
+              <label className="block">
+                <span className={labelClass}>¿Cuántas tenés hoy?</span>
                 <input
                   required
                   type="number"
                   min="0"
+                  inputMode="numeric"
                   placeholder="0"
-                  className={`${inputClass} pl-10`}
+                  className={inputClass}
                   value={formData.stock}
                   onChange={(e) => onFormChange({ ...formData, stock: e.target.value })}
                   onWheel={(e) => e.currentTarget.blur()}
                 />
-                <Box
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted"
-                  size={15}
-                  strokeWidth={2.5}
+                <AdminInlineError>{fieldErrors?.stock}</AdminInlineError>
+              </label>
+            )}
+            <label className="block">
+              <span className={labelClass}>Avisame cuando queden</span>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  placeholder="5"
+                  className={`${inputClass} pr-24`}
+                  value={formData.minStock}
+                  onChange={(e) => onFormChange({ ...formData, minStock: e.target.value })}
+                  onWheel={(e) => e.currentTarget.blur()}
                 />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-p-text-muted">
+                  o menos
+                </span>
               </div>
-              <AdminInlineError>{fieldErrors?.stock}</AdminInlineError>
-              <p className="mt-1 text-[11px] text-p-text-muted">
-                {isEditing
-                  ? 'Este valor reemplaza el stock disponible del producto al guardar.'
-                  : 'Se usa para definir el stock con el que arranca el producto.'}
-              </p>
-            </div>
-          )}
-
-          <div>
-            <label className={labelClass}>Categoría (opcional)</label>
-            <div className="relative">
-              <input
-                className={`${inputClass} pl-10`}
-                placeholder="Ej: Bebidas, Grips, Alquiler..."
-                value={formData.category}
-                onChange={(e) => onFormChange({ ...formData, category: e.target.value })}
-              />
-              <Package
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted"
-                size={15}
-                strokeWidth={2.5}
-              />
-            </div>
-            <AdminInlineError>{fieldErrors?.category}</AdminInlineError>
+              <AdminInlineError>{fieldErrors?.minStock}</AdminInlineError>
+            </label>
           </div>
-        </AdminDrawerSection>
+        )}
 
-        {/* ── Composición del combo ── */}
+        {!formData.isCombo && isEditing && (
+          <p className="text-[12px] text-p-text-muted">
+            El stock se cambia desde la ficha del producto (Entró mercadería, Conté o Se rompió), así queda registrado.
+          </p>
+        )}
+
+        {/* Combo: una opción aparte, al final. */}
+        <label className="flex cursor-pointer items-start gap-2.5 border-t border-p-border pt-4">
+          <input
+            type="checkbox"
+            checked={formData.isCombo}
+            onChange={(e) => onFormChange({ ...formData, isCombo: e.target.checked })}
+            className="mt-0.5 h-4 w-4 accent-p-brand"
+          />
+          <span>
+            <span className="block text-[14px] font-medium text-p-text">Es un combo</span>
+            <span className="block text-[12px] text-p-text-muted">
+              Se arma con otros productos (ej: 2 aguas + 1 pelota). Al venderlo descuenta el stock de cada uno.
+            </span>
+          </span>
+        </label>
+
         {formData.isCombo && (
-          <AdminDrawerSection title="Composición del combo" className={`${sectionCardClass} mt-5`}>
-            <p className="text-[12px] text-p-text-muted">
-              Seleccioná los productos que forman el combo.
-            </p>
-            <div className="space-y-2">
-              {formData.components.map((component, index) => (
-                <div key={index} className="grid grid-cols-12 items-center gap-2">
-                  <select
-                    className="col-span-7 h-10 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent"
-                    value={component.componentProductId}
-                    onChange={(e) =>
-                      onUpdateComponent(index, 'componentProductId', e.target.value)
-                    }
-                  >
-                    <option value="">Seleccionar producto</option>
-                    {comboOptions.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    min="1"
-                    className="col-span-3 h-10 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent"
-                    value={component.quantity}
-                    onChange={(e) => onUpdateComponent(index, 'quantity', e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onRemoveComponent(index)}
-                    className="col-span-2 grid h-9 place-items-center rounded-lg border border-p-error bg-p-error-bg text-[var(--error-fg)] transition hover:bg-[var(--error-fg)] hover:text-ink-50"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
+          <div className="space-y-2">
+            <p className="text-[13px] font-medium text-p-text">Qué lleva</p>
+            {formData.components.map((component, index) => (
+              <div key={index} className="flex items-center gap-2">
+                <select
+                  aria-label="Producto"
+                  className="h-11 min-w-0 flex-1 rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none focus:border-p-border-strong"
+                  value={component.componentProductId}
+                  onChange={(e) => onUpdateComponent(index, 'componentProductId', e.target.value)}
+                >
+                  <option value="">Elegí un producto</option>
+                  {comboOptions.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[13px] text-p-text-muted">×</span>
+                <input
+                  aria-label="Cantidad"
+                  type="number"
+                  min="1"
+                  className="h-11 w-16 rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none focus:border-p-border-strong"
+                  value={component.quantity}
+                  onChange={(e) => onUpdateComponent(index, 'quantity', e.target.value)}
+                />
+                <button
+                  type="button"
+                  aria-label="Sacar"
+                  onClick={() => onRemoveComponent(index)}
+                  className="grid h-9 w-9 flex-none place-items-center rounded-lg text-p-text-muted hover:bg-p-surface-2 hover:text-p-text"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
             <AdminInlineError>{fieldErrors?.components || fieldErrors?.productId}</AdminInlineError>
             <button
               type="button"
               onClick={onAddComponent}
-              className="h-9 w-full rounded-lg border border-p-border bg-p-surface text-[12px] font-semibold text-p-accent transition hover:bg-p-positive-bg"
+              className="text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
             >
-              + Agregar componente
+              + Agregar otro producto
             </button>
-          </AdminDrawerSection>
+          </div>
         )}
 
-        {/* ── Error ── */}
         {formError && (
-          <p className="mt-4 rounded-lg border border-p-error bg-p-error-bg px-3 py-2 text-[12px] font-semibold text-[var(--error-fg)]">
-            {formError}
-          </p>
+          <p className="rounded-lg bg-p-error-bg px-3 py-2 text-[12px] font-semibold text-p-error">{formError}</p>
         )}
       </form>
     </AdminDrawer>

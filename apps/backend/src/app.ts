@@ -18,6 +18,7 @@ import HealthRoutes from './routes/HealthRoutes';
 import CashRoutes from './routes/CashRoutes';
 import CashRegisterRoutes from './routes/CashRegisterRoutes';
 import CashShiftRoutes from './routes/CashShiftRoutes';
+import ClubMessagingRoutes from './routes/ClubMessagingRoutes';
 import AccountRoutes from './routes/AccountRoutes';
 import NotificationRoutes from './routes/NotificationRoutes';
 import EventRoutes from './routes/EventRoutes';
@@ -33,7 +34,7 @@ import WhatsappAdminRoutes from './routes/WhatsappAdminRoutes';
 import { errorHandler } from './middleware/ErrorHandler';
 import { authMiddleware } from './middleware/AuthMiddleware';
 import { csrfProtection } from './middleware/CsrfMiddleware';
-import { requireGlobalRole } from './middleware/RoleMiddleware';
+import { requirePiqueTeam } from './middleware/RoleMiddleware';
 import { prisma } from './prisma';
 import { metricsService } from './services/MetricsService';
 import { RedisService } from './services/RedisService';
@@ -146,6 +147,7 @@ export const createApp = () => {
   app.use('/api/cash', CashRoutes);
   app.use('/api/cash-registers', CashRegisterRoutes);
   app.use('/api/cash-shifts', CashShiftRoutes);
+  app.use('/api/club-messages', ClubMessagingRoutes);
   app.use('/api/accounts', AccountRoutes);
   app.use('/api/notifications', NotificationRoutes);
   app.use('/api/events', EventRoutes);
@@ -204,7 +206,7 @@ export const createApp = () => {
   app.get(
     '/whatsapp/qr',
     authMiddleware,
-    requireGlobalRole('ADMIN'),
+    requirePiqueTeam,
     async (_req: Request, res: Response) => {
       if (whatsappDelivery.getProvider() !== 'local_browser') {
         return res.status(404).send('<h1>QR no disponible con el provider actual</h1>');
@@ -247,7 +249,7 @@ export const createApp = () => {
     }
   );
 
-  app.get('/whatsapp/status', authMiddleware, requireGlobalRole('ADMIN'), async (_req: Request, res: Response) => {
+  app.get('/whatsapp/status', authMiddleware, requirePiqueTeam, async (_req: Request, res: Response) => {
     res.json(await whatsappDelivery.getStatus());
   });
 

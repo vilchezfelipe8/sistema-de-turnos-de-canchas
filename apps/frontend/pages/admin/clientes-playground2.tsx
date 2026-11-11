@@ -1,8 +1,13 @@
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  CalendarPlus,
+  ChevronLeft,
   Link2,
+  MessageCircle,
+  Phone,
+  MoreHorizontal,
   DollarSign,
   Pencil,
   Plus,
@@ -20,17 +25,24 @@ import DuplicateClientDecisionModal, {
   type DuplicateClientDecisionCandidate,
 } from '../../components/admin/agenda/DuplicateClientDecisionModal';
 import ClientsTable from '../../modules/clientes/components/ClientsTable';
+import ClientMemberPanel from '../../components/admin/members/ClientMemberPanel';
+import ClientSubscriptionsPanel from '../../components/admin/subscriptions/ClientSubscriptionsPanel';
+import ClientMessagesSection from '../../components/admin/messages/ClientMessagesSection';
+import MemberBadge from '../../components/admin/members/MemberBadge';
+import MembersRosterPanel from '../../components/admin/members/MembersRosterPanel';
 import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminInlineError, AdminSegmentedControl } from '../../components/admin/ui';
 import NotFound from '../../components/NotFound';
+import AdminNoAccessScreen from '../../components/admin/AdminNoAccessScreen';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { getPendingLogoutRedirect } from '../../services/AuthService';
 import { ClientService, type ClientIdentityAuditEntry } from '../../services/ClientService';
 import { ClubAdminService, type PersonSearchResult } from '../../services/ClubAdminService';
+import type { AdminAcademyStudentListItem } from '../../services/ClubAdminService';
 import { formatDateTime24 } from '../../utils/dateTime';
 import { getApiErrorMeta, getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
 import { showAdminToast } from '../../utils/adminToast';
-import { getActiveClubSlug, hasAdminAccess, normalizeSessionUser } from '../../utils/session';
+import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import AccountDrawer, {
   type AccountDrawerContext,
@@ -45,7 +57,105 @@ import {
   splitCanonicalPhone,
 } from '../../utils/phone';
 
-type ClientsView = 'directory' | 'debt' | 'history' | 'incidents';
+type ClientsView = 'directory' | 'debt' | 'history' | 'members' | 'incidents';
+
+/** "sáb 7 nov · 10:30". */
+const formatClientSlot = (iso: string | null | undefined, fallbackDate?: string | null, fallbackTime?: string | null): string => {
+  const date = iso ? new Date(iso) : fallbackDate ? new Date(`${String(fallbackDate).slice(0, 10)}T12:00:00`) : null;
+  if (!date || Number.isNaN(date.getTime())) return fallbackDate ? String(fallbackDate) : '-';
+  const day = date
+    .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+    .replace(/,/g, '')
+    .replace(/\./g, '');
+  const time = iso
+    ? date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    : fallbackTime || '';
+  return time ? `${day} · ${time}` : day;
+};
+
+/** Número para wa.me: con código de país. Un celular argentino de 10 dígitos se completa con 549. */
+const toWhatsAppNumber = (raw: unknown): string => {
+  const text = String(raw || '').trim();
+  const digits = text.replace(/\D/g, '');
+  if (!digits) return '';
+  if (text.startsWith('+') || digits.length >= 11) return digits;
+  if (digits.length === 10) return `549${digits}`;
+  return '';
+};
+
+const toTelHref = (raw: unknown): string => {
+  const text = String(raw || '').trim().replace(/[^\d+]/g, '');
+  return text.replace(/\D/g, '').length >= 6 ? `tel:${text}` : '';
+};
+
+const WEEKDAY_SHORT = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+
+const formatDaysAgo = (date: Date): string => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+  const days = Math.round((today.getTime() - day.getTime()) / 86400000);
+  if (days <= 0) return 'hoy';
+  if (days === 1) return 'ayer';
+  if (days < 30) return `hace ${days} días`;
+  const months = Math.round(days / 30);
+  return months <= 1 ? 'hace un mes' : `hace ${months} meses`;
+};
+
+const accountSortKey = (account: any): string =>
+  `${String(account?.date || '').slice(0, 10)} ${String(account?.time || '').padStart(5, '0')}`;
+
+const CLIENT_BOOKING_STATUS: Record<string, { label: string; tone: string }> = {
+  CONFIRMED: { label: 'Confirmada', tone: 'text-p-text-muted' },
+  PENDING: { label: 'Sin confirmar', tone: 'text-p-warning' },
+  COMPLETED: { label: 'Jugada', tone: 'text-p-text-muted' },
+  CANCELLED: { label: 'Cancelada', tone: 'text-p-text-muted line-through' },
+  NO_SHOW: { label: 'No vino', tone: 'text-p-warning' },
+};
+
+/** "hoy", "ayer", "hace 3 días", "12 oct". */
+const formatClientLastBooking = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOf(new Date()) - startOf(date)) / 86_400_000);
+  if (days === 0) return 'hoy';
+  if (days === 1) return 'ayer';
+  if (days === -1) return 'mañana';
+  if (days > 1 && days < 7) return `hace ${days} días`;
+  return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }).replace(/\./g, '');
+};
+/** Última vez que vino de verdad (reserva pasada no cancelada). */
+const AWAY_DAYS = 30;
+const getClientLastPlayedAt = (client: any): Date | null => {
+  const rows = Array.isArray(client?.bookings) ? client.bookings : [];
+  const now = Date.now();
+  let best: Date | null = null;
+  rows.forEach((entry: any) => {
+    if (String(entry?.bookingStatus || entry?.status || '').toUpperCase() === 'CANCELLED') return;
+    const iso = entry?.startDateTime || (entry?.date ? `${String(entry.date).slice(0, 10)}T${entry?.time || '00:00'}:00` : null);
+    if (!iso) return;
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime()) || date.getTime() > now) return;
+    if (!best || date.getTime() > best.getTime()) best = date;
+  });
+  return best;
+};
+const isClientAway = (client: any): boolean => {
+  const last = getClientLastPlayedAt(client);
+  return Boolean(last && Date.now() - last.getTime() > AWAY_DAYS * 86_400_000);
+};
+const formatAcademySlot = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const day = date.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/[.,]/g, '');
+  const time = date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return `${day} · ${time}`;
+};
+
 type ClientActionSidebarView = 'none' | 'client_create' | 'client_edit' | 'client_profile' | 'client_delete';
 type ClientSearchRow = {
   id: string;
@@ -188,6 +298,7 @@ const formatAccountSourceType = (value: unknown) => {
   if (key === 'BAR') return 'Bar';
   if (key === 'TABLE') return 'Mesa';
   if (key === 'MANUAL') return 'Manual';
+  if (key === 'SUBSCRIPTION_INSTALLMENT') return 'Cuota de plan';
   return formatRawTypeFallback(key);
 };
 
@@ -259,6 +370,10 @@ export default function AdminClientesPlayground2Page() {
   const { authChecked, user } = useValidateAuth({ requireAdmin: true });
 
   const [activeView, setActiveView] = useState<ClientsView>('directory');
+  /** Lista de clientes: Todos, los que deben o los socios. */
+  const [clientsListFilter, setClientsListFilter] = useState<'ALL' | 'DEBT' | 'MEMBERS' | 'AWAY'>('ALL');
+  const [clientMenuOpen, setClientMenuOpen] = useState(false);
+  const [reviewCount, setReviewCount] = useState(0);
   const [searchTerm, setSearchTerm] = useState('');
 
   const [clients, setClients] = useState<any[]>([]);
@@ -285,6 +400,8 @@ export default function AdminClientesPlayground2Page() {
   const [deletingClient, setDeletingClient] = useState(false);
 
   const [accountDrawerOpen, setAccountDrawerOpen] = useState(false);
+  // Al cambiar un plan del cliente puede cambiar su "al día hasta": recargamos el panel de socio.
+  const [memberPanelVersion, setMemberPanelVersion] = useState(0);
   const [accountDrawerAccountId, setAccountDrawerAccountId] = useState('');
   const [accountDrawerInitialView, setAccountDrawerInitialView] =
     useState<AccountDrawerInitialView>('overview');
@@ -593,9 +710,58 @@ export default function AdminClientesPlayground2Page() {
     void loadClients();
   }, [authChecked, user, loadClients]);
 
+  useEffect(() => {
+    if (!authChecked || !user || !hasAdminAccess(user)) return;
+    if (activeView === 'incidents') return;
+    const slug = resolveClubSlug();
+    if (!slug) return;
+    let cancelled = false;
+    Promise.all([
+      ClubAdminService.listClientDuplicateIncidents(slug, { status: 'OPEN' }).catch(() => []),
+      ClubAdminService.listClientIdentityIncidents(slug, { status: 'REVIEW_REQUIRED,SUGGESTED_LINK', limit: 80 }).catch(() => []),
+    ]).then(([duplicates, identity]) => {
+      if (cancelled) return;
+      setReviewCount((Array.isArray(duplicates) ? duplicates.length : 0) + (Array.isArray(identity) ? identity.length : 0));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, authChecked, user, resolveClubSlug]);
+
   const clientsWithOpenDebt = useMemo(
     () => clients.filter((client) => Number(client?.totalDebt || 0) > EPSILON),
     [clients]
+  );
+
+  // Alumnos de Academia (solo los que tienen clases, packs o vínculos).
+  const [academyStudents, setAcademyStudents] = useState<AdminAcademyStudentListItem[]>([]);
+  useEffect(() => {
+    const slug = resolveClubSlug();
+    if (!slug) return;
+    let cancelled = false;
+    ClubAdminService.getAcademyStudents(slug)
+      .then((rows) => {
+        if (!cancelled) setAcademyStudents(rows);
+      })
+      .catch((error) => {
+        reportUiError({ area: 'ClientesPlayground2', action: 'loadAcademyStudents' }, error);
+      });
+    const onAcademyChanged = () => {
+      ClubAdminService.getAcademyStudents(slug)
+        .then((rows) => {
+          if (!cancelled) setAcademyStudents(rows);
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener('academy:changed', onAcademyChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('academy:changed', onAcademyChanged);
+    };
+  }, [resolveClubSlug]);
+  const academyStudentsByClientId = useMemo(
+    () => new Map(academyStudents.map((row) => [String(row.client.id), row])),
+    [academyStudents]
   );
 
   const filteredClients = useMemo(() => {
@@ -609,6 +775,18 @@ export default function AdminClientesPlayground2Page() {
       return name.includes(q) || phone.includes(q) || dni.includes(q) || email.includes(q);
     });
   }, [clients, searchTerm]);
+
+  const listedClients = useMemo(() => {
+    if (clientsListFilter === 'DEBT') return filteredClients.filter((client) => Number(client?.totalDebt || 0) > EPSILON);
+    if (clientsListFilter === 'MEMBERS') return filteredClients.filter((client) => Boolean(client?.member));
+    if (clientsListFilter === 'AWAY') {
+      // Los que hace más tiempo que no vienen, primero.
+      return filteredClients
+        .filter(isClientAway)
+        .sort((a, b) => (getClientLastPlayedAt(a)?.getTime() || 0) - (getClientLastPlayedAt(b)?.getTime() || 0));
+    }
+    return filteredClients;
+  }, [clientsListFilter, filteredClients]);
 
   const debtFilteredClients = useMemo(() => {
     const q = debtSearchTerm.trim().toLowerCase();
@@ -674,9 +852,17 @@ export default function AdminClientesPlayground2Page() {
     setSidebarView('client_edit');
   };
 
+  // Link directo a la ficha: /admin/clientes?cliente=<id> (se lee una vez, cuando ya cargaron los clientes).
+  const clientFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (clientFromUrlHandledRef.current || typeof window === 'undefined' || clients.length === 0) return;
+    clientFromUrlHandledRef.current = true;
+    const fromUrl = new URLSearchParams(window.location.search).get('cliente');
+    if (fromUrl && clients.some((client) => String(client.id) === fromUrl)) setSelectedClientId(fromUrl);
+  }, [clients]);
+
   const openClientProfile = (client: any) => {
     setSelectedClientId(String(client?.id || ''));
-    setSidebarView('client_profile');
   };
 
   const openDeleteClient = (client: any) => {
@@ -963,7 +1149,7 @@ export default function AdminClientesPlayground2Page() {
   const closeActionSidebar = useCallback(() => {
     if (deletingClient || submittingClient) return;
     setErrorMessage('');
-    setSelectedClientId('');
+    // La ficha abierta sigue abierta al cerrar un formulario.
     resetClientDuplicateModal();
     setSidebarView('none');
   }, [deletingClient, resetClientDuplicateModal, submittingClient]);
@@ -986,7 +1172,7 @@ export default function AdminClientesPlayground2Page() {
         setSelectedClientDiscountAssignments([]);
         return;
       }
-      if (activeView !== 'history') return;
+      if (activeView !== 'directory') return;
       const slug = resolveClubSlug();
       if (!slug) return;
       try {
@@ -1007,6 +1193,105 @@ export default function AdminClientesPlayground2Page() {
     () => (selectedClient?.history || []).slice().sort(sortByCreationDesc),
     [selectedClient]
   );
+  // Ficha: reservas que vienen, las últimas y lo que debe por cuenta.
+  const clientBookingRows = useMemo(() => {
+    const rows = Array.isArray(selectedClient?.bookings) ? selectedClient.bookings : [];
+    const seen = new Set<string>();
+    return rows
+      .map((entry: any) => {
+        const iso = entry?.startDateTime || null;
+        const fallback = entry?.date ? new Date(`${String(entry.date).slice(0, 10)}T${entry?.time || '00:00'}:00`) : null;
+        const start = iso ? new Date(iso) : fallback;
+        return {
+          id: String(entry?.bookingId ?? entry?.id ?? ''),
+          start: start && !Number.isNaN(start.getTime()) ? start : null,
+          iso,
+          date: entry?.date || null,
+          time: entry?.time || null,
+          courtName: entry?.courtName || '',
+          status: String(entry?.bookingStatus || entry?.status || '').toUpperCase(),
+        };
+      })
+      .filter((row: any) => {
+        if (!row.id || seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+      });
+  }, [selectedClient]);
+  const clientUpcomingBookings = useMemo(() => {
+    const now = Date.now();
+    return clientBookingRows
+      .filter((row: any) => row.start && row.start.getTime() >= now && row.status !== 'CANCELLED')
+      .sort((a: any, b: any) => a.start.getTime() - b.start.getTime())
+      .slice(0, 5);
+  }, [clientBookingRows]);
+  // Lo que pasó con la plata de cada reserva (sale de su cuenta).
+  const clientBookingPayment = useMemo(() => {
+    const map = new Map<string, { paid: boolean; owes: number }>();
+    historyAccounts.forEach((account: any) => {
+      const bookingId = String(account?.bookingId ?? '').trim();
+      if (!bookingId) return;
+      const owes = Math.max(0, Number(account?.amount || 0));
+      const total = Number(account?.totalAmount || 0);
+      const paid = owes <= EPSILON && (total > EPSILON || String(account?.paymentStatus || '').toUpperCase() === 'PAID');
+      map.set(bookingId, { paid, owes });
+    });
+    return map;
+  }, [historyAccounts]);
+  // Últimas jugadas: sin canceladas (esas van aparte).
+  const clientPlayedBookings = useMemo(() => {
+    const now = Date.now();
+    return clientBookingRows
+      .filter((row: any) => row.start && row.start.getTime() < now && row.status !== 'CANCELLED')
+      .sort((a: any, b: any) => b.start.getTime() - a.start.getTime());
+  }, [clientBookingRows]);
+  const clientRecentBookings = useMemo(() => clientPlayedBookings.slice(0, 5), [clientPlayedBookings]);
+  const clientCancelledBookings = useMemo(
+    () =>
+      clientBookingRows
+        .filter((row: any) => row.start && row.status === 'CANCELLED')
+        .sort((a: any, b: any) => b.start.getTime() - a.start.getTime()),
+    [clientBookingRows]
+  );
+  // "Jugó 12 veces · la última hace 3 días · suele venir sáb 10:30"
+  const clientHabitLine = useMemo(() => {
+    const played = clientPlayedBookings;
+    if (played.length === 0) return clientBookingRows.length > 0 ? 'Todavía no jugó ninguna reserva.' : '';
+    const parts = [played.length === 1 ? 'Jugó 1 vez' : `Jugó ${played.length} veces`];
+    parts.push(`la última ${formatDaysAgo(played[0].start)}`);
+    if (played.length >= 3) {
+      const counts = new Map<string, number>();
+      played.forEach((row: any) => {
+        const time = row.start.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+        const key = `${WEEKDAY_SHORT[row.start.getDay()]} ${time}`;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+      const [bestKey, bestCount] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0];
+      if (bestCount >= 2) parts.push(`suele venir ${bestKey}`);
+    }
+    return parts.join(' · ');
+  }, [clientPlayedBookings, clientBookingRows.length]);
+  const [showClientCancelled, setShowClientCancelled] = useState(false);
+  useEffect(() => {
+    setShowClientCancelled(false);
+  }, [selectedClientId]);
+  const clientPendingAccounts = useMemo(
+    () =>
+      historyAccounts
+        .filter(
+          (account: any) =>
+            String(account?.accountStatus || account?.status || 'OPEN').toUpperCase() !== 'CLOSED' &&
+            Number(account?.amount || 0) > EPSILON
+        )
+        // La deuda más vieja primero: es la que hay que cobrar antes.
+        .sort((a: any, b: any) => accountSortKey(a).localeCompare(accountSortKey(b))),
+    [historyAccounts]
+  );
+
+  useEffect(() => {
+    setClientMenuOpen(false);
+  }, [selectedClientId]);
+
   const accountDrawerEntry = useMemo(
     () =>
       historyAccounts.find((account: any) => String(account?.id) === String(accountDrawerAccountId)) ||
@@ -1035,7 +1320,8 @@ export default function AdminClientesPlayground2Page() {
   }
 
   if (!hasAdminAccess(user)) {
-    return <NotFound message="No tenes permiso para acceder al panel de administracion." />;
+    if (hasOperatorAccess(user)) return <AdminNoAccessScreen user={user} activeItem="Clientes" title="Clientes | Pique Admin" />;
+    return <NotFound title="Sin acceso" message="Tu usuario no tiene acceso al panel del club." />;
   }
 
   return (
@@ -1045,248 +1331,149 @@ export default function AdminClientesPlayground2Page() {
       </Head>
 
       <AdminPlaygroundShell activeItem="Clientes" user={user} contentMuted={sidebarOpen}>
-        <div className="flex h-full min-h-0 flex-col gap-4 p-4 lg:p-6">
+        <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 lg:gap-4 lg:p-6">
+              <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Clientes</h1>
               <AdminSegmentedControl
                 ariaLabel="Vistas de clientes"
                 value={activeView}
                 onChange={(nextView) => setActiveView(nextView as ClientsView)}
                 options={[
-                  { value: 'directory', label: 'Directorio' },
-                  { value: 'debt', label: 'Cuentas y deuda' },
-                  { value: 'history', label: 'Perfil' },
-                  { value: 'incidents', label: 'Incidentes' },
+                  { value: 'directory', label: 'Clientes' },
+                  { value: 'members', label: 'Socios' },
                 ]}
                 className="w-fit"
               />
 
-              <div className="grid grid-cols-2 gap-3">
-                <article className="rounded-xl border border-p-border bg-p-surface p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">Total clientes</p>
-                  <p className="mt-2 text-lg font-semibold text-p-text">{totalClients}</p>
-                </article>
-                <article className="rounded-xl border border-p-border bg-p-surface p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">Deuda total</p>
-                  <p className={`mt-2 text-lg font-semibold ${totalDebt > 0 ? 'text-p-error' : 'text-p-positive'}`}>{formatMoney(totalDebt)}</p>
-                </article>
-              </div>
+              {activeView === 'directory' && reviewCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveView('incidents')}
+                  className="w-full rounded-xl bg-p-warning-bg px-4 py-3 text-left text-[14px] text-p-warning"
+                >
+                  <span className="font-semibold">
+                    {reviewCount === 1 ? 'Hay 1 cliente para revisar' : `Hay ${reviewCount} clientes para revisar`}
+                  </span>{' '}
+                  (posibles repetidos o cuentas de la app sin unir). Revisar →
+                </button>
+              )}
 
               <div className="min-h-0 flex-1 overflow-hidden">
                 {activeView === 'directory' && (
-                  <div className="flex h-full flex-col">
-                    <article className="flex min-h-0 flex-1 flex-col rounded-xl border border-p-border bg-p-surface">
-                      <div className="border-b border-p-border pl-4 pr-2 py-3">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
-                            <h2 className="text-[13px] font-semibold text-p-text">Directorio de clientes</h2>
-                            <p className="mt-1 text-[12px] text-p-text-muted">
-                              Listado operativo con acceso rápido a perfil, edición y baja.
-                            </p>
-                          </div>
-                          <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
-                            <label className="relative w-full sm:w-[300px] sm:flex-none">
-                              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                              <input
-                                type="text"
-                                value={searchTerm}
-                                onChange={(event) => setSearchTerm(event.target.value)}
-                                placeholder="Buscar por nombre, DNI, email o teléfono"
-                                className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              onClick={openCreateClient}
-                              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800"
-                            >
-                              <Plus size={14} strokeWidth={2.5} />
-                              Nuevo cliente
-                            </button>
-                          </AdminFilterToolbar>
-                        </div>
-                      </div>
-
-                      <ClientsTable
-                        clients={filteredClients}
-                        loading={loading}
-                        onRowClick={openClientProfile}
-                        onEdit={openEditClient}
-                        onDelete={openDeleteClient}
-                        selectedId={selectedClientId}
-                        className="rounded-b-xl"
-                      />
-                    </article>
-                  </div>
-                )}
-
-                {activeView === 'debt' && (
-                  <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[360px_1fr]">
-                    {/* Left: debtor list with search + count badge */}
-                    <article className="flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface">
-                      <div className="p-4 pb-3">
-                        <div className="flex items-center justify-between">
-                          <h2 className="text-[13px] font-semibold text-p-text">Clientes con deuda</h2>
-                          <span className="rounded-full border border-p-error bg-p-error-bg px-2 py-0.5 text-[11px] font-semibold text-p-error">
-                            {clientsWithOpenDebt.length}
-                          </span>
-                        </div>
-                        <div className="relative mt-3">
-                          <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                          <input
-                            type="text"
-                            value={debtSearchTerm}
-                            onChange={(event) => setDebtSearchTerm(event.target.value)}
-                            placeholder="Buscar deudor..."
-                            className="h-8 w-full rounded-xl border border-p-border bg-p-surface-2 pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="min-h-0 flex-1 overflow-auto border-t border-p-border">
-                        {loading ? (
-                          <div className="p-6 text-center text-[13px] text-p-text-muted">Cargando...</div>
-                        ) : debtFilteredClients.length === 0 ? (
-                          <div className="p-6 text-center text-[13px] text-p-text-muted">
-                            {debtSearchTerm ? 'Sin resultados.' : 'No hay clientes con deuda.'}
-                          </div>
-                        ) : (
-                          <ul className="divide-y divide-p-border">
-                            {debtFilteredClients.map((client) => {
-                              const pendingCount = (Array.isArray(client.history) ? client.history : []).filter(
-                                (a: any) => Number(a?.amount || 0) > EPSILON
-                              ).length;
-                              return (
-                                <li key={String(client.id)}>
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedClientId(String(client.id))}
-                                    className={`w-full min-h-[46px] px-3 py-3 text-left transition ${
-                                      String(selectedClientId) === String(client.id) ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="truncate text-[13px] font-semibold text-p-text">{getClientName(client)}</p>
-                                      {pendingCount > 0 && (
-                                        <span className="flex-none rounded-full bg-p-error-bg px-1.5 py-0.5 text-[10px] font-bold text-p-error">
-                                          {pendingCount}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-[12px] font-semibold text-p-error">{formatMoney(Number(client.totalDebt || 0))}</p>
-                                  </button>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        )}
-                      </div>
-                    </article>
-
-                    {/* Right: pending accounts for selected debtor */}
-                    <article className="flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface">
-                      <div className="flex items-center justify-between p-4 pb-3">
-                        <h2 className="text-[13px] font-semibold text-p-text">Cuentas pendientes</h2>
-                        {selectedClient && (
-                          <span className="text-[12px] font-semibold text-p-text">{getClientName(selectedClient)}</span>
-                        )}
-                      </div>
-
-                      <div className="min-h-0 flex-1 overflow-auto border-t border-p-border p-4">
-                        {!selectedClient ? (
-                          <div className="rounded-xl border border-p-border p-8 text-center text-[13px] text-p-text-muted">
-                            Selecciona un cliente para ver su deuda.
-                          </div>
-                        ) : selectedDebtorPendingEntries.length === 0 ? (
-                          <div className="rounded-xl border border-p-border p-8 text-center text-[13px] text-p-text-muted">
-                            Este cliente no tiene cuentas pendientes.
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            {selectedDebtorPendingEntries.map((account: any) => (
-                              <div key={String(account.id)} className="rounded-xl border border-p-border bg-p-surface p-4">
-                                <div className="flex flex-wrap items-start justify-between gap-2">
-                                  <div>
-                                    <p className="text-[13px] font-semibold text-p-text">
-                                      {formatAccountSourceType(account.sourceType)}{' '}
-                                      <span className="font-normal text-p-text-muted">#{shortId(account.id)}</span>
-                                    </p>
-                                    <p className="mt-0.5 text-[12px] text-p-text-muted">
-                                      {formatDate(account.date)}{account.time ? ` · ${account.time}` : ''}
-                                    </p>
-                                  </div>
-                                  <span className="rounded-full border border-p-error bg-p-error-bg px-2.5 py-1 text-[12px] font-bold text-p-error">
-                                    {formatMoney(Number(account.amount || 0))}
-                                  </span>
-                                </div>
-                                <div className="mt-3 flex items-center justify-end gap-2 border-t border-p-border pt-3">
-                                  <button
-                                    type="button"
-                                    onClick={() => openAccountDrawer(String(account.id), 'overview')}
-                                    className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                  >
-                                    <Search size={12} />
-                                    Ver detalle
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => openAccountDrawer(String(account.id), 'payment')}
-                                    className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
-                                  >
-                                    <span className="inline-flex items-center gap-1"><DollarSign size={13} /> Cobrar</span>
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </article>
-                  </div>
-                )}
-
-                {activeView === 'history' && (
-                  <div className="grid h-full grid-cols-1 gap-4 xl:grid-cols-[320px_1fr]">
+                  <div className="grid h-full grid-cols-1 gap-4 lg:grid-cols-[400px_minmax(0,1fr)]">
                     {/* Left: client list with search + debt badge */}
-                    <article className="flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface">
-                      <div className="p-4 pb-3">
-                        <h2 className="text-[13px] font-semibold text-p-text">Clientes</h2>
-                        <div className="relative mt-3">
-                          <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
+                    <article className={`flex min-h-0 flex-col rounded-xl border border-p-border bg-p-surface ${selectedClient ? 'max-lg:hidden' : ''}`}>
+                      <div className="space-y-3 p-4 pb-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[14px] text-p-text-secondary">
+                            <span className="font-semibold text-p-text">
+                              {totalClients === 1 ? '1 cliente' : `${totalClients} clientes`}
+                            </span>
+                            {totalDebt > EPSILON && (
+                              <>
+                                {' · te deben '}
+                                <span className="font-semibold tabular-nums text-p-warning">{formatMoney(totalDebt)}</span>
+                              </>
+                            )}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={openCreateClient}
+                            className="inline-flex h-9 flex-none items-center gap-1.5 rounded-xl bg-ink-900 px-3 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                          >
+                            <Plus size={15} strokeWidth={2.5} />
+                            Nuevo cliente
+                          </button>
+                        </div>
+                        <div className="relative">
+                          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
                           <input
                             type="text"
                             value={searchTerm}
                             onChange={(event) => setSearchTerm(event.target.value)}
-                            placeholder="Buscar cliente..."
-                            className="h-8 w-full rounded-xl border border-p-border bg-p-surface-2 pl-9 pr-3 text-[12px] outline-none focus:border-p-accent"
+                            placeholder="Buscar por nombre, teléfono o DNI"
+                            className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
                           />
                         </div>
+                        <div className="-mx-1 flex items-center gap-1 overflow-x-auto px-1">
+                          {([
+                            { id: 'ALL', label: 'Todos' },
+                            { id: 'DEBT', label: clientsWithOpenDebt.length > 0 ? `Deben (${clientsWithOpenDebt.length})` : 'Deben' },
+                            { id: 'MEMBERS', label: 'Socios' },
+                            { id: 'AWAY', label: 'No vienen' },
+                          ] as Array<{ id: 'ALL' | 'DEBT' | 'MEMBERS' | 'AWAY'; label: string }>).map((option) => (
+                            <button
+                              key={`clients-filter-${option.id}`}
+                              type="button"
+                              aria-pressed={clientsListFilter === option.id}
+                              onClick={() => setClientsListFilter(option.id)}
+                              className={`h-8 shrink-0 rounded-lg px-3 text-[13px] font-semibold transition ${
+                                clientsListFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div className="min-h-0 flex-1 overflow-auto border-t border-p-border">
+                          <div className="min-h-0 flex-1 overflow-auto border-t border-p-border">
+                        {clientsListFilter === 'AWAY' && !loading && listedClients.length > 0 && (
+                          <p className="border-b border-p-border bg-p-surface-2 px-4 py-2 text-[12px] text-p-text-muted">
+                            Vinieron alguna vez pero no en los últimos {AWAY_DAYS} días. Buen momento para escribirles.
+                          </p>
+                        )}
                         {loading ? (
                           <div className="p-6 text-center text-[13px] text-p-text-muted">Cargando...</div>
-                        ) : filteredClients.length === 0 ? (
-                          <div className="p-6 text-center text-[13px] text-p-text-muted">Sin clientes.</div>
+                        ) : listedClients.length === 0 ? (
+                          <div className="p-6 text-center text-[13px] text-p-text-muted">
+                            {searchTerm.trim()
+                              ? 'Nadie coincide con esa búsqueda.'
+                              : clientsListFilter === 'DEBT'
+                                ? 'Nadie debe nada.'
+                                : clientsListFilter === 'MEMBERS'
+                                  ? 'No hay socios cargados.'
+                                  : clientsListFilter === 'AWAY'
+                                    ? `Todos vinieron en los últimos ${AWAY_DAYS} días.`
+                                    : 'Todavía no hay clientes.'}
+                          </div>
                         ) : (
                           <ul className="divide-y divide-p-border">
-                            {filteredClients.map((client) => {
-                              const hasDebt = Number(client?.totalDebt || 0) > EPSILON;
+                            {listedClients.map((client) => {
+                              const debt = Number(client?.totalDebt || 0);
+                              const isSelected = String(selectedClientId) === String(client.id);
+                              const lastPlayedAt = getClientLastPlayedAt(client);
+                              const lastBooking = lastPlayedAt ? formatClientLastBooking(lastPlayedAt.toISOString()) : '';
+                              const academyStudent = academyStudentsByClientId.get(String(client.id));
+                              const contact = String(client.phone || client.email || '').trim();
                               return (
                                 <li key={String(client.id)}>
                                   <button
                                     type="button"
-                                    onClick={() => setSelectedClientId(String(client.id))}
-                                    className={`w-full min-h-[46px] px-3 py-3 text-left transition ${
-                                      String(selectedClientId) === String(client.id) ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'
+                                    onClick={() => openClientProfile(client)}
+                                    aria-pressed={isSelected}
+                                    className={`flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition ${
+                                      isSelected ? 'bg-p-surface-2' : 'hover:bg-p-surface-2'
                                     }`}
                                   >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <p className="truncate text-[13px] font-semibold text-p-text">{getClientName(client)}</p>
-                                      {hasDebt && (
-                                        <span className="flex-none rounded-full border border-p-error bg-p-error-bg px-1.5 py-0.5 text-[10px] font-bold text-p-error">
-                                          Deuda
-                                        </span>
-                                      )}
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                        <p className="max-w-full truncate text-[14px] font-semibold text-p-text">{getClientName(client)}</p>
+                                        <MemberBadge member={client.member} className="flex-none whitespace-nowrap" />
+                                        {academyStudent && (
+                                          <span className="flex-none rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-semibold text-sky-900">Alumno</span>
+                                        )}
+                                        {client.isProfessor && (
+                                          <span className="flex-none rounded-full bg-p-surface-3 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">Profesor</span>
+                                        )}
+                                      </div>
+                                      <p className="truncate text-[12px] text-p-text-muted">
+                                        {[contact, lastBooking ? `vino ${lastBooking}` : 'todavía no vino'].filter(Boolean).join(' · ')}
+                                      </p>
                                     </div>
-                                    <p className="truncate text-[12px] text-p-text-muted">{String(client.phone || client.email || '-')}</p>
+                                    {debt > EPSILON && (
+                                      <span className="flex-none text-[13px] font-bold tabular-nums text-p-warning">
+                                        Debe {formatMoney(debt)}
+                                      </span>
+                                    )}
                                   </button>
                                 </li>
                               );
@@ -1297,422 +1484,428 @@ export default function AdminClientesPlayground2Page() {
                     </article>
 
                     {/* Right: Perfil panel */}
-                    <article className="flex min-h-0 flex-col overflow-auto rounded-xl border border-p-border bg-p-surface">
+                    <article className={`flex min-h-0 flex-col overflow-auto rounded-xl border border-p-border bg-p-surface ${selectedClient ? '' : 'max-lg:hidden'}`}>
+                      {selectedClient && (
+                        <div className="px-4 pt-3 lg:hidden">
+                          <button
+                          type="button"
+                          onClick={() => setSelectedClientId('')}
+                          className="mb-1 inline-flex items-center gap-1 text-[12px] font-bold text-p-accent lg:hidden"
+                        >
+                          <ChevronLeft size={15} />
+                          Volver a la lista
+                        </button>
+                        </div>
+                      )}
                       {!selectedClient ? (
                         <div className="p-8 text-center text-[13px] text-p-text-muted">
-                          Selecciona un cliente para ver su perfil.
+                          Elegí un cliente para ver su ficha.
                         </div>
                       ) : (
                         <>
-                          {/* Hero */}
-                          <div className="flex items-start justify-between gap-4 border-b border-p-border p-5">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h2 className="text-[18px] font-bold text-p-text">{getClientName(selectedClient)}</h2>
-                                {selectedClient.isProfessor && (
-                                  <span className="rounded-full bg-p-positive-bg px-2 py-0.5 text-[11px] font-semibold text-p-accent">
-                                    Profesor
-                                  </span>
-                                )}
-                              </div>
-                              <p className="mt-0.5 text-[12px] text-p-text-muted">ID #{shortId(selectedClient.id)}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => openEditClient(selectedClient)}
-                              className="h-8 flex-none rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                            >
-                              <span className="inline-flex items-center gap-1.5"><Pencil size={13} /> Editar</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={openMergeModal}
-                              className="h-8 flex-none rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                            >
-                              Fusionar
-                            </button>
-                          </div>
-
-                          {/* Debt banner */}
-                          {Number(selectedClient.totalDebt || 0) > EPSILON && (
-                            <div className="flex items-center justify-between gap-3 bg-p-error px-5 py-3">
-                              <div>
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-50">Deuda pendiente</p>
-                                <p className="text-[20px] font-bold leading-tight text-ink-50">
-                                  {formatMoney(Number(selectedClient.totalDebt || 0))}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setActiveView('debt')}
-                                className="h-8 flex-none rounded-lg bg-p-surface px-3 text-[12px] font-bold text-p-error hover:bg-p-error-bg"
-                              >
-                                <span className="inline-flex items-center gap-1"><DollarSign size={13} /> Cobrar</span>
-                              </button>
-                            </div>
-                          )}
-
-                          <div className="space-y-5 p-5">
-                            {/* Quick stats */}
-                            <div className="grid grid-cols-3 gap-3">
-                              <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-center">
-                                <p className="text-[18px] font-bold text-p-text">{Number(selectedClient.totalBookings || 0)}</p>
-                                <p className="mt-0.5 text-[11px] text-p-text-muted">Reservas</p>
-                              </div>
-                              <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-center">
-                                <p className="text-[18px] font-bold text-p-text">{historyAccounts.length}</p>
-                                <p className="mt-0.5 text-[11px] text-p-text-muted">Cuentas</p>
-                              </div>
-                              <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-center">
-                                <p className="text-[14px] font-bold text-p-text">
-                                  {selectedClient.isProfessor ? 'Profesor' : 'Cliente'}
-                                </p>
-                                <p className="mt-0.5 text-[11px] text-p-text-muted">Rol</p>
-                              </div>
-                            </div>
-
-                            {/* Contact */}
-                            <div>
-                              <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                Contacto
-                              </h3>
-                              <div className="divide-y divide-p-border rounded-xl border border-p-border text-[13px]">
-                                <div className="grid grid-cols-[90px_1fr] gap-2 px-3 py-2.5">
-                                  <span className="text-p-text-muted">DNI</span>
-                                  <span className="font-semibold text-p-text">{String(selectedClient.dni || '-')}</span>
-                                </div>
-                                <div className="grid grid-cols-[90px_1fr] gap-2 px-3 py-2.5">
-                                  <span className="text-p-text-muted">Teléfono</span>
-                                  <span className="font-semibold text-p-text">{String(selectedClient.phone || '-')}</span>
-                                </div>
-                                <div className="grid grid-cols-[90px_1fr] gap-2 px-3 py-2.5">
-                                  <span className="text-p-text-muted">Email</span>
-                                  <span className="break-all font-semibold text-p-text">{String(selectedClient.email || '-')}</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div>
-                              <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                Vinculación con usuario
-                              </h3>
-                              <div className="rounded-xl border border-p-border bg-p-surface p-3">
-                                {selectedClient.linkedUser ? (
-                                  <>
-                                    <p className="text-[13px] font-semibold text-p-text">
-                                      {selectedClient.linkedUser.name || `Usuario ${selectedClient.linkedUser.id}`}
-                                    </p>
-                                    <p className="mt-0.5 text-[12px] text-p-text-muted">
-                                      {selectedClient.linkedUser.email || `ID usuario #${selectedClient.linkedUser.id}`}
-                                    </p>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => setUnlinkConfirmOpen(true)}
-                                        className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                      >
-                                        <Unlink2 size={12} />
-                                        Desvincular
-                                      </button>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <>
-                                    <p className="text-[13px] text-p-text-secondary">
-                                      Este cliente todavía no está vinculado a un usuario del sistema.
-                                    </p>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={openLinkModal}
-                                        className="inline-flex h-8 items-center gap-1 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
-                                      >
-                                        <Link2 size={12} />
-                                        Vincular usuario
-                                      </button>
-                                    </div>
-                                  </>
-                                )}
-
-                                <div className="mt-4 rounded-xl border border-p-border bg-p-surface-2 p-3">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                      Estado de identidad
-                                    </p>
-                                    {identityOverview?.signals?.length ? (
-                                      <span className="rounded-full border border-p-border bg-p-surface px-2 py-0.5 text-[10px] font-semibold text-p-text-secondary">
-                                        Señales: {formatIdentitySignals(identityOverview.signals)}
-                                      </span>
-                                    ) : null}
-                                  </div>
-
-                                  {identityOverviewLoading ? (
-                                    <p className="mt-2 text-[12px] text-p-text-muted">Cargando diagnóstico de identidad...</p>
-                                  ) : identityOverviewError ? (
-                                    <AdminFeedbackBanner tone="error" compact className="mt-3">
-                                      {identityOverviewError}
-                                    </AdminFeedbackBanner>
-                                  ) : identityOverview ? (
-                                    <div className="mt-3 space-y-3">
-                                      <div className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
-                                        <p className="text-[13px] font-semibold text-p-text">{identityOverview.summary}</p>
-                                        <p className="mt-1 text-[12px] text-p-text-muted">
-                                          Estado: {identityOverview.status === 'SUGGESTED_LINK'
-                                            ? 'Sugerencia de vínculo'
-                                            : identityOverview.status === 'REVIEW_REQUIRED'
-                                            ? 'Revisión requerida'
-                                            : identityOverview.status === 'LINKED'
-                                            ? 'Vinculado'
-                                            : 'Sin match'}
-                                        </p>
-                                      </div>
-
-                                      {identityOverview.userCandidates.length > 0 ? (
-                                        <div className="space-y-2">
-                                          <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                            Usuarios compatibles ({identityOverview.userCandidates.length})
-                                          </p>
-                                          {identityOverview.userCandidates.map((candidate) => (
-                                            <div
-                                              key={candidate.userId}
-                                              className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
-                                            >
-                                              <p className="text-[13px] font-semibold text-p-text">{candidate.displayName}</p>
-                                              <p className="mt-0.5 text-[12px] text-p-text-muted">
-                                                {candidate.email || candidate.phoneNumber || `ID usuario #${candidate.userId}`}
-                                              </p>
-                                              <p className="mt-1 text-[11px] text-p-text-muted">
-                                                Match por {formatIdentitySignals(candidate.matchedBy)}
-                                              </p>
-                                              {candidate.linkedClientId ? (
-                                                <p className="mt-1 text-[11px] text-p-error">
-                                                  Ya vinculado a {candidate.linkedClientName || `cliente ${candidate.linkedClientId}`}.
-                                                </p>
-                                              ) : (
-                                                <div className="mt-2 flex flex-wrap gap-2">
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                      void linkClientToSpecificUser(candidate.userId);
-                                                    }}
-                                                    disabled={identityQuickLinkBusy}
-                                                    className="inline-flex h-7 items-center gap-1 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
-                                                  >
-                                                    <Link2 size={11} />
-                                                    {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular este usuario'}
-                                                  </button>
-                                                </div>
-                                              )}
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : null}
-
-                                      {identityOverview.duplicateClients.length > 0 ? (
-                                        <div className="space-y-2">
-                                          <p className="text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                            Clientes duplicados ({identityOverview.duplicateClients.length})
-                                          </p>
-                                          {identityOverview.duplicateClients.map((duplicate) => (
-                                            <div
-                                              key={duplicate.clientId}
-                                              className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
-                                            >
-                                              <p className="text-[13px] font-semibold text-p-text">{duplicate.name}</p>
-                                              <p className="mt-0.5 text-[12px] text-p-text-muted">
-                                                {duplicate.email || duplicate.phone || duplicate.dni || `ID ${duplicate.clientId}`}
-                                              </p>
-                                              <p className="mt-1 text-[11px] text-p-text-muted">
-                                                Match por {formatIdentitySignals(duplicate.matchedBy)}
-                                              </p>
-                                              <div className="mt-2 flex flex-wrap gap-2">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => {
-                                                    openMergeModalWithTarget({
-                                                      id: duplicate.clientId,
-                                                      name: duplicate.name,
-                                                      phone: duplicate.phone || undefined,
-                                                      email: duplicate.email || undefined,
-                                                      dni: duplicate.dni || undefined,
-                                                    });
-                                                  }}
-                                                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-p-border bg-p-surface-2 px-2.5 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface"
-                                                >
-                                                  <RotateCcw size={11} />
-                                                  Fusionar con este cliente
-                                                </button>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : null}
-
-                                      <div className="flex flex-wrap gap-2">
-                                        {identityOverview.status === 'SUGGESTED_LINK' && identityOverview.recommendedUserId ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              void applySuggestedIdentityLink();
-                                            }}
-                                            disabled={identityQuickLinkBusy}
-                                            className="inline-flex h-8 items-center gap-1 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
-                                          >
-                                            <Link2 size={12} />
-                                            {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular usuario sugerido'}
-                                          </button>
-                                        ) : null}
-
-                                        {identityOverview.status === 'REVIEW_REQUIRED' || identityOverview.userCandidates.length > 0 ? (
-                                          <button
-                                            type="button"
-                                            onClick={openLinkModal}
-                                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                          >
-                                            <UserPlus size={12} />
-                                            Buscar usuario manualmente
-                                          </button>
-                                        ) : null}
-
-                                        {identityOverview.duplicateClients.length > 0 ? (
-                                          <button
-                                            type="button"
-                                            onClick={openMergeModal}
-                                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                          >
-                                            <RotateCcw size={12} />
-                                            Fusionar cliente
-                                          </button>
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <p className="mt-2 text-[12px] text-p-text-muted">
-                                      Todavía no hay diagnóstico de identidad para este cliente.
-                                    </p>
+                          {/* Quién es */}
+                          <div className="border-b border-p-border p-4 lg:p-5">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <h2 className="text-[22px] font-bold leading-tight tracking-tight text-p-text">{getClientName(selectedClient)}</h2>
+                                  <MemberBadge member={selectedClient.member} />
+                                  {selectedClient.isProfessor && (
+                                    <span className="rounded-full bg-p-surface-3 px-2 py-0.5 text-[11px] font-semibold text-p-text-secondary">
+                                      Profesor
+                                    </span>
                                   )}
                                 </div>
+                                <p className="mt-1 text-[14px] text-p-text-secondary">
+                                  {[String(selectedClient.phone || '').trim(), String(selectedClient.email || '').trim()]
+                                    .filter(Boolean)
+                                    .join(' · ') || 'Sin teléfono ni email'}
+                                </p>
+                              </div>
+                              <div className="relative flex flex-none items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditClient(selectedClient)}
+                                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text hover:bg-p-surface-2"
+                                >
+                                  <Pencil size={13} />
+                                  Editar
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Más opciones del cliente"
+                                  aria-expanded={clientMenuOpen}
+                                  onClick={() => setClientMenuOpen((open) => !open)}
+                                  className="grid h-9 w-9 place-items-center rounded-xl border border-p-border text-p-text-secondary hover:bg-p-surface-2"
+                                >
+                                  <MoreHorizontal size={16} />
+                                </button>
+                                {clientMenuOpen && (
+                                  <>
+                                    <button type="button" aria-hidden tabIndex={-1} className="fixed inset-0 z-30 cursor-default" onClick={() => setClientMenuOpen(false)} />
+                                    <div className="absolute right-0 top-11 z-40 w-60 rounded-xl border border-p-border bg-p-surface p-1 shadow-xl">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setClientMenuOpen(false);
+                                          openMergeModal();
+                                        }}
+                                        className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2"
+                                      >
+                                        Unir con otro cliente repetido
+                                      </button>
+                                      {selectedClient.linkedUser ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setClientMenuOpen(false);
+                                            setUnlinkConfirmOpen(true);
+                                          }}
+                                          className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2"
+                                        >
+                                          Desvincular de su cuenta de la app
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setClientMenuOpen(false);
+                                            openLinkModal();
+                                          }}
+                                          className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2"
+                                        >
+                                          Vincular con una cuenta de la app
+                                        </button>
+                                      )}
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             </div>
+                              {(() => {
+                                const telHref = toTelHref(selectedClient.phone);
+                                const waNumber = toWhatsAppNumber(selectedClient.phone);
+                                const actionClass =
+                                  'inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text hover:bg-p-surface-2';
+                                return (
+                                  <div
+                                    className="mt-3 grid gap-2 sm:flex sm:flex-wrap"
+                                    style={{ gridTemplateColumns: `repeat(${1 + (telHref ? 1 : 0) + (waNumber ? 1 : 0)}, minmax(0, 1fr))` }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const query: Record<string, string> = {
+                                          cliente: String(selectedClient.id),
+                                          nombre: getClientName(selectedClient),
+                                        };
+                                        const phone = String(selectedClient.phone || '').trim();
+                                        if (phone) query.tel = phone;
+                                        void router.push({ pathname: '/admin/agenda', query });
+                                      }}
+                                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+                                    >
+                                      <CalendarPlus size={14} />
+                                      Reservar
+                                    </button>
+                                    {telHref && (
+                                      <a href={telHref} className={actionClass}>
+                                        <Phone size={14} />
+                                        Llamar
+                                      </a>
+                                    )}
+                                    {waNumber && (
+                                      <a
+                                        href={`https://wa.me/${waNumber}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={actionClass}
+                                        title="Abre WhatsApp con este número. No se manda nada solo."
+                                      >
+                                        <MessageCircle size={14} />
+                                        WhatsApp
+                                      </a>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                          </div>
 
-                            {/* Descuentos — only shown if assigned */}
-                            {!loadingDiscountAssignments && selectedClientDiscountAssignments.length > 0 && (
+                          <div className="space-y-6 p-4 lg:p-5">
+                            {/* Cuánto debe */}
+                            {Number(selectedClient.totalDebt || 0) > EPSILON ? (
                               <div>
-                                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                  Descuentos
-                                </h3>
+                                <div className="flex flex-wrap items-end justify-between gap-3">
+                                  <div>
+                                    <p className="text-[13px] text-p-text-muted">Debe</p>
+                                    <p className="text-[30px] font-bold leading-tight tabular-nums text-p-warning">
+                                      {formatMoney(Number(selectedClient.totalDebt || 0))}
+                                    </p>
+                                    {clientPendingAccounts.length > 1 && (
+                                      <p className="text-[12px] text-p-text-muted">En {clientPendingAccounts.length} cuentas</p>
+                                    )}
+                                  </div>
+                                  {clientPendingAccounts.length === 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openAccountDrawer(String(clientPendingAccounts[0].id), 'payment')}
+                                      className="h-11 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 hover:bg-ink-800"
+                                    >
+                                      Cobrar {formatMoney(Number(clientPendingAccounts[0].amount || 0))}
+                                    </button>
+                                  )}
+                                </div>
+                                {clientPendingAccounts.length > 1 && (
+                                  <ul className="mt-3 divide-y divide-p-border rounded-xl border border-p-border">
+                                    {clientPendingAccounts.map((account: any) => (
+                                      <li key={String(account.id)} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => openAccountDrawer(String(account.id), 'overview')}
+                                          className="min-w-0 text-left"
+                                        >
+                                          <p className="truncate text-[13px] text-p-text">
+                                            {formatClientSlot(null, account.date, account.time)}
+                                          </p>
+                                          <p className="truncate text-[12px] text-p-text-muted">
+                                            {account.courtName ? `Reserva · ${account.courtName}` : formatAccountSourceType(account.sourceType)}
+                                          </p>
+                                        </button>
+                                        <div className="flex flex-none items-center gap-3">
+                                          <span className="text-[13px] font-bold tabular-nums text-p-warning">
+                                            {formatMoney(Number(account.amount || 0))}
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={() => openAccountDrawer(String(account.id), 'payment')}
+                                            className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+                                          >
+                                            Cobrar
+                                          </button>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-[14px] font-semibold text-p-positive">No debe nada.</p>
+                            )}
+
+                            {/* Reservas */}
+                            <div className="border-t border-p-border pt-5">
+                              {clientHabitLine && (
+                                <p className="mb-3 rounded-xl bg-p-surface-2 px-3 py-2 text-[13px] font-semibold text-p-text-secondary">{clientHabitLine}</p>
+                              )}
+                              <div className="flex items-baseline justify-between gap-3">
+                                <p className="text-[13px] font-semibold text-p-text">Próximas reservas</p>
+                              </div>
+                              {clientUpcomingBookings.length === 0 ? (
+                                <p className="mt-1 text-[13px] text-p-text-muted">No tiene reservas próximas.</p>
+                              ) : (
+                                <ul className="mt-1 divide-y divide-p-border">
+                                  {clientUpcomingBookings.map((row: any) => (
+                                    <li key={`up-${row.id}`} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
+                                      <span className="text-p-text">{formatClientSlot(row.iso, row.date, row.time)}</span>
+                                      <span className="text-right text-p-text-secondary">
+                                        {row.courtName}
+                                        {row.status === 'PENDING' ? <span className="text-p-warning"> · sin confirmar</span> : null}
+                                        {(() => {
+                                          const pay = clientBookingPayment.get(String(row.id));
+                                          if (!pay) return null;
+                                          if (pay.owes > EPSILON) {
+                                            return <span className="ml-2 rounded-full bg-p-warning-bg px-2 py-0.5 text-[11px] font-bold text-p-warning">Debe {formatMoney(pay.owes)}</span>;
+                                          }
+                                          if (pay.paid) {
+                                            return <span className="ml-2 rounded-full bg-p-positive-bg px-2 py-0.5 text-[11px] font-bold text-p-accent">Pagada</span>;
+                                          }
+                                          return null;
+                                        })()}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                              {clientRecentBookings.length > 0 && (
+                                <>
+                                  <p className="mt-4 text-[13px] font-semibold text-p-text">Últimas que jugó</p>
+                                  <ul className="mt-1 divide-y divide-p-border">
+                                    {clientRecentBookings.map((row: any) => (
+                                      <li key={`past-${row.id}`} className="flex items-center justify-between gap-3 py-2.5 text-[13px]">
+                                        <span className="text-p-text">{formatClientSlot(row.iso, row.date, row.time)}</span>
+                                        <span className="flex items-center text-right text-p-text-muted">
+                                          {row.courtName}
+                                          {(() => {
+                                          const pay = clientBookingPayment.get(String(row.id));
+                                          if (!pay) return null;
+                                          if (pay.owes > EPSILON) {
+                                            return <span className="ml-2 rounded-full bg-p-warning-bg px-2 py-0.5 text-[11px] font-bold text-p-warning">Debe {formatMoney(pay.owes)}</span>;
+                                          }
+                                          if (pay.paid) {
+                                            return <span className="ml-2 rounded-full bg-p-positive-bg px-2 py-0.5 text-[11px] font-bold text-p-accent">Pagada</span>;
+                                          }
+                                          return null;
+                                        })()}
+                                        </span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </>
+                              )}
+                              {clientCancelledBookings.length > 0 && (
+                                <div className="mt-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowClientCancelled((value) => !value)}
+                                    className="text-[12px] font-semibold text-p-text-muted underline-offset-2 hover:underline"
+                                    aria-expanded={showClientCancelled}
+                                  >
+                                    {showClientCancelled
+                                      ? 'Ocultar canceladas'
+                                      : clientCancelledBookings.length === 1
+                                        ? 'Ver 1 cancelada'
+                                        : `Ver ${clientCancelledBookings.length} canceladas`}
+                                  </button>
+                                  {showClientCancelled && (
+                                    <ul className="mt-1 divide-y divide-p-border">
+                                      {clientCancelledBookings.slice(0, 20).map((row: any) => (
+                                        <li key={`cancel-${row.id}`} className="flex items-center justify-between gap-3 py-2 text-[12px] text-p-text-muted">
+                                          <span>{formatClientSlot(row.iso, row.date, row.time)}</span>
+                                          <span className="text-right">{row.courtName} · cancelada</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Academia */}
+                            {(() => {
+                              const student = academyStudentsByClientId.get(String(selectedClient.id));
+                              if (!student && !selectedClient.isProfessor) return null;
+                              const linkClass = 'text-[13px] font-semibold text-p-accent hover:underline';
+                              return (
+                                <div className="border-t border-p-border pt-5">
+                                  <div className="flex items-baseline justify-between gap-3">
+                                    <p className="text-[13px] font-semibold text-p-text">Academia</p>
+                                    {student ? (
+                                      <button
+                                        type="button"
+                                        className={linkClass}
+                                        onClick={() =>
+                                          void router.push({ pathname: '/admin/academia', query: { tab: 'alumnos', alumno: String(selectedClient.id) } })
+                                        }
+                                      >
+                                        Ver como alumno →
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className={linkClass}
+                                        onClick={() => void router.push({ pathname: '/admin/academia', query: { tab: 'profesores' } })}
+                                      >
+                                        Ver profesores →
+                                      </button>
+                                    )}
+                                  </div>
+                                  {student ? (
+                                    <ul className="mt-2 space-y-1.5 text-[13px]">
+                                      <li className="flex justify-between gap-3">
+                                        <span className="text-p-text-muted">Próxima clase</span>
+                                        <span className="text-right font-semibold text-p-text">
+                                          {student.nextClassAt ? formatAcademySlot(student.nextClassAt) : 'No está anotado'}
+                                        </span>
+                                      </li>
+                                      <li className="flex justify-between gap-3">
+                                        <span className="text-p-text-muted">Clases a favor</span>
+                                        <span className={`text-right font-semibold ${Number(student.summary.totalRemainingCredits || 0) > 0 ? 'text-p-accent' : 'text-p-text'}`}>
+                                          {Number(student.summary.totalRemainingCredits || 0) > 0
+                                            ? `${student.summary.totalRemainingCredits} ${Number(student.summary.totalRemainingCredits) === 1 ? 'clase' : 'clases'}`
+                                            : 'Ninguna'}
+                                        </span>
+                                      </li>
+                                      <li className="flex justify-between gap-3">
+                                        <span className="text-p-text-muted">Clases tomadas</span>
+                                        <span className="text-right font-semibold text-p-text">{Number(student.summary.pastEnrollmentsCount || 0)}</span>
+                                      </li>
+                                    </ul>
+                                  ) : null}
+                                  {selectedClient.isProfessor && (
+                                    <p className="mt-2 text-[13px] text-p-text-muted">Da clases en el club.</p>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                            {/* Socio */}
+                            <div className="border-t border-p-border pt-5">
+                              <ClientMemberPanel
+                                key={`member-${String(selectedClient.id)}-${memberPanelVersion}`}
+                                clubSlug={resolveClubSlug() || ''}
+                                clientId={String(selectedClient.id)}
+                                clientName={getClientName(selectedClient)}
+                                clientHasDni={Boolean(String(selectedClient.dni || '').replace(/\D/g, ''))}
+                                canManage={hasAdminAccess(user)}
+                                onChanged={() => void loadClients()}
+                              />
+                            </div>
+
+                            {/* Planes y cuotas */}
+                            <div className="border-t border-p-border pt-5">
+                              <ClientSubscriptionsPanel
+                                clubSlug={resolveClubSlug() || ''}
+                                clientId={String(selectedClient.id)}
+                                clientName={getClientName(selectedClient)}
+                                canManage={hasAdminAccess(user)}
+                                onChanged={() => {
+                                  setMemberPanelVersion((value) => value + 1);
+                                  void loadClients();
+                                }}
+                              />
+                            </div>
+
+                            {/* Descuentos — solo si tiene */}
+                            {!loadingDiscountAssignments && selectedClientDiscountAssignments.length > 0 && (
+                              <div className="border-t border-p-border pt-5">
+                                <p className="mb-2 text-[13px] font-semibold text-p-text">Descuentos</p>
                                 <div className="flex flex-wrap gap-2">
                                   {selectedClientDiscountAssignments.map((assignment: any, index: number) => (
                                     <span
                                       key={String(assignment?.id || index)}
                                       className="rounded-full border border-p-border bg-p-surface-2 px-3 py-1 text-[12px] font-semibold text-p-text-secondary"
                                     >
-                                      {String(assignment?.policy?.name || assignment?.policyName || 'Política')}
+                                      {String(assignment?.policy?.name || assignment?.policyName || 'Descuento')}
                                     </span>
                                   ))}
                                 </div>
                               </div>
                             )}
 
-                            {/* Cuentas */}
-                            {historyAccounts.length > 0 && (
-                              <div>
-                                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                  Cuentas ({historyAccounts.length})
-                                </h3>
-                                <div className="space-y-2">
-                                  {historyAccounts.map((account: any) => {
-                                    const isPending = Number(account?.amount || 0) > EPSILON;
-                                    return (
-                                      <div
-                                        key={String(account.id)}
-                                        className="flex items-center gap-3 rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
-                                      >
-                                        <div className="min-w-0 flex-1">
-                                          <p className="text-[13px] font-semibold text-p-text">
-                                            {formatAccountSourceType(account.sourceType)}{' '}
-                                            <span className="font-normal text-p-text-muted">#{shortId(account.id)}</span>
-                                          </p>
-                                          <p className="text-[12px] text-p-text-muted">
-                                            {formatDate(account.date)}{account.time ? ` · ${account.time}` : ''}
-                                          </p>
-                                        </div>
-                                        {isPending && (
-                                          <span className="flex-none rounded-full border border-p-error bg-p-error-bg px-2 py-0.5 text-[11px] font-semibold text-p-error">
-                                            {formatMoney(Number(account.amount || 0))}
-                                          </span>
-                                        )}
-                                        <div className="flex gap-1.5">
-                                          <button
-                                            type="button"
-                                            onClick={() => openAccountDrawer(String(account.id), 'overview')}
-                                            className="inline-flex h-7 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-2 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
-                                          >
-                                            <Search size={11} />
-                                            Ver
-                                          </button>
-                                          {isPending && (
-                                            <button
-                                              type="button"
-                                              onClick={() => openAccountDrawer(String(account.id), 'payment')}
-                                              className="inline-flex h-7 items-center gap-1 rounded-lg bg-ink-900 px-2 text-[11px] font-semibold text-ink-50 hover:bg-ink-900"
-                                            >
-                                              <DollarSign size={11} />
-                                              Cobrar
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
+                            <ClientMessagesSection clientId={String(selectedClient.id)} />
 
-                            {/* Reservas */}
-                            {historyBookings.length > 0 && (
-                              <div>
-                                <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-p-text-muted">
-                                  Reservas ({historyBookings.length})
-                                </h3>
-                                <div className="space-y-2">
-                                  {historyBookings.map((booking: any) => (
-                                    <div
-                                      key={String(booking.bookingId)}
-                                      className="flex items-center gap-3 rounded-xl border border-p-border bg-p-surface px-3 py-2.5"
-                                    >
-                                      <div className="min-w-0 flex-1">
-                                        <p className="text-[13px] font-semibold text-p-text">
-                                          {formatDate(booking.date)}{booking.time ? ` · ${booking.time}` : ''}
-                                        </p>
-                                        <p className="text-[12px] text-p-text-muted">
-                                          {booking.courtName || '-'} · {formatMoney(Number(booking.amount || 0))}
-                                        </p>
-                                      </div>
-                                      <span
-                                        className={`flex-none rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                                          booking.status === 'COMPLETED'
-                                            ? 'border-p-positive bg-p-positive-bg text-p-positive'
-                                            : booking.status === 'CANCELLED'
-                                            ? 'border-p-border bg-p-surface-2 text-p-text-muted'
-                                            : booking.status === 'CONFIRMED'
-                                            ? 'border-p-info bg-p-info-bg text-p-info'
-                                            : 'border-p-warning bg-p-warning-bg text-p-warning'
-                                        }`}
-                                      >
-                                        {bookingStatusLabel[booking.status] || booking.status || '-'}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {historyAccounts.length === 0 && historyBookings.length === 0 && (
-                              <div className="rounded-xl border border-p-border p-8 text-center text-[13px] text-p-text-muted">
-                                Este cliente no tiene actividad registrada.
-                              </div>
-                            )}
+                            {/* Datos */}
+                            <div className="border-t border-p-border pt-5">
+                              <p className="mb-1 text-[13px] font-semibold text-p-text">Datos</p>
+                              <dl className="divide-y divide-p-border text-[13px]">
+                                {[
+                                  ['Teléfono', String(selectedClient.phone || '').trim()],
+                                  ['Email', String(selectedClient.email || '').trim()],
+                                  ['DNI', String(selectedClient.dni && selectedClient.dni !== '-' ? selectedClient.dni : '').trim()],
+                                  [
+                                    'App',
+                                    selectedClient.linkedUser
+                                      ? `Tiene cuenta${selectedClient.linkedUser.email ? ` (${selectedClient.linkedUser.email})` : ''}`
+                                      : 'No tiene cuenta',
+                                  ],
+                                ].map(([label, value]) => (
+                                  <div key={label} className="grid grid-cols-[90px_minmax(0,1fr)] gap-2 py-2">
+                                    <dt className="text-p-text-muted">{label}</dt>
+                                    <dd className="break-all text-p-text">{value || '—'}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </div>
                           </div>
                         </>
                       )}
@@ -1720,8 +1913,29 @@ export default function AdminClientesPlayground2Page() {
                   </div>
                 )}
 
+                {activeView === 'members' && (
+                  <div className="h-full overflow-auto">
+                    <MembersRosterPanel
+                      clubSlug={resolveClubSlug() || ''}
+                      canManage={hasAdminAccess(user)}
+                      onSelectClient={(clientId) => {
+                        setSelectedClientId(clientId);
+                        setActiveView('directory');
+                      }}
+                    />
+                  </div>
+                )}
+
                 {activeView === 'incidents' && (
                   <div className="h-full overflow-auto">
+                    <button
+                      type="button"
+                      onClick={() => setActiveView('directory')}
+                      className="mb-3 inline-flex items-center gap-1 text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
+                    >
+                      <ChevronLeft size={15} />
+                      Volver a clientes
+                    </button>
                     <AdminDuplicateIncidents preferredIdentityClientId={selectedClientId || null} />
                   </div>
                 )}
@@ -1745,7 +1959,9 @@ export default function AdminClientesPlayground2Page() {
         }
         subtitle={
           isClientFormView
-            ? 'Gestión de datos básicos del cliente.'
+            ? sidebarView === 'client_create'
+              ? 'Con nombre y teléfono alcanza para reservar y cobrarle.'
+              : undefined
             : sidebarView === 'client_profile'
               ? selectedClient
                 ? getClientName(selectedClient)
@@ -1772,9 +1988,8 @@ export default function AdminClientesPlayground2Page() {
             <button
               type="button"
               onClick={closeActionSidebar}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+              className="inline-flex h-10 items-center rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
             >
-              <RotateCcw size={14} />
               Cancelar
             </button>
 
@@ -1782,37 +1997,11 @@ export default function AdminClientesPlayground2Page() {
               <>
                 <button
                   type="button"
-                  onClick={() => {
-                    setErrorMessage('');
-                    setClientFieldErrors({});
-                    setEditingClientId('');
-                    setClientForm({
-                      name: '',
-                      phoneCountryIso2: clubPhoneCountryIso2,
-                      phone: '',
-                      dni: '',
-                      email: '',
-                      isProfessor: false,
-                    });
-                  }}
-                  disabled={submittingClient}
-                  className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="inline-flex items-center gap-1.5">
-                    <RotateCcw size={14} />
-                    Limpiar
-                  </span>
-                </button>
-                <button
-                  type="button"
                   onClick={() => void submitClient()}
                   disabled={submittingClient}
-                  className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <span className="inline-flex items-center gap-1.5">
-                    {sidebarView === 'client_edit' ? <Save size={14} /> : <UserPlus size={14} />}
-                    {submittingClient ? 'Guardando...' : sidebarView === 'client_edit' ? 'Guardar cambios' : 'Crear cliente'}
-                  </span>
+                  {submittingClient ? 'Guardando...' : sidebarView === 'client_edit' ? 'Guardar cambios' : 'Crear cliente'}
                 </button>
               </>
             )}
@@ -1876,82 +2065,85 @@ export default function AdminClientesPlayground2Page() {
         }
       >
         {isClientFormView && (
-          <AdminDrawerSection title="Datos basicos" className={drawerSectionCardClass}>
-            <div className="space-y-3">
-              {errorMessage && (
-                <AdminFeedbackBanner tone="error" compact>
-                  {errorMessage}
-                </AdminFeedbackBanner>
-              )}
+          <div className="space-y-4">
+            {errorMessage && (
+              <AdminFeedbackBanner tone="error" compact>
+                {errorMessage}
+              </AdminFeedbackBanner>
+            )}
 
-              <label className="block">
-                <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Nombre y apellido *</span>
-                <input
-                  type="text"
-                  value={clientForm.name}
+            <label className="block">
+              <span className="mb-1 block text-[13px] font-medium text-p-text">Nombre y apellido</span>
+              <input
+                type="text"
+                autoFocus
+                value={clientForm.name}
+                onChange={(event) => {
+                  setClientFieldErrors((prev) => ({ ...prev, name: '' }));
+                  setClientForm((prev) => ({ ...prev, name: event.target.value }));
+                }}
+                className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none transition focus:border-p-border-strong"
+                placeholder="Juan Pérez"
+              />
+              <AdminInlineError>{clientFieldErrors.name}</AdminInlineError>
+            </label>
+
+            <div>
+              <span className="mb-1 block text-[13px] font-medium text-p-text">Teléfono</span>
+              <div className="flex gap-2">
+                <select
+                  aria-label="País"
+                  value={clientForm.phoneCountryIso2}
                   onChange={(event) => {
-                    setClientFieldErrors((prev) => ({ ...prev, name: '' }));
-                    setClientForm((prev) => ({ ...prev, name: event.target.value }));
+                    setClientFieldErrors((prev) => ({ ...prev, phone: '' }));
+                    setClientForm((prev) => ({ ...prev, phoneCountryIso2: normalizePhoneCountryIso2(event.target.value) }));
                   }}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                  placeholder="Ej: Juan Perez"
+                  className="h-11 w-[104px] flex-none rounded-xl border border-p-border bg-p-surface px-2 text-[13px] font-semibold text-p-text outline-none focus:border-p-border-strong"
+                >
+                  {PHONE_COUNTRY_OPTIONS.map((option) => (
+                    <option key={option.iso2} value={option.iso2}>
+                      {option.callingCode} {option.iso2}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={clientForm.phone}
+                  onChange={(event) => {
+                    setClientFieldErrors((prev) => ({ ...prev, phone: '' }));
+                    setClientForm((prev) => ({ ...prev, phone: event.target.value.replace(/[^\d]/g, '') }));
+                  }}
+                  className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none transition focus:border-p-border-strong"
+                  placeholder="351 555 1234"
                 />
-                <AdminInlineError>{clientFieldErrors.name}</AdminInlineError>
-              </label>
-
-              <div className="grid grid-cols-[110px_1fr] gap-2">
-                <label className="block">
-                  <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Pais</span>
-                  <select
-                    value={clientForm.phoneCountryIso2}
-                    onChange={(event) => {
-                      setClientFieldErrors((prev) => ({ ...prev, phone: '' }));
-                      setClientForm((prev) => ({ ...prev, phoneCountryIso2: normalizePhoneCountryIso2(event.target.value) }));
-                    }}
-                    className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-2 text-[12px] font-semibold text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                  >
-                    {PHONE_COUNTRY_OPTIONS.map((option) => (
-                      <option key={option.iso2} value={option.iso2}>
-                        {option.callingCode} {option.iso2}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Teléfono *</span>
-                  <input
-                    type="text"
-                    value={clientForm.phone}
-                    onChange={(event) =>
-                      {
-                        setClientFieldErrors((prev) => ({ ...prev, phone: '' }));
-                        setClientForm((prev) => ({ ...prev, phone: event.target.value.replace(/[^\d]/g, '') }));
-                      }
-                    }
-                    className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                    placeholder="351..."
-                  />
-                </label>
               </div>
               <AdminInlineError>{clientFieldErrors.phone}</AdminInlineError>
+            </div>
 
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block">
-                <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">DNI</span>
+                <span className="mb-1 block text-[13px] font-medium text-p-text">
+                  DNI <span className="font-normal text-p-text-muted">(opcional)</span>
+                </span>
                 <input
                   type="text"
+                  inputMode="numeric"
                   value={clientForm.dni}
                   onChange={(event) => {
                     setClientFieldErrors((prev) => ({ ...prev, dni: '' }));
                     setClientForm((prev) => ({ ...prev, dni: event.target.value }));
                   }}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                  placeholder="Documento"
+                  className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none transition focus:border-p-border-strong"
+                  placeholder="30123123"
                 />
                 <AdminInlineError>{clientFieldErrors.dni}</AdminInlineError>
               </label>
 
               <label className="block">
-                <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Email <span className="font-normal text-p-text-muted opacity-60">(opcional)</span></span>
+                <span className="mb-1 block text-[13px] font-medium text-p-text">
+                  Email <span className="font-normal text-p-text-muted">(opcional)</span>
+                </span>
                 <input
                   type="email"
                   value={clientForm.email}
@@ -1959,22 +2151,27 @@ export default function AdminClientesPlayground2Page() {
                     setClientFieldErrors((prev) => ({ ...prev, email: '' }));
                     setClientForm((prev) => ({ ...prev, email: event.target.value }));
                   }}
-                  className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30"
-                  placeholder="cliente@email.com"
+                  className="h-11 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[14px] text-p-text outline-none transition focus:border-p-border-strong"
+                  placeholder="juan@email.com"
                 />
                 <AdminInlineError>{clientFieldErrors.email}</AdminInlineError>
               </label>
-
-              <label className="flex min-h-10 items-center gap-2 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary">
-                <input
-                  type="checkbox"
-                  checked={Boolean(clientForm.isProfessor)}
-                  onChange={(event) => setClientForm((prev) => ({ ...prev, isProfessor: event.target.checked }))}
-                />
-                Es profesor
-              </label>
             </div>
-          </AdminDrawerSection>
+            <p className="-mt-2 text-[12px] text-p-text-muted">El DNI sirve para validar si es socio.</p>
+
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={Boolean(clientForm.isProfessor)}
+                onChange={(event) => setClientForm((prev) => ({ ...prev, isProfessor: event.target.checked }))}
+                className="mt-0.5 h-4 w-4 accent-p-brand"
+              />
+              <span>
+                <span className="block text-[14px] font-medium text-p-text">Es profesor</span>
+                <span className="block text-[12px] text-p-text-muted">Da clases en el club.</span>
+              </span>
+            </label>
+          </div>
         )}
 
         {sidebarView === 'client_profile' && (
@@ -2327,22 +2524,40 @@ export default function AdminClientesPlayground2Page() {
               {!linkSearchLoading && linkSearchTerm.trim().length >= 2 && linkSearchResults.length === 0 ? (
                 <p className="text-[12px] text-p-text-muted">No se encontraron usuarios permitidos para vincular con esa búsqueda.</p>
               ) : null}
+              {linkSearchResults.length > 0 ? (
+                <p className="pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">Usuarios encontrados</p>
+              ) : null}
               {linkSearchResults.map((row) => {
                 const selected = Number(linkSelectedUser?.userId || 0) === Number(row?.userId || 0);
                 return (
                   <button
                     key={String(row?.personKey || row?.userId)}
                     type="button"
+                    aria-pressed={selected}
                     onClick={() => setLinkSelectedUser(row)}
-                    className={`w-full rounded-xl border p-3 text-left text-[13px] transition ${
-                      selected ? 'border-p-accent bg-p-positive-bg' : 'border-p-border bg-p-surface-2 hover:bg-p-surface'
+                    className={`w-full cursor-pointer rounded-xl border p-3 text-left text-[13px] transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/50 active:bg-[var(--accent-bg-strong)] active:shadow-none ${
+                      selected
+                        ? 'border-lima-400 bg-p-positive-bg shadow-p-card'
+                        : 'border-p-border-strong bg-p-surface hover:border-lima-300 hover:bg-p-positive-bg hover:shadow-p-card'
                     }`}
                   >
-                    <p className="font-semibold text-p-text">{String(row?.displayName || `Usuario ${row?.userId || ''}`)}</p>
-                    <p className="mt-0.5 text-p-text-muted">{String(row?.email || row?.phone || '-')}</p>
-                    {Array.isArray(row?.badges) && row.badges.length > 0 ? (
-                      <p className="mt-1 text-[11px] text-p-text-muted">{row.badges.join(' · ')}</p>
-                    ) : null}
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold text-p-text">{String(row?.displayName || `Usuario ${row?.userId || ''}`)}</span>
+                        <span className="mt-0.5 block truncate text-p-text-muted">{String(row?.email || row?.phone || '-')}</span>
+                        {Array.isArray(row?.badges) && row.badges.length > 0 ? (
+                          <span className="mt-1 block text-[11px] text-p-text-muted">{row.badges.join(' · ')}</span>
+                        ) : null}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 bg-p-surface transition-colors ${
+                          selected ? 'border-p-accent' : 'border-p-border-strong'
+                        }`}
+                      >
+                        <span className={`h-2 w-2 rounded-full transition-colors ${selected ? 'bg-p-accent' : 'bg-transparent'}`} />
+                      </span>
+                    </span>
                   </button>
                 );
               })}
@@ -2395,16 +2610,17 @@ export default function AdminClientesPlayground2Page() {
           setMergeModalOpen(false);
           resetMergeModal();
         }}
-        title="Fusionar cliente manualmente"
+        title="Unir clientes repetidos"
         message={
           <div className="space-y-4">
             {mergeError ? <AdminFeedbackBanner tone="error" compact>{mergeError}</AdminFeedbackBanner> : null}
-            <div className="rounded-xl border border-p-border bg-p-surface-2 p-3 text-[13px] text-p-text-secondary">
-              <p><span className="font-semibold text-p-text">Origen:</span> {selectedClient ? getClientName(selectedClient) : '-'}</p>
-              <p className="mt-1">Se van a mover reservas, cuentas y referencias operativas al cliente destino. No hay merge automático.</p>
-            </div>
+            <p className="text-[14px] text-p-text-secondary">
+              Las reservas, cuentas y pagos de{' '}
+              <span className="font-semibold text-p-text">{selectedClient ? getClientName(selectedClient) : 'este cliente'}</span>{' '}
+              pasan al cliente que elijas, y este deja de aparecer. No se puede deshacer.
+            </p>
             <label className="block">
-              <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Buscar cliente destino</span>
+              <span className="mb-1.5 block text-[13px] font-medium text-p-text">¿Con quién lo unís?</span>
               <input
                 type="text"
                 value={mergeSearchTerm}
@@ -2413,13 +2629,13 @@ export default function AdminClientesPlayground2Page() {
                   setMergeError('');
                 }}
                 className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                placeholder="Nombre, DNI, email o teléfono"
+                placeholder="Buscá por nombre, teléfono o DNI"
               />
             </label>
             <div className="max-h-64 space-y-2 overflow-auto">
-              {mergeSearchLoading ? <p className="text-[12px] text-p-text-muted">Buscando clientes...</p> : null}
+              {mergeSearchLoading ? <p className="text-[12px] text-p-text-muted">Buscando...</p> : null}
               {!mergeSearchLoading && mergeSearchTerm.trim().length >= 2 && mergeSearchResults.length === 0 ? (
-                <p className="text-[12px] text-p-text-muted">No se encontraron clientes destino.</p>
+                <p className="text-[12px] text-p-text-muted">No encontramos a nadie con ese dato.</p>
               ) : null}
               {mergeSearchResults.map((row: any) => {
                 const selected = String(mergeSelectedTarget?.id || '') === String(row?.id || '');
@@ -2439,18 +2655,26 @@ export default function AdminClientesPlayground2Page() {
               })}
             </div>
             <label className="block">
-              <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Nota interna (opcional)</span>
+              <span className="mb-1.5 block text-[13px] font-medium text-p-text">
+                Nota <span className="font-normal text-p-text-muted">(opcional)</span>
+              </span>
               <textarea
                 value={mergeNotes}
                 onChange={(event) => setMergeNotes(event.target.value)}
-                rows={3}
-                className="w-full rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text outline-none focus:border-p-accent"
-                placeholder="Qué revisaste antes de fusionar"
+                rows={2}
+                className="w-full rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+                placeholder="Ej: mismo DNI, se cargó dos veces"
               />
             </label>
           </div>
         }
-        confirmText={mergeBusy ? 'Fusionando...' : 'Confirmar fusión'}
+        confirmText={
+          mergeBusy
+            ? 'Uniendo...'
+            : mergeSelectedTarget?.id
+              ? `Unir con ${String(mergeSelectedTarget?.name || 'este cliente')}`
+              : 'Elegí con quién'
+        }
         confirmDisabled={mergeBusy || !mergeSelectedTarget?.id}
         isWarning
         onConfirm={() => {

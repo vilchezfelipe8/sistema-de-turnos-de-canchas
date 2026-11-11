@@ -14,6 +14,15 @@ const parseMax = (envKey: string, defaultVal: number) => {
   return Number.isFinite(n) && n > 0 ? n : defaultVal;
 };
 
+/** 3 pedidos de código (activación / recuperación) por minuto por IP. El límite por cuenta lo aplica AccountVerificationService. */
+export const verificationCodeLimiter = rateLimit({
+  windowMs: parseWindowMs('RATE_LIMIT_VERIFICATION_CODE_WINDOW_MS', 60_000),
+  max: parseMax('RATE_LIMIT_VERIFICATION_CODE_MAX', 3),
+  message: { error: 'Demasiadas solicitudes de código. Esperá un momento e intentá de nuevo.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 /** 5 intentos de login por minuto (brute force) */
 export const loginLimiter = rateLimit({
   windowMs: parseWindowMs('RATE_LIMIT_LOGIN_WINDOW_MS', 60_000),
@@ -55,6 +64,24 @@ export const paymentLimiter = rateLimit({
   windowMs: parseWindowMs('RATE_LIMIT_PAYMENT_WINDOW_MS', 60_000),
   max: parseMax('RATE_LIMIT_PAYMENT_MAX', 30),
   message: { error: 'Demasiadas solicitudes de pago. Esperá un momento.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+/** 20 búsquedas de jugador por minuto (evita recorrer DNIs/emails) */
+export const playerLookupLimiter = rateLimit({
+  windowMs: parseWindowMs('RATE_LIMIT_PLAYER_LOOKUP_WINDOW_MS', 60_000),
+  max: parseMax('RATE_LIMIT_PLAYER_LOOKUP_MAX', 20),
+  message: { error: 'Demasiadas búsquedas. Esperá un momento e intentá de nuevo.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+/** 60 búsquedas por nombre por minuto (autocompletado al invitar; acotado al club y sin datos de contacto) */
+export const playerSearchLimiter = rateLimit({
+  windowMs: parseWindowMs('RATE_LIMIT_PLAYER_SEARCH_WINDOW_MS', 60_000),
+  max: parseMax('RATE_LIMIT_PLAYER_SEARCH_MAX', 60),
+  message: { error: 'Demasiadas búsquedas. Esperá un momento e intentá de nuevo.' },
   standardHeaders: true,
   legacyHeaders: false
 });

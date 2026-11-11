@@ -5,15 +5,17 @@ import { acquireTransactionAdvisoryLock } from '../utils/advisoryLock';
 import { ProjectionService } from './ProjectionService';
 import { getDerivedPaymentStatus } from '../domain/bookingDomain';
 import { DiscountService } from './DiscountService';
+import { PlayerSlotService } from './PlayerSlotService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { AppError, badRequest, notFound, conflict, ErrorCodes } from '../errors';
+import { stockMovementService } from './StockMovementService';
 
 const USE_PROJECTION_READ_MODELS = String(process.env.READ_MODEL_SOURCE || '').toLowerCase() === 'projection';
 const EPSILON = 0.009;
 
 type OpenAccountInput = {
   clubId: number;
-  sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+  sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
   sourceId: string;
 };
 
@@ -21,6 +23,7 @@ export class AccountService {
   private readonly accountingService = new AccountingService();
   private readonly projectionService = new ProjectionService();
   private readonly discountService = new DiscountService();
+  private readonly playerSlotService = new PlayerSlotService();
 
   async calculateNetPaidAmountTx(tx: Prisma.TransactionClient, accountId: string): Promise<number> {
     const [paymentsAgg, refundsAgg] = await Promise.all([
@@ -96,6 +99,13 @@ export class AccountService {
       });
     }
 
+    if (account.sourceType === 'SUBSCRIPTION_INSTALLMENT') {
+      // Import diferido: SubscriptionService no depende de AccountService, pero evitamos el ciclo de carga.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { subscriptionService } = require('./subscriptions/SubscriptionService') as typeof import('./subscriptions/SubscriptionService');
+      await subscriptionService.syncInstallmentFromAccountTx(tx, accountId);
+    }
+
     return {
       netPaid,
       total,
@@ -104,7 +114,7 @@ export class AccountService {
   }
 
   async cancelItemsForSourceTx(tx: Prisma.TransactionClient, input: {
-    sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+    sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
     sourceId: string | number;
   }) {
     const sourceId = String(input.sourceId);
@@ -181,7 +191,7 @@ export class AccountService {
   }
 
   async cancelItemsForSource(input: {
-    sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT';
+    sourceType: 'BOOKING' | 'BAR' | 'TABLE' | 'MANUAL' | 'CLASS_PASS' | 'CLASS_ENROLLMENT' | 'SUBSCRIPTION_INSTALLMENT';
     sourceId: string | number;
   }) {
     return prisma.$transaction(async (tx) => {
@@ -418,7 +428,15 @@ export class AccountService {
         }
       });
 
-      if (input.sourceType === 'BOOKING' && bookingForAccount) {
+      const bookingHasPlayerSlots = input.sourceType === 'BOOKING' && bookingForAccount
+        ? (await tx.bookingPlayerSlot.count({ where: { bookingId: bookingForAccount.id } })) > 0
+        : false;
+
+      if (bookingHasPlayerSlots && bookingForAccount) {
+        // Precio por jugador: un ítem de cancha por lugar.
+        await this.playerSlotService.syncAccountItemsTx(tx, bookingForAccount.id, null);
+        await this.playerSlotService.applyBookingTotalsTx(tx, bookingForAccount.id);
+      } else if (input.sourceType === 'BOOKING' && bookingForAccount) {
         const bookingCharge = Number(bookingForAccount.price || 0);
         if (bookingCharge > 0) {
           const discountDraft = await this.discountService.computeDraftDiscountTx(tx, {
@@ -569,7 +587,9 @@ export class AccountService {
             }
           }
         },
-        payments: { include: { allocations: true } }
+        payments: { include: { allocations: true } },
+        // Caja → Cuentas muestra de quién es cada cuenta (cuotas, cuentas sueltas).
+        client: { select: { id: true, name: true, phone: true, email: true } }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -601,9 +621,37 @@ export class AccountService {
     const remaining = Number((total - paid).toFixed(2));
 
     const accountAny = account as any;
+
+    // Precio por jugador: cada ítem de cancha indica de qué lugar es y si su precio socio está pendiente
+    // de validar, para que Caja pueda validarlo al cobrar (D9, opción D).
+    let items = accountAny.items ?? [];
+    const bookingId = accountAny.sourceType === 'BOOKING' ? Number(accountAny.sourceId) : 0;
+    if (Number.isInteger(bookingId) && bookingId > 0) {
+      const slots = await this.playerSlotService.getSlotsTx(prismaRead as any, bookingId);
+      if (slots.length) {
+        const slotByItem = new Map(slots.filter((slot) => slot.accountItemId).map((slot) => [slot.accountItemId as string, slot]));
+        items = items.map((item: any) => {
+          const slot = slotByItem.get(String(item.id));
+          return slot
+            ? {
+                ...item,
+                playerSlot: {
+                  bookingId,
+                  slotIndex: slot.slotIndex,
+                  displayName: slot.displayName,
+                  memberPricePending: slot.memberPricePending,
+                  memberCategoryName: slot.pricingMemberCategoryName,
+                  isFrozen: slot.isFrozen
+                }
+              }
+            : item;
+        });
+      }
+    }
+
     return {
-      account: accountAny,
-      items: accountAny.items ?? [],
+      account: { ...accountAny, items },
+      items,
       payments: accountAny.payments ?? [],
       total,
       paid,
@@ -841,6 +889,15 @@ export class AccountService {
         if (stockUpdate.count !== 1) {
           throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
         }
+        await stockMovementService.recordTx(tx, {
+          clubId,
+          productId: linkedProduct.id,
+          quantity: -quantity,
+          type: 'SALE',
+          accountId,
+          accountItemId: item.id,
+          createdByUserId: input.actorUserId ?? null
+        });
       }
 
       await this.projectionService.refreshAccountSummary(accountId, tx);
@@ -914,6 +971,16 @@ export class AccountService {
             ErrorCodes.PRODUCT_NOT_FOUND
           );
         }
+        await stockMovementService.recordTx(tx, {
+          clubId,
+          productId: item.productId,
+          quantity: Number(item.quantity || 0),
+          type: 'SALE_REVERSAL',
+          reason: 'Venta anulada',
+          accountId,
+          accountItemId: item.id,
+          createdByUserId: actorUserId ?? null
+        });
       }
 
       for (const item of (account as any).items) {

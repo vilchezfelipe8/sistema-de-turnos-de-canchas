@@ -1,6 +1,7 @@
 import { DiscountAmountType, DiscountApplyMode, DiscountScope, Prisma } from '@prisma/client';
 import { prisma } from '../prisma';
 import { ErrorCodes, badRequest, notFound } from '../errors';
+import { PAYMENT_METHOD_POLICY_MARKER_PREFIX } from './PaymentMethodDiscountService';
 
 type TxClient = Prisma.TransactionClient;
 
@@ -269,7 +270,11 @@ export class DiscountService {
 
   async listPolicies(clubId: number) {
     return prisma.discountPolicy.findMany({
-      where: { clubId },
+      // Las políticas internas de descuento por medio de pago no se gestionan desde acá.
+      where: {
+        clubId,
+        OR: [{ description: null }, { NOT: { description: { startsWith: PAYMENT_METHOD_POLICY_MARKER_PREFIX } } }]
+      },
       include: { targets: true },
       orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }]
     });

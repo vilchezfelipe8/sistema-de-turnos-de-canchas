@@ -22,11 +22,12 @@ function createService() {
 }
 
 function baseBooking(overrides?: Partial<Record<string, any>>) {
+  const startDateTime = new Date(Date.now() + 24 * 60 * 60 * 1000);
   return {
     id: 801,
     displayCode: 'RES-801',
-    startDateTime: new Date('2026-08-20T21:00:00.000Z'),
-    endDateTime: new Date('2026-08-20T22:00:00.000Z'),
+    startDateTime,
+    endDateTime: new Date(startDateTime.getTime() + 60 * 60 * 1000),
     status: 'CONFIRMED',
     userId: 77,
     clubId: 10,
@@ -72,6 +73,7 @@ async function withPrismaMocks(
   const original = {
     bookingFindUnique: (prisma.booking as any).findUnique,
     accountFindFirst: (prisma.account as any).findFirst,
+    clubSettingsFindUnique: (prisma.clubSettings as any).findUnique,
     paymentCreate: (prisma.payment as any).create,
     cashMovementCreate: (prisma.cashMovement as any).create,
     transaction: (prisma as any).$transaction
@@ -79,6 +81,7 @@ async function withPrismaMocks(
 
   if (mocks.bookingFindUnique) (prisma.booking as any).findUnique = mocks.bookingFindUnique;
   if (mocks.accountFindFirst) (prisma.account as any).findFirst = mocks.accountFindFirst;
+  (prisma.clubSettings as any).findUnique = mocks.clubSettingsFindUnique || (async () => ({ onlineCheckoutEnabled: true }));
   if (mocks.paymentCreate) (prisma.payment as any).create = mocks.paymentCreate;
   if (mocks.cashMovementCreate) (prisma.cashMovement as any).create = mocks.cashMovementCreate;
   if (mocks.transaction) (prisma as any).$transaction = mocks.transaction;
@@ -88,6 +91,7 @@ async function withPrismaMocks(
   } finally {
     (prisma.booking as any).findUnique = original.bookingFindUnique;
     (prisma.account as any).findFirst = original.accountFindFirst;
+    (prisma.clubSettings as any).findUnique = original.clubSettingsFindUnique;
     (prisma.payment as any).create = original.paymentCreate;
     (prisma.cashMovement as any).create = original.cashMovementCreate;
     (prisma as any).$transaction = original.transaction;
@@ -121,6 +125,7 @@ test('titular crea intento Mercado Pago sin crear Payment ni CashMovement', asyn
           account: {
             findUnique: async () => baseAccount()
           },
+          clubSettings: { findUnique: async () => null },
           onlinePaymentAttempt: {
             findFirst: async () => null,
             create: async ({ data }: any) => {
@@ -188,6 +193,23 @@ test('participante no puede iniciar pago online', async () => {
   );
 });
 
+test('club con checkout deshabilitado bloquea el intento sin crear preferencia', async () => {
+  const service = createService();
+  let preferenceCalled = false;
+  service.mercadoPagoService.createPreference = async () => { preferenceCalled = true; return {}; };
+  await withPrismaMocks({
+    bookingFindUnique: async () => baseBooking(),
+    accountFindFirst: async () => baseAccount(),
+    clubSettingsFindUnique: async () => ({ onlineCheckoutEnabled: false })
+  }, async () => {
+    await assert.rejects(
+      () => service.createPlayerMercadoPagoCheckoutAttempt(801, 77),
+      (error: any) => error instanceof AppError && error.code === ErrorCodes.CHECKOUT_NOT_AVAILABLE
+    );
+    assert.equal(preferenceCalled, false);
+  });
+});
+
 test('sin provider conectado bloquea el intento de checkout', async () => {
   const service = createService();
   (service as any).clubPaymentIntegrationService.getMercadoPagoAccessTokenForClub = async () => null;
@@ -246,6 +268,7 @@ test('si ya existe un intento pendiente reutiliza el initPoint y evita duplicar'
           account: {
             findUnique: async () => baseAccount()
           },
+          clubSettings: { findUnique: async () => null },
           onlinePaymentAttempt: {
             findFirst: async () => ({
               id: 'attempt-existing',

@@ -1,3 +1,5 @@
+import { AlertTriangle, ArrowDownUp, Landmark, Lock, ShoppingBag } from 'lucide-react';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -7,6 +9,10 @@ export type CashShiftInfo = {
   status: 'OPEN' | 'CLOSED';
   openedAt: string;
   openingAmount: number;
+  /** Efectivo que debería haber en el cajón ahora (inicial + entradas − salidas en efectivo). */
+  expectedCash?: number | null;
+  /** Cobrado por medios digitales en el turno. */
+  digitalAmount?: number | null;
   cashRegister?: {
     id: string;
     name: string;
@@ -17,14 +23,14 @@ export type CashShiftInfo = {
 type CashShiftPanelProps = {
   shift: CashShiftInfo | null;
   loading: boolean;
-  /** Abre sidebar open_shift o close_shift según estado actual. */
+  /** Abre el cierre (si está abierta) o la apertura (si está cerrada). */
   onToggleShift: () => void;
-  /** Navega a la pestaña Movimientos y abre el sidebar de nuevo movimiento. */
+  /** Abre el alta de ingreso / egreso. */
   onRegisterMovement: () => void;
-  /** Navega a la pestaña Cierre. */
-  onGoToClosures: () => void;
-  /** Abre el drawer de venta mostrador (Consumidor final). */
+  /** Abre la venta mostrador. */
   onProductSale?: () => void;
+  /** Muestra el último cierre, si hay uno. */
+  onViewLastClose?: () => void;
 };
 
 // ---------------------------------------------------------------------------
@@ -33,43 +39,49 @@ type CashShiftPanelProps = {
 
 const formatMoney = (v: number) => `$${Number(v || 0).toLocaleString('es-AR')}`;
 
-const formatDateTime = (iso: string): string => {
+const formatOpenedAt = (iso: string): string => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('es-AR', {
-    day: '2-digit', month: '2-digit', year: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false,
-  });
+  const day = d
+    .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
+    .replace(/,/g, '')
+    .replace(/\./g, '');
+  const time = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return `${day} ${time}`;
 };
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
+/** Días completos desde la apertura (0 = hoy). */
+const daysSince = (iso: string): number => {
+  const opened = new Date(iso);
+  if (Number.isNaN(opened.getTime())) return 0;
+  const start = new Date(opened.getFullYear(), opened.getMonth(), opened.getDate()).getTime();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.max(0, Math.round((today - start) / 86_400_000));
+};
 
-function DataRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-p-border py-2 last:border-0">
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">
-        {label}
-      </span>
-      <span className="text-right text-[13px] font-medium text-p-text">{value}</span>
-    </div>
-  );
-}
-
-function QuickActionButton({
+function ActionButton({
+  icon: Icon,
   label,
   onClick,
+  primary = false,
 }: {
+  icon: typeof Landmark;
   label: string;
   onClick: () => void;
+  primary?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text-secondary transition hover:border-p-border hover:bg-p-surface-2"
+      className={`inline-flex h-12 items-center justify-center gap-2 rounded-xl px-4 text-[14px] font-semibold transition ${
+        primary
+          ? 'bg-ink-900 text-ink-50 hover:bg-ink-800'
+          : 'border border-p-border bg-p-surface text-p-text hover:bg-p-surface-2'
+      }`}
     >
+      <Icon size={16} />
       {label}
     </button>
   );
@@ -80,120 +92,119 @@ function QuickActionButton({
 // ---------------------------------------------------------------------------
 
 /**
- * CashShiftPanel — panel operativo del turno activo (tab Resumen de Caja).
+ * CashShiftPanel — la caja de hoy: cuánta plata hay y qué se puede hacer.
  *
- * Muestra el estado del turno, los datos de apertura y las acciones rápidas
- * (abrir/cerrar caja, registrar movimiento, ir a cierres).
- *
- * Puramente presentacional: sin estado propio, sin fetch.
- * Coherente con CashSummaryCards, CashCloseFlow y CashAccountDetailPanel.
+ * Lo primero que se mira es el efectivo que debería haber en el cajón;
+ * después lo digital y las acciones del mostrador. Puramente presentacional.
  */
 export default function CashShiftPanel({
   shift,
   loading,
   onToggleShift,
   onRegisterMovement,
-  onGoToClosures,
   onProductSale,
+  onViewLastClose,
 }: CashShiftPanelProps) {
-  const isOpen = Boolean(shift);
+  if (loading) {
+    return (
+      <div className="rounded-2xl border border-p-border bg-p-surface p-5">
+        <div className="h-4 w-40 animate-pulse rounded bg-p-surface-3" />
+        <div className="mt-3 h-8 w-56 animate-pulse rounded bg-p-surface-3" />
+      </div>
+    );
+  }
 
-  return (
-    <div className="rounded-xl border border-p-border bg-p-surface">
-      <div className="grid min-h-full grid-cols-1 gap-4 p-4 md:grid-cols-3">
-        <div className="flex flex-col rounded-xl border border-p-border bg-p-surface md:col-span-1">
-        <div className="flex items-center justify-between border-b border-p-border px-5 py-3.5">
-          <h2 className="text-[13px] font-semibold text-p-text">Turno de caja</h2>
-          <span
-            className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-              isOpen
-                ? 'border border-p-positive bg-p-positive-bg text-[var(--positive-fg)]'
-                : 'border border-p-border bg-p-surface-2 text-p-text-muted'
-            }`}
-          >
-            {isOpen ? 'Abierta' : 'Cerrada'}
-          </span>
-        </div>
-
-        <div className="flex-1 px-5 py-4">
-          {loading ? (
-            <div className="space-y-3">
-              {[50, 70, 45].map((w, i) => (
-                <div
-                  key={i}
-                  className="h-3 animate-pulse rounded bg-p-surface-3"
-                  style={{ width: `${w}%` }}
-                />
-              ))}
-            </div>
-          ) : shift ? (
-            <div className="rounded-xl border border-p-border bg-p-surface-2 px-4 py-1">
-              <DataRow label="Caja" value={shift.cashRegister?.name || 'Sin nombre'} />
-              <DataRow label="Apertura" value={formatDateTime(shift.openedAt)} />
-              <DataRow label="Monto inicial" value={formatMoney(Number(shift.openingAmount || 0))} />
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <p className="text-[13px] text-p-text-muted">
-                No hay turno activo. Abrí caja para iniciar la operación diaria.
-              </p>
-            </div>
-          )}
-        </div>
-        </div>
-        <div className="flex flex-col gap-4 rounded-xl border border-p-border bg-p-surface px-5 py-4 md:col-span-2">
-
-          {/* Estado + acción principal */}
-          <div className="flex items-center justify-between gap-4 rounded-xl border border-p-border bg-p-surface-2 px-4 py-4">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">
-                Estado de caja
-              </p>
-              <p className={`mt-1.5 text-[15px] font-bold ${isOpen ? 'text-[var(--positive-fg)]' : 'text-p-text-muted'}`}>
-                {isOpen ? 'Caja abierta' : 'Caja cerrada'}
-              </p>
-              <p className="mt-1 text-[12px] text-p-text-muted">
-                {isOpen
-                  ? 'Registrá movimientos desde la pestaña Movimientos.'
-                  : 'Abrí caja para iniciar la operación diaria.'}
-              </p>
-            </div>
+  if (!shift) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-p-border bg-p-surface p-5">
+        <div>
+          <p className="text-[20px] font-bold text-p-text">La caja está cerrada</p>
+          <p className="mt-1 text-[13px] text-p-text-muted">Abrila para empezar a cobrar en el mostrador.</p>
+          {onViewLastClose && (
             <button
               type="button"
-              onClick={onToggleShift}
-              className={`shrink-0 h-9 rounded-lg px-4 text-[12px] font-semibold transition ${
-                isOpen
-                  ? 'border border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                  : 'bg-ink-900 text-ink-50 hover:bg-ink-800'
-              }`}
+              onClick={onViewLastClose}
+              className="mt-2 text-[13px] font-semibold text-p-accent hover:underline underline-offset-2"
             >
-              {isOpen ? 'Cerrar caja' : 'Abrir caja'}
+              Ver cierres anteriores
             </button>
-          </div>
+          )}
+        </div>
+        <ActionButton icon={Landmark} label="Abrir caja" onClick={onToggleShift} primary />
+      </div>
+    );
+  }
 
-          {/* Acciones rápidas */}
+  const openingAmount = Number(shift.openingAmount || 0);
+  const expectedCash = shift.expectedCash == null ? openingAmount : Number(shift.expectedCash);
+  const cashMovement = expectedCash - openingAmount;
+  const digitalAmount = Number(shift.digitalAmount || 0);
+  const openDays = daysSince(shift.openedAt);
+
+  return (
+    <div className="rounded-2xl border border-p-border bg-p-surface p-5">
+      {openDays >= 1 && (
+        <div className="mb-4 flex items-start gap-2 rounded-xl bg-p-warning-bg px-3 py-2.5 text-[13px] text-p-warning">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <p className="flex-1">
+            <span className="font-semibold">
+              La caja está abierta desde hace {openDays === 1 ? '1 día' : `${openDays} días`}.
+            </span>{' '}
+            Cerrala al terminar cada día así la cuenta del cajón da justa.
+          </p>
+          <button
+            type="button"
+            onClick={onToggleShift}
+            className="h-8 flex-none rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+          >
+            Cerrar ahora
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
+        <div className="flex flex-wrap gap-x-10 gap-y-4">
           <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">
-              Acciones rápidas
+            <p className="text-[13px] font-medium text-p-text-muted">Efectivo en caja</p>
+            <p className="text-[34px] font-bold leading-tight tracking-tight tabular-nums text-p-text">
+              {formatMoney(expectedCash)}
             </p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <QuickActionButton
-                label="Registrar movimiento"
-                onClick={onRegisterMovement}
-              />
-              <QuickActionButton
-                label="Ver cierres"
-                onClick={onGoToClosures}
-              />
-              {onProductSale && (
-                <QuickActionButton
-                  label="Venta mostrador"
-                  onClick={onProductSale}
-                />
-              )}
-            </div>
+            <p className="text-[12px] tabular-nums text-p-text-muted">
+              Empezó con {formatMoney(openingAmount)}
+              {Math.abs(cashMovement) > 0.009
+                ? ` · ${cashMovement > 0 ? '+' : '−'}${formatMoney(Math.abs(cashMovement))} en efectivo`
+                : ''}
+            </p>
+          </div>
+          <div>
+            <p className="text-[13px] font-medium text-p-text-muted">Digital</p>
+            <p className="text-[34px] font-bold leading-tight tracking-tight tabular-nums text-p-text-secondary">
+              {formatMoney(digitalAmount)}
+            </p>
+            <p className="text-[12px] text-p-text-muted">Transferencias y tarjetas del turno</p>
           </div>
         </div>
+        <p className="text-[12px] text-p-text-muted">
+          {shift.cashRegister?.name || 'Caja'} · abierta {formatOpenedAt(shift.openedAt)}
+          {onViewLastClose && (
+            <>
+              {' · '}
+              <button
+                type="button"
+                onClick={onViewLastClose}
+                className="font-semibold text-p-accent underline-offset-2 hover:underline"
+              >
+                Cierres anteriores
+              </button>
+            </>
+          )}
+        </p>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {onProductSale && <ActionButton icon={ShoppingBag} label="Venta mostrador" onClick={onProductSale} primary />}
+        <ActionButton icon={ArrowDownUp} label="Ingreso o egreso" onClick={onRegisterMovement} />
+        <ActionButton icon={Lock} label="Cerrar caja" onClick={onToggleShift} />
       </div>
     </div>
   );

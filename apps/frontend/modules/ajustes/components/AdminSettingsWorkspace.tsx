@@ -1,7 +1,15 @@
 import AdminComingSoonPanel from '../../../components/admin/AdminComingSoonPanel';
 import AdminTabCourts from '../../../components/admin/AdminTabCourts';
+import SettingsClubMembersSection from './SettingsClubMembersSection';
+import SettingsSubscriptionPlansSection from './SettingsSubscriptionPlansSection';
+import SettingsActivityFormatsSection from './SettingsActivityFormatsSection';
+import SettingsPerPlayerPricingSection from './SettingsPerPlayerPricingSection';
+import SettingsPaymentMethodDiscountSection from './SettingsPaymentMethodDiscountSection';
+import SettingsOnlineDepositSection from './SettingsOnlineDepositSection';
+import SettingsBookingWindowSection from './SettingsBookingWindowSection';
 import {
   SettingsAuditSection,
+  SettingsCashSection,
   SettingsClubIdentitySection,
   SettingsExceptionsSection,
   SettingsIntegrationsWorkspaceSection,
@@ -21,6 +29,9 @@ export type SettingsWorkspaceTab =
   | 'precios'
   | 'integraciones'
   | 'usuarios'
+  | 'socios'
+  | 'planes'
+  | 'caja'
   | 'notificaciones'
   | 'excepciones'
   | 'auditoria'
@@ -38,19 +49,31 @@ type AdminSettingsWorkspaceProps = {
 export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspaceProps) {
   if (tab === 'club') return <SettingsClubIdentitySection />;
   if (tab === 'canchas') return <AdminTabCourts />;
-  if (tab === 'actividades') {
+  if (tab === 'actividades') return <SettingsActivityFormatsSection />;
+  if (tab === 'reservas') {
     return (
-      <AdminComingSoonPanel
-        title={comingSoonLabelByTab.actividades}
-        description="La separación de actividades va a consolidarse como módulo propio, desacoplado de excepciones de agenda."
-      />
+      <div className="space-y-4">
+        <SettingsReservationsSection />
+        <SettingsBookingWindowSection />
+        <SettingsOnlineDepositSection />
+      </div>
     );
   }
-  if (tab === 'reservas') return <SettingsReservationsSection />;
   if (tab === 'horarios') return <SettingsSchedulesSection />;
-  if (tab === 'precios') return <SettingsPricingSection />;
+  if (tab === 'precios') {
+    return (
+      <div className="space-y-4">
+        <SettingsPerPlayerPricingSection />
+        <SettingsPaymentMethodDiscountSection />
+        <SettingsPricingSection />
+      </div>
+    );
+  }
   if (tab === 'integraciones') return <SettingsIntegrationsWorkspaceSection />;
   if (tab === 'usuarios') return <SettingsMembersSection />;
+  if (tab === 'socios') return <SettingsClubMembersSection />;
+  if (tab === 'planes') return <SettingsSubscriptionPlansSection />;
+  if (tab === 'caja') return <SettingsCashSection />;
   if (tab === 'excepciones') return <SettingsExceptionsSection />;
   if (tab === 'auditoria') return <SettingsAuditSection />;
   if (tab === 'resenas') return <SettingsReviewsSection />;

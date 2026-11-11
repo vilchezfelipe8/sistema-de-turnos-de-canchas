@@ -5,11 +5,15 @@ import { ClubService } from '../services/ClubService';
 import { ClubFavoriteService } from '../services/ClubFavoriteService';
 import { ClubRepository } from '../repositories/ClubRepository';
 import { ActivityTypeRepository } from '../repositories/ActivityTypeRepository';
-import { authMiddleware } from '../middleware/AuthMiddleware';
-import { requireGlobalRole, requireTenantRole } from '../middleware/RoleMiddleware';
+import { authMiddleware, optionalAuthMiddleware } from '../middleware/AuthMiddleware';
+import { requirePiqueTeam, requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccessById } from '../middleware/ClubMiddleware';
+import { PlayerSlotController } from '../controllers/PlayerSlotController';
+import { BookingReleaseController } from '../controllers/BookingReleaseController';
 
 const router = Router();
+const playerSlotController = new PlayerSlotController();
+const bookingReleaseController = new BookingReleaseController();
 
 const clubRepository = new ClubRepository();
 const activityRepository = new ActivityTypeRepository();
@@ -21,13 +25,15 @@ const clubFavoriteController = new ClubFavoriteController(clubFavoriteService);
 // Rutas públicas
 router.get('/', clubController.getAllClubs);
 router.get('/slug/:slug', clubController.getClubBySlug);
+router.get('/slug/:slug/activity-formats', playerSlotController.listPublicFormats);
+router.get('/slug/:slug/booking-window', optionalAuthMiddleware, bookingReleaseController.getPublicWindow);
 router.get('/favorites/me', authMiddleware, clubFavoriteController.listMyFavorites);
 router.get('/:id', clubController.getClubById);
 router.post('/:id/favorite', authMiddleware, clubFavoriteController.markFavorite);
 router.delete('/:id/favorite', authMiddleware, clubFavoriteController.unmarkFavorite);
 
 // Rutas protegidas: solo el admin del club puede actualizar ese club
-router.post('/', authMiddleware, requireGlobalRole('ADMIN'), clubController.createClub);
+router.post('/', authMiddleware, requirePiqueTeam, clubController.createClub);
 router.put('/:id', authMiddleware, verifyClubAccessById, requireTenantRole('ADMIN'), clubController.updateClub);
 router.patch('/:id', authMiddleware, verifyClubAccessById, requireTenantRole('ADMIN'), clubController.updateClub);
 

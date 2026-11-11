@@ -6,7 +6,7 @@ import { ClubAdminService, type ClubCatalogService } from '../services/ClubAdmin
 import { extractErrorMessage, reportUiError } from '../utils/uiError';
 import { showAdminToast } from '../utils/adminToast';
 import AdminAppModal from './admin/ui/AdminAppModal';
-import { AdminFilterToolbar, MetricCard } from './admin/ui';
+
 import ServicesTable from '../modules/tienda/components/ServicesTable';
 import ServiceDrawer from '../modules/tienda/components/ServiceDrawer';
 import type { ServiceFormData } from '../modules/tienda/components/ServiceDrawer';
@@ -21,6 +21,16 @@ type ServicesPageProps = {
 // ---------------------------------------------------------------------------
 
 const EMPTY_FORM: ServiceFormData = { code: '', name: '', description: '', price: '' };
+
+/** "Alquiler de paleta" → "ALQUILER_DE_PALETA" (código interno que pide el servidor). */
+const codeFromName = (name: string) =>
+  name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'SERVICIO';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -108,7 +118,7 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
     try {
       setSubmittingForm(true);
       const payload = {
-        code: form.code.trim(),
+        code: form.code.trim() || codeFromName(form.name),
         name: form.name.trim(),
         description: form.description.trim(),
         price: Number(form.price),
@@ -174,60 +184,97 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
   return (
     <div className="flex flex-col gap-3">
 
-      {/* ── Summary metrics ── */}
-      <div className="grid grid-cols-2 gap-3">
-        <MetricCard
-          label="Servicios activos"
-          value={summary.active}
-          format="number"
-          delta={{ value: summary.total, label: `de ${summary.total} en el catálogo` }}
-        />
-        <MetricCard
-          label="Inactivos"
-          value={summary.inactive}
-          format="number"
-          valueColor={summary.inactive > 0 ? 'var(--error-fg)' : undefined}
-          delta={{ value: -summary.inactive, label: 'dados de baja' }}
-        />
+      {/* ── Qué hay, buscar y agregar ── */}
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="mr-auto text-[14px] text-p-text-secondary">
+          {summary.active === 0 ? (
+            'Todavía no cargaste servicios.'
+          ) : (
+            <>
+              <span className="font-semibold text-p-text">
+                {summary.active === 1 ? '1 servicio' : `${summary.active} servicios`}
+              </span>
+              {summary.inactive > 0 ? ` · ${summary.inactive} dados de baja` : ''}
+            </>
+          )}
+        </p>
+        {services.length > 0 && (
+          <label className="relative w-full sm:w-[260px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} />
+            <input
+              type="text"
+              placeholder="Buscar servicio"
+              className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </label>
+        )}
+        <button
+          type="button"
+          onClick={openNew}
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+        >
+          <Plus size={15} strokeWidth={2.5} />
+          Nuevo servicio
+        </button>
       </div>
 
-      {/* ── Table ── */}
-      <div className="w-full">
-        <ServicesTable
-          services={filtered}
-          loading={loading}
-          onEdit={openEdit}
-          onDelete={setDeleteTarget}
-          onRowClick={openEdit}
-          selectedId={editing?.id ?? null}
-          toolbar={(
-            <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-1 sm:flex-nowrap sm:justify-end">
-              <div className="relative w-full sm:w-[300px] sm:flex-none">
-                <Search
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-p-text-muted"
-                  size={14}
-                  strokeWidth={2.5}
-                />
-                <input
-                  type="text"
-                  placeholder="Buscar por código o nombre..."
-                  className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={openNew}
-                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 hover:shadow-p-md sm:w-auto"
-              >
-                <Plus size={14} strokeWidth={2.5} />
-                Nuevo servicio
+      {loading ? (
+        <div className="space-y-2">
+          {[1, 2].map((i) => (
+            <div key={i} className="h-14 animate-pulse rounded-xl bg-p-surface-2" />
+          ))}
+        </div>
+      ) : services.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-p-border px-6 py-10 text-center">
+          <p className="text-[15px] font-semibold text-p-text">Cobrá cosas que no tienen stock</p>
+          <p className="mx-auto mt-1 max-w-md text-[13px] text-p-text-muted">
+            Por ejemplo: alquiler de paleta, clase particular, encordado o uso del vestuario. Después los cargás en la cuenta
+            de una reserva o en una venta de mostrador.
+          </p>
+          <button
+            type="button"
+            onClick={openNew}
+            className="mt-4 h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+          >
+            Crear el primero
+          </button>
+        </div>
+      ) : filtered.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-p-border px-4 py-8 text-center text-[13px] text-p-text-muted">
+          No hay servicios con ese nombre.
+        </p>
+      ) : (
+        <ul className="divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface">
+          {filtered.map((service) => (
+            <li key={service.id} className="flex items-center justify-between gap-3 px-4 py-3">
+              <button type="button" onClick={() => openEdit(service)} className="min-w-0 flex-1 text-left">
+                <p className={`truncate text-[14px] font-semibold ${service.isActive ? 'text-p-text' : 'text-p-text-muted line-through'}`}>
+                  {service.name}
+                </p>
+                {service.description ? (
+                  <p className="truncate text-[12px] text-p-text-muted">{String(service.description)}</p>
+                ) : !service.isActive ? (
+                  <p className="text-[12px] text-p-text-muted">Dado de baja</p>
+                ) : null}
               </button>
-            </AdminFilterToolbar>
-          )}
-        />
-      </div>
+              <span className="text-[14px] font-semibold tabular-nums text-p-text">
+                ${Number(service.price || 0).toLocaleString('es-AR')}
+              </span>
+              {service.isActive && (
+                <button
+                  type="button"
+                  onClick={() => setDeleteTarget(service)}
+                  className="text-[12px] font-semibold text-p-text-muted hover:text-p-text hover:underline underline-offset-2"
+                >
+                  Dar de baja
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* ── Drawer ── */}
       <ServiceDrawer

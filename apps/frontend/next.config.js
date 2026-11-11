@@ -22,17 +22,32 @@ const getAllowedDevOrigins = () => {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: getAllowedDevOrigins(),
+  // Al volver atrás, Next devuelve la pantalla a la posición donde estaba.
+  experimental: {
+    scrollRestoration: true,
+  },
   async rewrites() {
+    // Manifest e ícono de la "app del club": se publican fuera de /api porque en producción
+    // nginx manda /api al backend. Internamente los resuelve pages/api/club-app.
+    const clubAppRewrites = [
+      { source: '/club-app/manifest', destination: '/api/club-app/manifest' },
+      { source: '/club-app/icon', destination: '/api/club-app/icon' },
+    ];
+
     if (process.env.NODE_ENV === 'production') {
-      return [];
+      return { beforeFiles: clubAppRewrites, afterFiles: [], fallback: [] };
     }
 
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://127.0.0.1:3000/api/:path*',
-      },
-    ];
+    return {
+      beforeFiles: clubAppRewrites,
+      afterFiles: [
+        {
+          source: '/api/:path*',
+          destination: 'http://127.0.0.1:3000/api/:path*',
+        },
+      ],
+      fallback: [],
+    };
   },
   async redirects() {
     return [

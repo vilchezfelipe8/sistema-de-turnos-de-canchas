@@ -84,7 +84,18 @@ export class ClientIdentityAdminService {
       }),
     ]);
 
-    if (!membership && !linkedClient) {
+    // Haber reservado, participado o tener un turno fijo en el club también lo relaciona con el club
+    // (mismo criterio que la búsqueda de personas). Sin esto, quien reservó desde la app sin ficha
+    // vinculada no podía vincularse nunca: hacía falta estar vinculado para poder vincularse.
+    const hasClubActivity = membership || linkedClient
+      ? true
+      : Boolean(
+          (await tx.booking.findFirst({ where: { clubId: Number(clubId), userId: Number(userId) }, select: { id: true } })) ||
+          (await tx.bookingParticipant.findFirst({ where: { userId: Number(userId), booking: { clubId: Number(clubId) } }, select: { id: true } })) ||
+          (await tx.fixedBooking.findFirst({ where: { clubId: Number(clubId), userId: Number(userId) }, select: { id: true } }))
+        );
+
+    if (!hasClubActivity) {
       throw forbidden('El usuario no pertenece a este club.', ErrorCodes.FORBIDDEN);
     }
 
@@ -200,6 +211,32 @@ export class ClientIdentityAdminService {
             targetUserId: Number(target.userId),
           }
         );
+      }
+
+      // RN-14: si los dos son socios hay que resolver cuál es el correcto antes de fusionar.
+      // Si solo el absorbido es socio, su registro pasa al cliente que queda.
+      const [sourceMember, targetMember] = await Promise.all([
+        tx.clubMember.findUnique({ where: { clientId: source.id } }),
+        tx.clubMember.findUnique({ where: { clientId: target.id } }),
+      ]);
+      if (sourceMember && targetMember) {
+        throw conflict(
+          'Los dos clientes figuran como socios. Resolvé cuál es el correcto antes de fusionar.',
+          ErrorCodes.MEMBER_MERGE_CONFLICT,
+          { sourceMemberId: sourceMember.id, targetMemberId: targetMember.id }
+        );
+      }
+      if (sourceMember) {
+        await tx.clubMember.update({ where: { id: sourceMember.id }, data: { clientId: target.id } });
+        await tx.clubMemberHistory.create({
+          data: {
+            clubMemberId: sourceMember.id,
+            clubId: Number(input.clubId),
+            action: 'MERGED',
+            reason: `Cliente ${source.id} fusionado en ${target.id}`,
+            changedByUserId: Number(input.actorUserId || 0) || null,
+          },
+        });
       }
 
       const [sourceAssignments, targetAssignments] = await Promise.all([

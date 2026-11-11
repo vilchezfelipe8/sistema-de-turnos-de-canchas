@@ -1,4 +1,5 @@
-import { CreditCard, Receipt } from 'lucide-react';
+import { Check, CreditCard, Receipt } from 'lucide-react';
+import { formatMoney } from '../../../../modules/cuentas/accountUtils';
 
 type BookingAccountSummarySectionProps = {
   totalAmount: number;
@@ -19,12 +20,10 @@ type BookingAccountSummarySectionProps = {
   className?: string;
 };
 
-function resolveStatusBadgeClasses(statusLabel: string | null | undefined): string {
-  if (statusLabel === 'Pagado') return 'bg-p-positive-bg text-p-positive';
-  if (statusLabel === 'Parcial') return 'bg-p-warning-bg text-p-warning';
-  return 'bg-p-surface-3 text-p-text-secondary';
-}
-
+/**
+ * Cuánto debe la reserva, de un vistazo, y el botón para cobrarlo.
+ * Lo que se mira primero es la deuda; el detalle (total, pagado, cancha, consumos) va abajo en chico.
+ */
 export default function BookingAccountSummarySection({
   totalAmount,
   paidAmount,
@@ -38,71 +37,62 @@ export default function BookingAccountSummarySection({
   disablePayment = false,
   helperMessage,
   title,
-  statusLabel,
-  showStatusBadge = false,
-  showActionIcons = false,
   className = '',
 }: BookingAccountSummarySectionProps) {
+  const isPaid = !isPending && remainingAmount <= 0.009 && totalAmount > 0;
+  const detail = [
+    `Total ${formatMoney(totalAmount)}`,
+    paidAmount > 0.009 ? `pagado ${formatMoney(paidAmount)}` : null,
+    consumptionsAmount > 0.009
+      ? `cancha ${formatMoney(courtAmount)} + consumos ${formatMoney(consumptionsAmount)}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
-    <section className={`rounded-xl border border-p-border bg-p-surface-2 p-4 ${className}`.trim()}>
-      {title ? (
-        <div className="flex items-center justify-between">
-          <p className="text-[18px] font-semibold text-p-text">{title}</p>
-          {showStatusBadge && statusLabel ? (
-            <span
-              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${resolveStatusBadgeClasses(
-                statusLabel
-              )}`}
-            >
-              {statusLabel}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      <div className={`${title ? 'mt-2' : ''} grid grid-cols-3 gap-2 text-[12px] text-p-text-muted`}>
-        <div className="rounded-lg bg-p-surface px-2 py-1.5">
-          <p>Total</p>
-          <p className="text-[15px] font-semibold text-p-text">
-            {isPending ? '--' : `${totalAmount.toFixed(2)} $`}
-          </p>
-        </div>
-        <div className="rounded-lg bg-p-surface px-2 py-1.5">
-          <p>Pagado</p>
-          <p className="text-[15px] font-semibold text-p-positive">
-            {isPending ? '--' : `${paidAmount.toFixed(2)} $`}
-          </p>
-        </div>
-        <div className="rounded-lg bg-p-surface px-2 py-1.5">
-          <p>Deuda</p>
-          <p className="text-[15px] font-semibold text-p-warning">
-            {isPending ? '--' : `${remainingAmount.toFixed(2)} $`}
-          </p>
+    <section className={className}>
+      {title ? <p className="text-[13px] font-semibold text-p-text-muted">{title}</p> : null}
+      <div className="mt-1 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          {isPending ? (
+            <p className="text-[24px] font-bold leading-tight text-p-text-muted">—</p>
+          ) : isPaid ? (
+            <p className="inline-flex items-center gap-1.5 text-[24px] font-bold leading-tight text-p-positive">
+              <Check size={22} strokeWidth={3} />
+              Pagada
+            </p>
+          ) : (
+            <p className="text-[24px] font-bold leading-tight tabular-nums text-p-text">
+              Debe {formatMoney(remainingAmount)}
+            </p>
+          )}
+          {!isPending && <p className="mt-0.5 text-[12px] tabular-nums text-p-text-muted">{detail}</p>}
         </div>
       </div>
-      <p className="mt-2 text-[12px] text-p-text-muted">
-        Cancha: {courtAmount.toFixed(2)} $ · Consumos: {consumptionsAmount.toFixed(2)} $
-      </p>
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {!isPaid && (
+          <button
+            type="button"
+            onClick={onOpenPayment}
+            disabled={disablePayment}
+            className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50 sm:flex-none"
+          >
+            <CreditCard size={15} />
+            {isPending ? 'Cobrar' : `Cobrar ${formatMoney(remainingAmount)}`}
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenOverview}
           disabled={disableOverview}
-          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[14px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+          className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[14px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
         >
-          {showActionIcons ? <Receipt size={14} /> : null}
+          <Receipt size={15} />
           Ver cuenta
         </button>
-        <button
-          type="button"
-          onClick={onOpenPayment}
-          disabled={disablePayment}
-          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-4 text-[14px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
-        >
-          {showActionIcons ? <CreditCard size={14} /> : null}
-          Cobrar
-        </button>
-        {helperMessage ? <p className="text-[12px] text-p-text-muted">{helperMessage}</p> : null}
       </div>
+      {helperMessage ? <p className="mt-2 text-[12px] text-p-text-muted">{helperMessage}</p> : null}
     </section>
   );
 }

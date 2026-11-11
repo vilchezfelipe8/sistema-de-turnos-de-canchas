@@ -154,7 +154,11 @@ export default function BookingHoverCard({ x, y, participants }: BookingHoverCar
           <div className="mt-2">
             <div className="space-y-1.5">
               {visibleParticipantRows.map((participant) => (
-                <HoverPersonRow key={participant.id} name={participant.name} />
+                <HoverPersonRow
+                  key={participant.id}
+                  name={participant.name}
+                  amount={participant.payable !== false ? Number(participant.debtAmount || 0) : 0}
+                />
               ))}
               {hiddenParticipantsCount > 0 && (
                 <p className="pl-9 text-[10px] font-medium text-p-text-muted">

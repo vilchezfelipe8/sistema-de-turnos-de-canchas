@@ -10,6 +10,7 @@ import { AccountingService } from './AccountingService';
 import { ProjectionService } from './ProjectionService';
 import { generateDisplayCode } from '../utils/displayCode';
 import { DiscountService } from './DiscountService';
+import { stockMovementService } from './StockMovementService';
 import { getPhoneIdentityVariants, normalizeIdentityPhone } from '../utils/phone';
 import { AppError, badRequest, notFound, conflict, unprocessable, ErrorCodes } from '../errors';
 
@@ -177,6 +178,7 @@ export class CashService {
             const sourceType = movement?.payment?.account?.sourceType ?? movement?.refund?.account?.sourceType ?? null;
             const sourceId = movement?.payment?.account?.sourceId ?? movement?.refund?.account?.sourceId ?? null;
             const accountId = movement?.payment?.account?.id ?? movement?.refund?.account?.id ?? null;
+            const accountClientName = movement?.payment?.account?.client?.name ?? movement?.refund?.account?.client?.name ?? null;
             const paymentId = movement?.paymentId ?? movement?.refund?.payment?.id ?? movement?.refund?.paymentId ?? null;
             const refundId = movement?.refundId ?? movement?.refund?.id ?? null;
             let bookingAmount = 0;
@@ -197,6 +199,7 @@ export class CashService {
                 sourceType,
                 sourceId,
                 accountId,
+                accountClientName,
                 paymentId,
                 refundId,
                 booking,
@@ -1134,6 +1137,15 @@ export class CashService {
                         data: { stock: { decrement: Number(qi.quantity) } }
                     });
                     if (stockUpdate.count !== 1) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
+                    await stockMovementService.recordTx(tx, {
+                        clubId: input.clubId,
+                        productId: product.id,
+                        quantity: -Number(qi.quantity),
+                        type: 'SALE',
+                        accountId: account.id,
+                        accountItemId: item.id,
+                        createdByUserId: actorUserId ?? null
+                    });
                 }
 
                 await this.accountingService.createAccountItemTransaction(tx, {
@@ -1433,6 +1445,15 @@ export class CashService {
                         data: { stock: { decrement: Number(qi.quantity) } }
                     });
                     if (stockUpdate.count !== 1) throw conflict('Stock insuficiente.', ErrorCodes.STOCK_INSUFFICIENT);
+                    await stockMovementService.recordTx(tx, {
+                        clubId: input.clubId,
+                        productId: product.id,
+                        quantity: -Number(qi.quantity),
+                        type: 'SALE',
+                        accountId: account.id,
+                        accountItemId: item.id,
+                        createdByUserId: actorUserId ?? null
+                    });
                 }
 
                 await this.accountingService.createAccountItemTransaction(tx, {

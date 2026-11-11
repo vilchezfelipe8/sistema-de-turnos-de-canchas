@@ -1,12 +1,16 @@
 import type { AppProps } from 'next/app';
 import Head from 'next/head';
 import { useEffect, useRef, useState } from 'react';
-import Router from 'next/router';
+import Router, { useRouter } from 'next/router';
 import { ActiveClubProvider } from '../contexts/ActiveClubContext';
 import { AuthProvider } from '../contexts/AuthContext';
 import { UserThemeProvider, useUserTheme } from '../contexts/UserThemeContext';
 import { AUTH_LOGOUT_EVENT, clearPendingLogoutRedirect, type AuthLogoutEventDetail } from '../services/AuthService';
 import { isAuthSessionInvalidatedError } from '../utils/apiClient';
+import { detectClubAppLaunch } from '../utils/clubApp';
+import { initNavigationHistory, trackRouteChange } from '../utils/navigationHistory';
+import PushSubscriptionSync from '../components/push/PushSubscriptionSync';
+import { startPwaInstallCapture } from '../utils/pwaInstall';
 
 import '../styles/globals.css';
 import '../styles/playground.css';
@@ -110,6 +114,26 @@ export default function MyApp({ Component, pageProps }: AppProps) {
   const noticeIdRef = useRef(1);
   const noticeTimeoutsRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   const lastLogoutNoticeAtRef = useRef(0);
+  const router = useRouter();
+
+  // App instalada: capturar el aviso de instalación y detectar si se abrió desde el ícono de un club.
+  useEffect(() => {
+    startPwaInstallCapture();
+  }, []);
+  useEffect(() => {
+    if (!router.isReady) return;
+    detectClubAppLaunch(router.pathname, router.query);
+  }, [router.isReady, router.pathname, router.query]);
+
+  // Pantalla anterior dentro de la app (para los botones "Volver").
+  useEffect(() => {
+    initNavigationHistory(`${window.location.pathname}${window.location.search}`);
+    const onRouteChangeComplete = (url: string) => trackRouteChange(url);
+    Router.events.on('routeChangeComplete', onRouteChangeComplete);
+    return () => {
+      Router.events.off('routeChangeComplete', onRouteChangeComplete);
+    };
+  }, []);
 
   useEffect(() => {
     const preventNumberInputWheel = (event: WheelEvent) => {
@@ -261,8 +285,8 @@ export default function MyApp({ Component, pageProps }: AppProps) {
         <title>Pique</title>
         <link rel="icon" href={MARK_PATH} type="image/svg+xml" />
         <link rel="shortcut icon" href="/favicon.ico" />
-        <link rel="manifest" href="/site.webmanifest" />
-        <link rel="apple-touch-icon" href={APPLE_ICON_PATH} />
+        <link rel="manifest" href="/site.webmanifest" key="manifest" />
+        <link rel="apple-touch-icon" href={APPLE_ICON_PATH} key="apple-touch-icon" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta property="og:type" content="website" />
         <meta property="og:site_name" content="Pique" />
@@ -272,7 +296,9 @@ export default function MyApp({ Component, pageProps }: AppProps) {
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
         <meta name="twitter:image" content={OG_IMAGE_URL} />
-        <meta name="theme-color" content="#B6F36A" />
+        <meta name="theme-color" content="#B6F36A" key="theme-color" />
+        {/* viewport-fit=cover: en iPhone permite respetar la zona de la barra de inicio (env(safe-area-inset-*)). */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" key="viewport" />
         <script
           type="application/ld+json"
           // JSON-LD must be a string
@@ -284,6 +310,7 @@ export default function MyApp({ Component, pageProps }: AppProps) {
           <UserThemeProvider>
             <Component {...pageProps} />
             <AppNoticeViewport notices={notices} />
+            <PushSubscriptionSync />
           </UserThemeProvider>
         </AuthProvider>
       </ActiveClubProvider>
