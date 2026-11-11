@@ -30,7 +30,7 @@ export type PlaygroundSidebarItem = {
  * (clave = slug del club), el resto de los clubes no se ve afectado.
  */
 export const CLUB_LOCKED_SIDEBAR_ITEMS: Record<string, Set<string>> = {
-  'club-atletico-barrio-parque': new Set(['Academia', 'Reservas', 'Mensajes', 'Facturacion', 'Informes']),
+  'club-atletico-barrio-parque': new Set(['Academia', 'Reservas', 'Mensajes', 'Facturación', 'Informes']),
 };
 
 /**
@@ -39,7 +39,6 @@ export const CLUB_LOCKED_SIDEBAR_ITEMS: Record<string, Set<string>> = {
  */
 export const UPCOMING_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [
   { label: 'Reservas', icon: Receipt, href: '/admin/reservas', disabled: true, minAccess: 'admin' },
-  { label: 'Facturacion', icon: ScrollText, href: '/admin/facturacion', disabled: true, minAccess: 'admin' },
 ];
 
 export const PLAYGROUND_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [
@@ -47,6 +46,7 @@ export const PLAYGROUND_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [
   { label: 'Clientes', icon: Users, href: '/admin/clientes', minAccess: 'admin' },
   { label: 'Academia', icon: GraduationCap, href: '/admin/academia?tab=clases', minAccess: 'admin' },
   { label: 'Caja', icon: CreditCard, href: '/admin/caja', minAccess: 'operator' },
+  { label: 'Facturación', icon: ScrollText, href: '/admin/facturacion', minAccess: 'admin' },
   { label: 'Tienda', icon: ShoppingBag, href: '/admin/tienda', minAccess: 'admin' },
   { label: 'Mensajes', icon: MessageSquare, href: '/admin/mensajes', minAccess: 'admin' },
   { label: 'Informes', icon: BarChart3, href: '/admin/informes', minAccess: 'operator' },

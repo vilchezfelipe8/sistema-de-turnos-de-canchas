@@ -510,7 +510,7 @@ function BillingContent({ slug }: { slug: string }) {
 
 export default function AdminBillingPage() {
   return (
-    <AdminRouteShell title="Facturación | Pique Admin" activeItem="Facturacion" fromPath="/admin/facturacion">
+    <AdminRouteShell title="Facturación | Pique Admin" activeItem="Facturación" fromPath="/admin/facturacion">
       {(user) => {
         const slug = getActiveClubSlug(normalizeSessionUser(user as any));
         if (!slug) return <div className="p-4 text-[13px] text-p-text-muted">No se encontró el club activo.</div>;

@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Plug,
   Repeat,
+  Receipt,
   ScrollText,
   Star,
   Tag,
@@ -64,6 +65,7 @@ const MOBILE_SETTINGS_GROUPS: Array<{
       { value: 'socios', description: 'Padrón y precios diferenciales', icon: Users },
       { value: 'planes', description: 'Abonos, cuotas y vencimientos', icon: Repeat },
       { value: 'caja', description: 'Reglas para cerrar la caja', icon: Wallet },
+      { value: 'facturacion', description: 'Factura electrónica con ARCA', icon: Receipt },
     ],
   },
   {

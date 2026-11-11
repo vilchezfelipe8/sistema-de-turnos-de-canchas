@@ -506,7 +506,7 @@ export default function AdminTabFiscal() {
             </p>
           ) : (
             <p className="mt-1 text-[13px] text-p-text-secondary">
-              Para empezar a facturar te falta {missing.length > 1 ? `${missing.slice(0, -1).join(', ')} y ${missing[missing.length - 1]}` : missing[0]}.
+              Para empezar a facturar falta cargar {missing.length > 1 ? `${missing.slice(0, -1).join(', ')} y ${missing[missing.length - 1]}` : missing[0]}.
             </p>
           )}
 
