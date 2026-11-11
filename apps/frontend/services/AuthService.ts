@@ -576,7 +576,14 @@ export const logout = (options?: { redirectTo?: string | null; reason?: AuthLogo
   }
 
   const explicitTarget = String(options?.redirectTo || '').trim();
-  const fallbackTarget = explicitTarget ? null : resolveDefaultLogoutRedirect();
+  // Si la persona cerró sesión a mano desde una página privada, va al inicio (no a 'Ingresá de nuevo').
+  const leavingPrivatePageOnPurpose = options?.reason === 'manual'
+    && isPrivatePath(String(window.location.pathname || ''));
+  const fallbackTarget = explicitTarget
+    ? null
+    : leavingPrivatePageOnPurpose
+      ? '/'
+      : resolveDefaultLogoutRedirect();
   const target = explicitTarget || fallbackTarget || '';
   if (target) {
     logoutRedirectTarget = logoutRedirectTarget || target;

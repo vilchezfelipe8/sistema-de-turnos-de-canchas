@@ -278,7 +278,7 @@ export default function Navbar({
   const handleLogout = () => {
     setShowLogoutModal(false);
     setShowUserMenu(false);
-    logout();
+    logout({ reason: 'manual' });
   };
 
   const handleHomeShortcut = async (sectionId: string) => {

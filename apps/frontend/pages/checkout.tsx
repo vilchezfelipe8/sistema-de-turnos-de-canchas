@@ -623,17 +623,38 @@ export default function CheckoutPage() {
   const doneBookingId = typeof router.query.done === 'string' && router.query.done
     ? router.query.done
     : (draftLoaded && typeof router.query.draft === 'string' ? readCompletedCheckout(router.query.draft) : '');
-  useEffect(() => {
-    if (!draftLoaded || draft || confirmedBookingId !== null || !doneBookingId) return;
-    void router.replace(`/bookings?booking=${encodeURIComponent(doneBookingId)}`);
-  }, [confirmedBookingId, doneBookingId, draft, draftLoaded, router]);
 
   if (!authChecked || !draftLoaded) {
     return <UserLoadingState mode="page" message="Preparando checkout..." />;
   }
 
+  // Recargar la confirmación o volver a este link: la reserva ya está hecha.
+  // Se dice eso y se ofrece abrirla, en lugar de mandar a Mis reservas sin explicar.
   if (!draft && doneBookingId && confirmedBookingId === null) {
-    return <UserLoadingState mode="page" message="Abriendo tu reserva..." />;
+    const clubSlugParam = typeof router.query.club === 'string' ? router.query.club : '';
+    return (
+      <DarkPageLayout title="Reserva enviada | Pique" extraCss={CHECKOUT_CSS} breadcrumbs={checkoutBreadcrumbs}>
+        <main className="p-public-page-sm">
+          <section className="checkout-card checkout-card-pad checkout-success">
+            <div className="checkout-success-icon">
+              <Ticket size={30} />
+            </div>
+            <h1 className="checkout-title">Esta reserva ya está hecha</h1>
+            <p className="checkout-copy" style={{ margin: '0 auto 24px' }}>
+              La encontrás en Mis reservas, con su estado y quiénes juegan.
+            </p>
+            <div className="ck-lost-actions">
+              <Link href={`/bookings?booking=${encodeURIComponent(doneBookingId)}`} className="checkout-primary">
+                Ver mi reserva
+              </Link>
+              {clubSlugParam && (
+                <Link href={`/club/${encodeURIComponent(clubSlugParam)}`} className="ck-lost-other">Reservar otro turno</Link>
+              )}
+            </div>
+          </section>
+        </main>
+      </DarkPageLayout>
+    );
   }
 
   // El link del checkout trae club, día y hora: si el resumen no está, se puede retomar desde ahí.

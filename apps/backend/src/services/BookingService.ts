@@ -14,7 +14,7 @@ import { ActivityType } from '../entities/ActivityType';
 import { BookingParticipantStatus, BookingStatus, ChargeMode, Prisma, RefundReasonType } from '@prisma/client';
 import { CashRepository } from '../repositories/CashRepository';
 import { ProductRepository } from '../repositories/ProductRepository';
-import { buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivityScheduleHelper';
+import { DEFAULT_FIXED_SLOT_STARTS, buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivityScheduleHelper';
 import { getUserClubContext } from '../utils/getUserClubContext';
 import { PricingService } from './PricingService';
 import { PlayerSlotService, type PlayerSlotDto, resolveShortGapMinutes, type PerPlayerQuote } from './PlayerSlotService';
@@ -2132,9 +2132,7 @@ export class BookingService {
         });
     }
 
-    private defaultFixedSlots = [
-        "08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:30", "19:00", "20:30", "22:00"
-    ];
+    private defaultFixedSlots = DEFAULT_FIXED_SLOT_STARTS;
 
     private toMinutes(time: string | null | undefined) {
         if (!time) return null;

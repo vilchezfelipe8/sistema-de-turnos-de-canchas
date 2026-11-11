@@ -105,6 +105,11 @@ const parseRangeWindows = (raw: unknown): RangeScheduleWindow[] => {
     return windows.map(({ start, end }) => ({ start, end }));
 };
 
+// Turnos que se usan cuando una actividad en modo FIXED no tiene turnos cargados.
+export const DEFAULT_FIXED_SLOT_STARTS = [
+    '08:00', '09:30', '11:00', '12:30', '14:00', '15:30', '17:30', '19:00', '20:30', '22:00'
+];
+
 export const normalizeSchedule = (
     source: ScheduleSource,
     fallbackDuration: number
