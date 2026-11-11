@@ -56,6 +56,9 @@ import type {
 import {
   buildSelectionDateTime,
   buildStartDateTimeFromSlot,
+  configureAgendaHours,
+  DEFAULT_AGENDA_END_HOUR,
+  DEFAULT_AGENDA_START_HOUR,
   endHour,
   formatLocalDate,
   getNextDateForDay,
@@ -1155,7 +1158,113 @@ function allocatePaymentProportionallyByDebt(input: {
     }));
 }
 
-export default function AdminAgendaPlaygroundPage() {
+// ---------- rango de horas de la grilla según el club ----------
+
+const AGENDA_HOURS_CACHE_PREFIX = 'pique:agenda-hours:';
+const AGENDA_HOURS_LOOKAHEAD_DAYS = 7;
+
+type AgendaHourRange = { start: number; end: number };
+
+const readAgendaClubSlug = () => {
+  try {
+    const raw = localStorage.getItem('user');
+    if (!raw) return '';
+    return getActiveClubSlug(normalizeSessionUser(JSON.parse(raw))) || '';
+  } catch {
+    return '';
+  }
+};
+
+const readCachedAgendaHours = (slug: string): AgendaHourRange | null => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`${AGENDA_HOURS_CACHE_PREFIX}${slug}`) || 'null');
+    if (parsed && Number.isFinite(parsed.start) && Number.isFinite(parsed.end) && parsed.end > parsed.start) return parsed;
+  } catch {
+    // sin caché
+  }
+  return null;
+};
+
+const writeCachedAgendaHours = (slug: string, range: AgendaHourRange) => {
+  try {
+    localStorage.setItem(`${AGENDA_HOURS_CACHE_PREFIX}${slug}`, JSON.stringify(range));
+  } catch {
+    // sin caché
+  }
+};
+
+/**
+ * Desde el primer turno hasta el fin del último, mirando los turnos válidos de la próxima semana
+ * (los horarios pueden cambiar según el día). Lo que pasa de la medianoche no entra: es del día siguiente.
+ */
+const computeAgendaHourRange = (rulesByDay: AgendaBookingRules[]): AgendaHourRange | null => {
+  let minStart = Infinity;
+  let maxEnd = -Infinity;
+  for (const rules of rulesByDay) {
+    for (const activity of rules?.activities || []) {
+      if (activity.isClosed) continue;
+      for (const slot of activity.slots || []) {
+        const [hours, minutes] = String(slot.start || '').split(':').map(Number);
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes)) continue;
+        const start = hours * 60 + minutes;
+        minStart = Math.min(minStart, start);
+        maxEnd = Math.max(maxEnd, start + Number(slot.durationMinutes || 0));
+      }
+    }
+  }
+  if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd) || maxEnd <= minStart) return null;
+  // Nunca más chica que la grilla de siempre (08 a 23): así no se esconden reservas
+  // hechas fuera de horario. Se agranda si el club abre antes o cierra después.
+  return {
+    start: Math.min(DEFAULT_AGENDA_START_HOUR, Math.floor(minStart / 60)),
+    end: Math.max(DEFAULT_AGENDA_END_HOUR, Math.min(24, Math.ceil(maxEnd / 60))),
+  };
+};
+
+/**
+ * Ajusta la grilla al horario del club antes de montar la agenda: estaba fija de 08:00 a 23:00,
+ * así que un club que abre a las 7 o cierra a la medianoche no veía (ni podía reservar) esos turnos.
+ */
+export default function AdminAgendaPage() {
+  const [range, setRange] = useState<AgendaHourRange | null>(null);
+
+  useEffect(() => {
+    const slug = readAgendaClubSlug();
+    const cached = slug ? readCachedAgendaHours(slug) : null;
+    const initial = cached || { start: DEFAULT_AGENDA_START_HOUR, end: DEFAULT_AGENDA_END_HOUR };
+    configureAgendaHours(initial.start, initial.end);
+    setRange({ start: startHour, end: endHour });
+    if (!slug) return;
+
+    let cancelled = false;
+    const today = new Date();
+    const dates = Array.from({ length: AGENDA_HOURS_LOOKAHEAD_DAYS }, (_, index) => {
+      const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + index, 12);
+      return formatLocalDate(day);
+    });
+    Promise.allSettled(dates.map((date) => ClubAdminService.getBookingRules(slug, date))).then((results) => {
+      if (cancelled) return;
+      const rules = results
+        .filter((result): result is PromiseFulfilledResult<AgendaBookingRules> => result.status === 'fulfilled')
+        .map((result) => result.value);
+      const computed = computeAgendaHourRange(rules);
+      if (!computed) return;
+      writeCachedAgendaHours(slug, computed);
+      if (computed.start === startHour && computed.end === endHour) return;
+      // Cambió el horario: se vuelve a montar la agenda con la grilla nueva.
+      configureAgendaHours(computed.start, computed.end);
+      setRange({ start: startHour, end: endHour });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!range) return null;
+  return <AdminAgendaPlaygroundPage key={`${range.start}-${range.end}`} />;
+}
+
+function AdminAgendaPlaygroundPage() {
   const router = useRouter();
   const [classPeekBooking, setClassPeekBooking] = useState<Booking | null>(null);
   const [freeFinderOpen, setFreeFinderOpen] = useState(false);

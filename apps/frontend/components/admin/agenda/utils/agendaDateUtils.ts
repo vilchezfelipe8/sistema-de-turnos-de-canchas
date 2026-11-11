@@ -1,13 +1,29 @@
 import type { DraftSelection } from '../types/agendaTypes';
 
 export const rowHeight = 120;
-export const startHour = 8;
-export const endHour = 23;
 export const slotMinutes = 15;
 export const slotsPerHour = 60 / slotMinutes;
-export const totalSlots = (endHour - startHour) * slotsPerHour;
 export const slotHeight = rowHeight / slotsPerHour;
-export const gridHeight = totalSlots * slotHeight;
+
+export const DEFAULT_AGENDA_START_HOUR = 8;
+export const DEFAULT_AGENDA_END_HOUR = 23;
+
+// Rango de horas de la grilla. Son `let` exportados (live bindings): la página de agenda
+// los ajusta al horario del club con configureAgendaHours() ANTES de montar la grilla,
+// y la vuelve a montar si cambian. No cambiarlos con la grilla montada.
+export let startHour = DEFAULT_AGENDA_START_HOUR;
+export let endHour = DEFAULT_AGENDA_END_HOUR;
+export let totalSlots = (endHour - startHour) * slotsPerHour;
+export let gridHeight = totalSlots * slotHeight;
+
+export function configureAgendaHours(nextStartHour: number, nextEndHour: number) {
+  const start = Math.max(0, Math.min(23, Math.floor(nextStartHour)));
+  const end = Math.max(start + 1, Math.min(24, Math.ceil(nextEndHour)));
+  startHour = start;
+  endHour = end;
+  totalSlots = (endHour - startHour) * slotsPerHour;
+  gridHeight = totalSlots * slotHeight;
+}
 
 export function slotToTime(slot: number) {
   const totalMinutes = startHour * 60 + slot * slotMinutes;
