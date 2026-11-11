@@ -38,6 +38,7 @@ import { PlayerSlotController } from '../controllers/PlayerSlotController';
 import { BookingReleaseController } from '../controllers/BookingReleaseController';
 import { FiscalConfigController } from '../controllers/FiscalConfigController';
 import { FiscalBandejaController } from '../controllers/FiscalBandejaController';
+import { AdminBookingListController } from '../controllers/AdminBookingListController';
 import { FiscalHealthController } from '../controllers/FiscalHealthController';
 
 const router = Router();
@@ -386,6 +387,15 @@ router.delete('/:slug/admin/activity-types/:id/schedule-exceptions/:localDate',
             return res.status(status).json({ error: error.message || 'No se pudo eliminar la excepción de agenda' });
         }
     }
+);
+
+// Lista de reservas de varios días (pantalla Reservas)
+const adminBookingListController = new AdminBookingListController();
+router.get('/:slug/admin/bookings',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    adminBookingListController.list
 );
 
 // Crear reserva fija

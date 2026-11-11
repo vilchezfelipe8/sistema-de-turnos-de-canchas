@@ -4418,6 +4418,37 @@ export default function AdminAgendaPlaygroundPage() {
     void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
   }, [router, effectiveCourts.length, loadedScheduleDate, bookingRulesSettledDate, selectedDateKey, openQuickCreateBooking]);
 
+  // Desde Reservas: /admin/agenda?fecha=YYYY-MM-DD&reserva=<id> va a ese día y abre la reserva.
+  const dateFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (dateFromUrlHandledRef.current || !router.isReady) return;
+    dateFromUrlHandledRef.current = true;
+    const raw = String(router.query.fecha || '').trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (!match) return;
+    const target = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
+    if (Number.isNaN(target.getTime())) return;
+    setSelectedDate(target);
+  }, [router.isReady, router.query.fecha]);
+
+  const bookingFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (bookingFromUrlHandledRef.current || !router.isReady) return;
+    const bookingId = String(router.query.reserva || '').trim();
+    const dateParam = String(router.query.fecha || '').trim();
+    if (!bookingId && !dateParam) return;
+    // Esperar a que cargue el día pedido.
+    if (dateParam && (selectedDateKey !== dateParam || loadedScheduleDate !== dateParam)) return;
+    bookingFromUrlHandledRef.current = true;
+    if (bookingId) {
+      const target = bookings.find((booking) => String(booking.id) === bookingId);
+      if (target) openBookingInDrawer(target);
+      else showAdminToast('No encontramos esa reserva en el calendario.', 'error');
+    }
+    const { fecha: _fecha, reserva: _reserva, ...rest } = router.query;
+    void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+  }, [router, bookings, selectedDateKey, loadedScheduleDate, openBookingInDrawer]);
+
   const runSimplifiedNewParticipantSearch = useCallback(async (rawValue: string) => {
     setSimplifiedNewParticipantName(rawValue);
     setSimplifiedNewParticipantContact('');
