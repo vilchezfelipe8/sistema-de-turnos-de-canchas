@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import DarkPageLayout from '../components/DarkPageLayout';
 import {
@@ -113,6 +113,7 @@ const PAGE_CSS = `
   .bk-ticket-label { display:inline-flex; align-items:center; gap:6px; padding:5px 14px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); border-radius:999px; font-size:10px; font-weight:800; letter-spacing:.03em; color:var(--accent-fg); margin-bottom:16px; }
   .bk-ticket-label.is-pending { background:var(--warn-bg); border-color:var(--warn-bg); color:var(--warn-fg); }
   .bk-ticket-label.is-cancelled { background:var(--error-bg); border-color:var(--error-bg); color:var(--error-fg); }
+  .bk-ticket-label.is-muted { background:var(--surface-2); border-color:var(--border-subtle); color:var(--text-muted); }
   .bk-detail-court { font-size:22px; font-weight:800; color:var(--text-primary); letter-spacing:-.02em; line-height:1.1; margin-bottom:6px; }
   .bk-detail-activity { font-size:11px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); margin-bottom:18px; }
   .bk-detail-row { display:flex; align-items:center; gap:14px; padding:12px 0; border-bottom:1px solid var(--border-subtle); }
@@ -214,7 +215,7 @@ const PAGE_CSS = `
   .p-public-root.p-public-theme-light .bk-date-box-active { background:var(--positive-bg); border-color:var(--accent-border-strong); }
   .p-public-root.p-public-theme-light .bk-card.bk-selected .bk-date-box-active { background:var(--brand); border-color:var(--accent-fg); }
   .p-public-root.p-public-theme-light .bk-date-box-cancelled { background:var(--error-bg); border-color:var(--error-bg); }
-  .p-public-root.p-public-theme-light .bk-ticket-label { background:var(--positive-bg); border-color:var(--accent-border-subtle); color:var(--accent-fg); }
+  .p-public-root.p-public-theme-light .bk-ticket-label:not(.is-pending):not(.is-cancelled):not(.is-muted) { background:var(--positive-bg); border-color:var(--accent-border-subtle); color:var(--accent-fg); }
   .p-public-root.p-public-theme-light .bk-detail-activity { color:var(--text-muted); }
   .p-public-root.p-public-theme-light .bk-action-cancel { background:var(--error-bg); border-color:var(--error-bg)!important; color:var(--error-fg); }
   .p-public-root.p-public-theme-light .bk-action-cancel:hover { background:var(--error-bg); }
@@ -272,6 +273,16 @@ export default function MyBookingsPage() {
   const [joinPaySubmitting, setJoinPaySubmitting] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<PlayerBookingDto | null>(null);
   const selectedDetailRef = useRef<HTMLDivElement | null>(null);
+  // Pantalla angosta (una columna): el detalle se abre debajo de la reserva tocada.
+  const [isCompact, setIsCompact] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const media = window.matchMedia('(max-width: 900px)');
+    const sync = () => setIsCompact(media.matches);
+    sync();
+    media.addEventListener?.('change', sync);
+    return () => media.removeEventListener?.('change', sync);
+  }, []);
   const skipDetailAutoScrollRef = useRef(false);
   const listBodyRef = useRef<HTMLDivElement | null>(null);
   const pendingTabScrollRestoreRef = useRef<{ windowY: number; listScrollTop: number } | null>(null);
@@ -505,7 +516,8 @@ export default function MyBookingsPage() {
       return;
     }
 
-    setParticipantsExpanded(false);
+    // Si todavía puede invitar, los jugadores quedan a la vista (el checkout le dijo que invite desde acá).
+    setParticipantsExpanded(Boolean(selectedBooking.capabilities?.canInvitePlayers));
     setPaymentExpanded(false);
 
     let cancelled = false;
@@ -748,7 +760,7 @@ export default function MyBookingsPage() {
       case 'MEMBER_PRICE_PENDING':
         return 'Tu precio socio todavía no está validado. Aceptá la invitación o validalo en el club; así pagás el precio que te corresponde.';
       case 'ACCOUNT_MISSING':
-        return 'Todavía no hay una cuenta publicada para esta reserva. Contactá al club para confirmar el estado de pago.';
+        return 'El club todavía no confirmó la reserva. Cuando la confirme vas a ver acá lo que hay que pagar.';
       case 'NO_PENDING_BALANCE':
         return checkout.shares ? 'Tu parte ya está paga.' : 'Esta reserva no tiene saldo pendiente por ahora.';
       case 'PARTICIPANT_PAYMENTS_NOT_SUPPORTED':
@@ -756,7 +768,9 @@ export default function MyBookingsPage() {
       case 'BOOKING_HAS_REFUNDS':
         return 'Esta reserva tiene devoluciones o ajustes en revisión. Contactá al club para resolver cualquier cambio de pago.';
       case 'BOOKING_NOT_PAYABLE':
-        return 'Esta reserva ya no está disponible para pago online desde la app.';
+        return (checkout.account?.pending || 0) > 0.009
+          ? `Lo que falta (${formatMoney(Number(checkout.account?.pending || 0))}) se paga en el club.`
+          : 'Esta reserva ya no se puede pagar desde la app.';
       case 'PAY_AT_CLUB':
         return 'Este club cobra las reservas en el mostrador. Cada jugador abona su parte al llegar.';
       case 'PROVIDER_NOT_CONFIGURED':
@@ -827,14 +841,22 @@ export default function MyBookingsPage() {
     selectedBookingClubSlug && resolveReviewAnchorForClub(selectedBookingClubSlug)
   );
 
-  const CANCEL_CONFIRM_MESSAGE = 'Vas a cancelar tu reserva. Si el club ya registró pagos, la cancelación se resuelve directamente con ellos.';
+  // Solo se puede cancelar si no hay pagos registrados, así que es gratis.
+  const cancelConfirmMessage = (id: string) => {
+    const booking = bookings.find((item) => String(item.id) === String(id));
+    if (!booking) return 'Vas a cancelar tu reserva. Es gratis y le avisamos al club.';
+    const timeZone = booking.club?.timeZone || 'America/Argentina/Buenos_Aires';
+    const start = new Date(booking.startDateTime);
+    const day = new Intl.DateTimeFormat('es-AR', { timeZone, weekday: 'long', day: 'numeric' }).format(start).replace(',', '');
+    return `Vas a cancelar el ${day} a las ${formatTime(start, timeZone)}${booking.club?.name ? ` en ${booking.club.name}` : ''}. Es gratis y le avisamos al club.`;
+  };
 
   const handleCancel = (id: string) => {
     if (cancellingBooking) return;
     setModalState({
       show: true,
       title: '¿Cancelar esta reserva?',
-      message: CANCEL_CONFIRM_MESSAGE,
+      message: cancelConfirmMessage(id),
       isWarning: true,
       confirmText: 'Cancelar reserva',
       cancelText: 'Volver',
@@ -864,7 +886,7 @@ export default function MyBookingsPage() {
             confirmDisabled: false,
             message: (
               <span>
-                {CANCEL_CONFIRM_MESSAGE}
+                {cancelConfirmMessage(id)}
               <span style={{ display: 'block', marginTop: 10, color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
                   {toPublicBookingErrorMessage(e, 'No pudimos cancelar la reserva. Intentá nuevamente.')}
                 </span>
@@ -1130,6 +1152,8 @@ export default function MyBookingsPage() {
   const bookingStatusLabel = (booking: PlayerBookingDto) => {
     const hasEnded = new Date(booking.endDateTime || booking.startDateTime).getTime() < Date.now();
     if (booking.status === 'CANCELLED') return 'Reserva cancelada';
+    // Pasó el turno y el club nunca la confirmó: no es una reserva "finalizada".
+    if (booking.status === 'PENDING' && hasEnded) return 'No confirmada por el club';
     if (booking.status === 'COMPLETED' || hasEnded) return 'Reserva finalizada';
     switch (booking.status) {
       case 'PENDING': return 'Pendiente de confirmación';
@@ -1137,13 +1161,33 @@ export default function MyBookingsPage() {
     }
   };
   const paymentStatusLabel = (booking: PlayerBookingDto) => {
+    const remaining = Number(booking.paymentSummary.remainingAmount || 0);
+    const hasEnded = new Date(booking.endDateTime || booking.startDateTime).getTime() < Date.now();
     switch (booking.paymentSummary.status) {
       case 'PAID': return 'Pagado';
-      case 'PARTIAL': return 'Pago parcial';
-      case 'PENDING': return 'Pago pendiente';
+      case 'AWAITING_CONFIRMATION': return 'Sin confirmar';
+      case 'NOT_CONFIRMED': return 'No confirmada';
+      // Después del turno, lo útil es cuánto falta; antes, alcanza con saber que se paga.
+      case 'PARTIAL': return remaining > 0.009 ? `Falta pagar ${formatMoney(remaining)}` : 'Pago parcial';
+      case 'PENDING': return hasEnded && remaining > 0.009 ? `Falta pagar ${formatMoney(remaining)}` : 'Se paga en el club';
       default:
         return '';
     }
+  };
+
+  // Reserva sin cuenta todavía: lo que sabemos del precio, en vez de "consultá con el club".
+  const noAccountPaymentCopy = (booking: PlayerBookingDto) => {
+    const summary = booking.paymentSummary;
+    if (summary.status === 'AWAITING_CONFIRMATION') {
+      const share = Number(summary.myShareAmount || 0);
+      const total = Number(summary.totalAmount || 0);
+      if (share > 0.009) return `Tu parte ${formatMoney(share)} · se paga en el club cuando confirmen`;
+      if (total > 0.009) return `${formatMoney(total)} · se paga en el club cuando confirmen`;
+      return 'Se paga en el club cuando confirmen';
+    }
+    if (summary.status === 'NOT_CONFIRMED') return 'No se confirmó: no hay nada para pagar';
+    if (booking.status === 'CANCELLED') return 'No hay nada para pagar';
+    return summary.label || 'Se paga en el club';
   };
 
   const paymentStatusTone = (booking: PlayerBookingDto) => {
@@ -1153,7 +1197,10 @@ export default function MyBookingsPage() {
       case 'PARTIAL':
         return { background: 'var(--surface-2)', border: 'var(--accent-border-subtle)', color: 'var(--text-secondary)' };
       case 'PENDING':
+      case 'AWAITING_CONFIRMATION':
         return { background: 'var(--warn-bg)', border: 'var(--warn-bg)', color: 'var(--warn-fg)' };
+      case 'NOT_CONFIRMED':
+        return { background: 'var(--surface-2)', border: 'var(--border-subtle)', color: 'var(--text-muted)' };
       case 'NOT_REQUIRED':
       default:
         return { background: 'var(--surface-2)', border: 'var(--border-subtle)', color: 'var(--text-secondary)' };
@@ -1204,6 +1251,401 @@ export default function MyBookingsPage() {
     && checkoutSummary
     && !checkoutSummary.account
   );
+
+  // El detalle va a la derecha en desktop y, en pantallas angostas, debajo de la reserva tocada.
+  const renderDetail = () => {
+    if (!selectedBooking) return null;
+    return (
+              <div
+                className="bk-detail"
+                ref={el => { selectedDetailRef.current = el; }}
+                tabIndex={-1}
+              >
+                <div className={`bk-ticket-label${selectedBooking.status === 'PENDING' ? (activeTab === 'ACTIVE' ? ' is-pending' : ' is-muted') : ''}${selectedBooking.status === 'CANCELLED' ? ' is-cancelled' : ''}`}>
+                  <Ticket size={12} /> {bookingStatusLabel(selectedBooking)}
+                </div>
+                <div className="bk-detail-court">{selectedBooking.court?.name || 'Cancha'}</div>
+                <div className="bk-detail-activity">{selectedBooking.activity?.name || 'Deporte'} · {selectedBooking.club?.name}</div>
+  
+                <hr className="p-public-divider" style={{ margin: '0 0 16px' }} />
+  
+                <div>
+                  <div className="bk-detail-row">
+                    <div className="bk-detail-icon"><Calendar size={16} /></div>
+                    <div>
+                      <div className="bk-detail-row-label">Fecha</div>
+                      <div className="bk-detail-row-val">{formatWeekday(new Date(selectedBooking.startDateTime), selectedBooking.club?.timeZone)}</div>
+                    </div>
+                  </div>
+                  <div className="bk-detail-row">
+                    <div className="bk-detail-icon"><Clock size={16} /></div>
+                    <div>
+                      <div className="bk-detail-row-label">Horario</div>
+                      <div className="bk-detail-row-val">{formatTime(new Date(selectedBooking.startDateTime), selectedBooking.club?.timeZone)} a {formatTime(new Date(selectedBooking.endDateTime || selectedBooking.startDateTime), selectedBooking.club?.timeZone)} · {getDuration(selectedBooking)} min</div>
+                    </div>
+                  </div>
+                </div>
+  
+                <div className={`bk-collapsible${participantsExpanded ? ' bk-collapsible-open' : ''}`}>
+                  <button
+                    type="button"
+                    className="bk-collapsible-head"
+                    onClick={() => setParticipantsExpanded((prev) => !prev)}
+                    aria-expanded={participantsExpanded}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
+                        Participantes
+                      </div>
+                      {participantCapacity ? (
+                        <span className="bk-card-chip" title={selectedBooking.formatName || undefined}>
+                          {selectedBooking.formatName ? `${selectedBooking.formatName} · ` : ''}
+                          {pendingInviteNames.length
+                            ? `${confirmedParticipantSlots} de ${participantCapacity} confirmados`
+                            : `${occupiedParticipantSlots} de ${participantCapacity}`}
+                        </span>
+                      ) : canInviteParticipant ? (
+                        <span className="bk-card-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <UserPlus size={12} /> Podés invitar
+                        </span>
+                      ) : null}
+                    </div>
+                    <ChevronDown size={14} className="bk-collapsible-chevron" />
+                  </button>
+  
+                  {participantsExpanded && (
+                    <div className="bk-collapsible-body">
+                      {participantsLoading ? (
+                        <UserLoadingState mode="inline" message="Cargando jugadores..." />
+                      ) : participantsError ? (
+                        <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
+                          {participantsError}
+                        </div>
+                      ) : (
+                        <div className="bk-player-list">
+                          <div className="bk-player">
+                            <span className="bk-player-icon" aria-hidden="true">{getInitials(selectedBooking.owner.displayName)}</span>
+                            <div className="bk-player-info">
+                              <p className="bk-player-name">
+                                {selectedBooking.owner.displayName}{selectedBooking.myRole === 'OWNER' ? ' · Vos' : ''}
+                              </p>
+                              <p className="bk-player-status">{selectedBooking.status === 'PENDING' ? 'Titular · Esperando al club' : 'Titular · Confirmado'}{sharePayLabel(ownerShare)}</p>
+                            </div>
+                            {ownerShare && <span className="bk-player-amount">{formatMoney(ownerShare.amount)}</span>}
+                          </div>
+                          {activeParticipants.map((participant) => {
+                            const share = participant.status === 'JOINED' ? shareByParticipantId.get(participant.id) ?? null : null;
+                            return (
+                            <div className="bk-player" key={participant.id}>
+                              <span className="bk-player-icon" aria-hidden="true">{getInitials(participant.displayName)}</span>
+                              <div className="bk-player-info">
+                                <p className="bk-player-name">{participant.displayName} {participant.isMe ? '· Vos' : ''}</p>
+                                <p className={`bk-player-status${participant.status === 'INVITED' ? ' is-pending' : ''}`}>
+                                  {participant.status === 'JOINED' ? 'Confirmado' :
+                                    participant.status === 'INVITED' ? 'Invitación enviada' :
+                                    participant.status === 'DECLINED' ? 'Rechazó la invitación' :
+                                    participant.status === 'LEFT' ? 'Se bajó de la reserva' : 'Removido'}
+                                  {sharePayLabel(share)}
+                                  {participant.invitedEmail ? ` · ${participant.invitedEmail}` : ''}
+                                </p>
+                              </div>
+                              {share && <span className="bk-player-amount">{formatMoney(share.amount)}</span>}
+                              {participant.canManage && (
+                                <button
+                                  type="button"
+                                  className="bk-player-remove"
+                                  aria-label={`Quitar a ${participant.displayName}`}
+                                  disabled={participantActionId === participant.id}
+                                  onClick={() => handleRemoveParticipant(participant)}
+                                >
+                                  <X size={15} aria-hidden="true" />
+                                </button>
+                              )}
+                            </div>
+                            );
+                          })}
+                        </div>
+                      )}
+  
+                      {pendingInviteNames.length > 0 && (
+                        <p className="bk-invite-pending-note">
+                          {pendingInviteNames.length === 1
+                            ? `Falta que ${pendingInviteNames[0]} acepte la invitación.`
+                            : `Faltan aceptar: ${pendingInviteNames.join(', ')}.`}
+                        </p>
+                      )}
+  
+                      {canInviteParticipant && (
+                        <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
+                          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
+                            Invitar jugador
+                          </div>
+                          {inviteBannerError && (
+                            <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
+                              {inviteBannerError}
+                            </div>
+                          )}
+                          <PlayerInviteSearch
+                            key={`${selectedBooking.id}-${inviteSearchKey}`}
+                            bookingId={selectedBooking.id}
+                            clubLabel={selectedBooking.club?.name || null}
+                            busy={inviteSubmitting}
+                            autoFocus={false}
+                            onPick={handleInvitePicked}
+                          />
+                          {inviteSubmitting && (
+                            <div style={{ fontSize: 12, fontWeight: 650, color: 'var(--text-muted)' }}>Enviando invitación…</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+  
+                {hasNoPublishedAccount ? (
+                  <div className="bk-compact-status" style={{ marginBottom: 18 }}>
+                    <span className="bk-compact-status-label">Estado de pago</span>
+                    <span className="bk-compact-status-copy">{noAccountPaymentCopy(selectedBooking)}</span>
+                  </div>
+                ) : (
+                <div className={`bk-collapsible${paymentExpanded ? ' bk-collapsible-open' : ''}`} style={{ marginBottom: 18 }}>
+                  <button
+                    type="button"
+                    className="bk-collapsible-head"
+                    onClick={() => setPaymentExpanded((prev) => !prev)}
+                    aria-expanded={paymentExpanded}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                      <div className="bk-detail-total-label">Estado de pago</div>
+                    </div>
+                    <ChevronDown size={14} className="bk-collapsible-chevron" />
+                  </button>
+  
+                  {paymentExpanded && (
+                    <div className="bk-collapsible-body">
+                      <div style={{ display: 'grid', gap: 10 }}>
+                        {checkoutLoading ? (
+                          <UserLoadingState mode="inline" message="Cargando pago..." />
+                        ) : checkoutError ? (
+                          <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
+                            {checkoutError}
+                          </div>
+                        ) : checkoutSummary?.shares ? (
+                          <>
+                            {checkoutSummary.shares.mine && (
+                              <div className="bk-pay-mine">
+                                <div style={{ minWidth: 0 }}>
+                                  <div className="bk-pay-mine-label">Tu parte</div>
+                                  <div className={`bk-pay-mine-status${minePartPending(checkoutSummary) <= 0.009 ? ' is-paid' : ''}`}>
+                                    {minePartPending(checkoutSummary) <= 0.009
+                                      ? 'Pagada'
+                                      : checkoutSummary.shares.mine.memberPricePending
+                                        ? 'Precio socio pendiente de validar'
+                                        : checkoutSummary.shares.mine.paid > 0.009
+                                          ? `Pagaste ${formatMoney(checkoutSummary.shares.mine.paid)} · falta ${formatMoney(minePartPending(checkoutSummary))}`
+                                          : 'Pendiente'}
+                                  </div>
+                                </div>
+                                <div className="bk-pay-mine-amount">{formatMoney(checkoutSummary.shares.mine.amount)}</div>
+                              </div>
+                            )}
+                            {checkoutSummary.shares.extras.length > 0 && (
+                              <div className="bk-pay-extras">
+                                <div className="bk-pay-extras-head">
+                                  <span>{checkoutSummary.shares.extras.some((extra) => extra.isMine) ? 'Consumos a tu cargo' : 'Consumos'}</span>
+                                  <strong>{formatMoney(checkoutSummary.shares.extras.reduce((sum, extra) => sum + extra.pending, 0))}</strong>
+                                </div>
+                                {checkoutSummary.shares.extras.map((extra, index) => (
+                                  <div key={`${extra.label}-${index}`} className="bk-pay-extra">
+                                    <span>{extra.label}</span>
+                                    <span>{formatMoney(extra.pending)}</span>
+                                  </div>
+                                ))}
+                                {!checkoutSummary.shares.extras.some((extra) => extra.isMine) && (
+                                  <div className="bk-pay-extra-note">Los paga el titular de la reserva.</div>
+                                )}
+                              </div>
+                            )}
+                            <div className="bk-pay-total">{sharesTotalCopy(checkoutSummary)}</div>
+                            {renderDepositAction(checkoutSummary)}
+                            {renderPriceHintsNote(checkoutSummary)}
+                            {!checkoutSummary.checkout.enabled && (
+                              <div className="bk-pay-note">{getCheckoutReasonMessage(checkoutSummary)}</div>
+                            )}
+                            {checkoutSummary.checkout.enabled && (
+                              <button
+                                type="button"
+                                className="bk-action-btn bk-action-rebook"
+                                onClick={() => { void handleStartOnlineCheckout('OWN_SHARE'); }}
+                                disabled={checkoutSubmitting}
+                              >
+                                <BusyLabel busy={checkoutSubmitting}>
+                                  <Ticket size={15} />
+                                  {checkoutSummary.shares.mine
+                                    ? `${minePayLabel(checkoutSummary)} · ${formatMoney(checkoutSummary.priceHints?.onlineAmount ?? checkoutSummary.shares.mine.pending)}`
+                                    : 'Pagar online con Mercado Pago'}
+                                </BusyLabel>
+                              </button>
+                            )}
+                            {checkoutSummary.shares.canPayAll && checkoutSummary.shares.allPending > (checkoutSummary.shares.mine?.pending || 0) + 0.009 && (
+                              // Solo con todos los lugares ocupados y precios validados: nadie pierde su precio socio.
+                              <button
+                                type="button"
+                                className="bk-action-btn bk-action-secondary"
+                                onClick={() => { void handleStartOnlineCheckout('ALL_SHARES'); }}
+                                disabled={checkoutSubmitting}
+                              >
+                                Pagar todas las partes · {formatMoney(checkoutSummary.shares.allPending)}
+                              </button>
+                            )}
+                            {checkoutSummary.checkout.enabled && (
+                              <div className="bk-pay-note">{sharesPayNote(checkoutSummary)}</div>
+                            )}
+                          </>
+                        ) : checkoutSummary ? (
+                          <>
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                                gap: 10
+                              }}
+                            >
+                              {[
+                                { label: 'Total', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.total) : '—' },
+                                { label: 'Pagado', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.paid) : '—' },
+                                { label: 'Falta pagar', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.pending) : '—' }
+                              ].map((item) => (
+                                <div
+                                  key={item.label}
+                                  style={{
+                                    padding: '10px 10px',
+                                    minWidth: 0,
+                                    borderRadius: 14,
+                                    background: 'var(--surface-2)',
+                                    border: '1px solid var(--border-subtle)'
+                                  }}
+                                >
+                                  <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 6 }}>
+                                    {item.label}
+                                  </div>
+                                  <div style={{ fontSize: 'clamp(14px, 4vw, 18px)', fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{item.value}</div>
+                                </div>
+                              ))}
+                            </div>
+  
+                            {checkoutSummary.account?.items?.length ? (
+                              <div style={{ display: 'grid', gap: 8 }}>
+                                {checkoutSummary.account.items.map((item, index) => (
+                                  <div
+                                    key={`${item.label}-${index}`}
+                                    style={{
+                                      padding: '10px 12px',
+                                      borderRadius: 12,
+                                      background: 'var(--surface-2)',
+                                      border: '1px solid var(--border-subtle)',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      gap: 12
+                                    }}
+                                  >
+                                    <div>
+                                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{item.label}</div>
+                                      <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                        {accountItemTypeLabel(item.type)} · {item.quantity} x {formatMoney(item.unitPrice)}
+                                      </div>
+                                    </div>
+                                    <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                                      {formatMoney(item.total)}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                                No hay conceptos de cobro visibles para esta reserva.
+                              </div>
+                            )}
+  
+                            <div
+                              style={{
+                                padding: '12px 14px',
+                                borderRadius: 12,
+                                background: checkoutSummary.checkout.enabled
+                                  ? 'var(--positive-bg)'
+                                  : checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
+                                  ? 'var(--positive-bg)'
+                                  : 'var(--surface-2)',
+                                border: checkoutSummary.checkout.enabled
+                                  ? '1px solid var(--accent-border-subtle)'
+                                  : checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
+                                  ? '1px solid var(--accent-border-subtle)'
+                                  : '1px solid var(--border-subtle)',
+                                color: checkoutSummary.checkout.enabled
+                                  ? 'var(--accent-fg)'
+                                  : checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
+                                  ? 'var(--accent-fg)'
+                                  : 'var(--text-secondary)',
+                                fontSize: 13,
+                                fontWeight: 600,
+                                lineHeight: 1.5
+                              }}
+                            >
+                              {getCheckoutReasonMessage(checkoutSummary)}
+                            </div>
+  
+                            {checkoutSummary.checkout.enabled && (
+                              <button
+                                type="button"
+                                className="bk-action-btn bk-action-rebook"
+                                onClick={() => { void handleStartOnlineCheckout('OWN_SHARE'); }}
+                                disabled={checkoutSubmitting}
+                              >
+                                <BusyLabel busy={checkoutSubmitting}>
+                                  <Ticket size={15} />
+                                  {checkoutSummary.priceHints?.onlineAmount != null
+                                    ? `Pagar online · ${formatMoney(checkoutSummary.priceHints.onlineAmount)}`
+                                    : 'Pagar online con Mercado Pago'}
+                                </BusyLabel>
+                              </button>
+                            )}
+                            {renderDepositAction(checkoutSummary)}
+                            {renderPriceHintsNote(checkoutSummary)}
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                )}
+  
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {activeTab === 'ACTIVE' && selectedBooking.capabilities?.canCancelBooking && (
+                    <button className="bk-action-btn bk-action-cancel" onClick={() => handleCancel(selectedBooking.id)}>
+                      <XCircle size={15} /> Cancelar reserva
+                    </button>
+                  )}
+                  {activeTab === 'ACTIVE' && !selectedBooking.capabilities?.canCancelBooking && selectedBooking.capabilities?.canLeaveBooking && (
+                    <button className="bk-action-btn bk-action-cancel" onClick={() => handleLeaveBooking(selectedBooking)} disabled={participantActionId === selectedBooking.id}>
+                      <BusyLabel busy={participantActionId === selectedBooking.id}><LogOut size={15} />Salir de la reserva</BusyLabel>
+                    </button>
+                  )}
+                  {(activeTab === 'PAST' || activeTab === 'CANCELLED') && selectedBooking.club?.slug && (
+                    <>
+                      {activeTab === 'PAST' && selectedClubHasCompletedBooking && (
+                        <button className="bk-action-btn bk-action-review" onClick={() => handleOpenReviewModal(selectedBooking)}>
+                          <MessageSquare size={15} /> Dejar / editar reseña del club
+                        </button>
+                      )}
+                      <Link href={`/club/${selectedBooking.club.slug}?view=reservar`} className="bk-action-btn bk-action-rebook">
+                        <CheckCircle2 size={15} /> Volver a reservar
+                      </Link>
+                    </>
+                  )}
+                </div>
+              </div>
+    );
+  };
 
   return (
     <DarkPageLayout
@@ -1315,7 +1757,7 @@ export default function MyBookingsPage() {
         </div>
 
         {/* ── MAIN LAYOUT ── */}
-        <div className={`bk-layout${isDualEmptyState ? ' bk-layout-empty' : ''}${selectedBooking ? ' bk-has-selection' : ''}`}>
+        <div className={`bk-layout${isDualEmptyState ? ' bk-layout-empty' : ''}${selectedBooking && !isCompact ? ' bk-has-selection' : ''}`}>
 
           {/* LIST PANEL */}
           <div className="bk-list-panel">
@@ -1387,8 +1829,8 @@ export default function MyBookingsPage() {
                   const boxClass = activeTab === 'ACTIVE' ? 'bk-date-box-active' : activeTab === 'CANCELLED' ? 'bk-date-box-cancelled' : 'bk-date-box-past';
                   const dayColor = activeTab === 'ACTIVE' ? 'var(--positive-fg)' : activeTab === 'CANCELLED' ? 'var(--error-fg)' : 'var(--text-muted)';
                   return (
+                    <Fragment key={booking.id}>
                     <div
-                      key={booking.id}
                       ref={el => { bookingRefs.current[Number(booking.id)] = el; }}
                       role="button"
                       tabIndex={0}
@@ -1434,6 +1876,8 @@ export default function MyBookingsPage() {
                         aria-hidden="true"
                       />
                     </div>
+                    {isSelected && isCompact && renderDetail()}
+                    </Fragment>
                   );
                 })
               )}
@@ -1442,393 +1886,7 @@ export default function MyBookingsPage() {
 
           {/* DETAIL PANEL */}
           {selectedBooking ? (
-            <div
-              className="bk-detail"
-              ref={el => { selectedDetailRef.current = el; }}
-              tabIndex={-1}
-            >
-              <div className={`bk-ticket-label${activeTab === 'ACTIVE' && selectedBooking.status === 'PENDING' ? ' is-pending' : ''}${selectedBooking.status === 'CANCELLED' ? ' is-cancelled' : ''}`}>
-                <Ticket size={12} /> {bookingStatusLabel(selectedBooking)}
-              </div>
-              <div className="bk-detail-court">{selectedBooking.court?.name || 'Cancha'}</div>
-              <div className="bk-detail-activity">{selectedBooking.activity?.name || 'Deporte'} · {selectedBooking.club?.name}</div>
-
-              <hr className="p-public-divider" style={{ margin: '0 0 16px' }} />
-
-              <div>
-                <div className="bk-detail-row">
-                  <div className="bk-detail-icon"><Calendar size={16} /></div>
-                  <div>
-                    <div className="bk-detail-row-label">Fecha</div>
-                    <div className="bk-detail-row-val">{formatWeekday(new Date(selectedBooking.startDateTime), selectedBooking.club?.timeZone)}</div>
-                  </div>
-                </div>
-                <div className="bk-detail-row">
-                  <div className="bk-detail-icon"><Clock size={16} /></div>
-                  <div>
-                    <div className="bk-detail-row-label">Horario</div>
-                    <div className="bk-detail-row-val">{formatTime(new Date(selectedBooking.startDateTime), selectedBooking.club?.timeZone)} · {getDuration(selectedBooking)} min</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className={`bk-collapsible${participantsExpanded ? ' bk-collapsible-open' : ''}`}>
-                <button
-                  type="button"
-                  className="bk-collapsible-head"
-                  onClick={() => setParticipantsExpanded((prev) => !prev)}
-                  aria-expanded={participantsExpanded}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
-                      Participantes
-                    </div>
-                    {participantCapacity ? (
-                      <span className="bk-card-chip" title={selectedBooking.formatName || undefined}>
-                        {selectedBooking.formatName ? `${selectedBooking.formatName} · ` : ''}
-                        {pendingInviteNames.length
-                          ? `${confirmedParticipantSlots} de ${participantCapacity} confirmados`
-                          : `${occupiedParticipantSlots} de ${participantCapacity}`}
-                      </span>
-                    ) : canInviteParticipant ? (
-                      <span className="bk-card-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <UserPlus size={12} /> Podés invitar
-                      </span>
-                    ) : null}
-                  </div>
-                  <ChevronDown size={14} className="bk-collapsible-chevron" />
-                </button>
-
-                {participantsExpanded && (
-                  <div className="bk-collapsible-body">
-                    {participantsLoading ? (
-                      <UserLoadingState mode="inline" message="Cargando jugadores..." />
-                    ) : participantsError ? (
-                      <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
-                        {participantsError}
-                      </div>
-                    ) : (
-                      <div className="bk-player-list">
-                        <div className="bk-player">
-                          <span className="bk-player-icon" aria-hidden="true">{getInitials(selectedBooking.owner.displayName)}</span>
-                          <div className="bk-player-info">
-                            <p className="bk-player-name">
-                              {selectedBooking.owner.displayName}{selectedBooking.myRole === 'OWNER' ? ' · Vos' : ''}
-                            </p>
-                            <p className="bk-player-status">Titular · Confirmado{sharePayLabel(ownerShare)}</p>
-                          </div>
-                          {ownerShare && <span className="bk-player-amount">{formatMoney(ownerShare.amount)}</span>}
-                        </div>
-                        {activeParticipants.map((participant) => {
-                          const share = participant.status === 'JOINED' ? shareByParticipantId.get(participant.id) ?? null : null;
-                          return (
-                          <div className="bk-player" key={participant.id}>
-                            <span className="bk-player-icon" aria-hidden="true">{getInitials(participant.displayName)}</span>
-                            <div className="bk-player-info">
-                              <p className="bk-player-name">{participant.displayName} {participant.isMe ? '· Vos' : ''}</p>
-                              <p className={`bk-player-status${participant.status === 'INVITED' ? ' is-pending' : ''}`}>
-                                {participant.status === 'JOINED' ? 'Confirmado' :
-                                  participant.status === 'INVITED' ? 'Invitación enviada' :
-                                  participant.status === 'DECLINED' ? 'Rechazó la invitación' :
-                                  participant.status === 'LEFT' ? 'Se bajó de la reserva' : 'Removido'}
-                                {sharePayLabel(share)}
-                                {participant.invitedEmail ? ` · ${participant.invitedEmail}` : ''}
-                              </p>
-                            </div>
-                            {share && <span className="bk-player-amount">{formatMoney(share.amount)}</span>}
-                            {participant.canManage && (
-                              <button
-                                type="button"
-                                className="bk-player-remove"
-                                aria-label={`Quitar a ${participant.displayName}`}
-                                disabled={participantActionId === participant.id}
-                                onClick={() => handleRemoveParticipant(participant)}
-                              >
-                                <X size={15} aria-hidden="true" />
-                              </button>
-                            )}
-                          </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {pendingInviteNames.length > 0 && (
-                      <p className="bk-invite-pending-note">
-                        {pendingInviteNames.length === 1
-                          ? `Falta que ${pendingInviteNames[0]} acepte la invitación.`
-                          : `Faltan aceptar: ${pendingInviteNames.join(', ')}.`}
-                      </p>
-                    )}
-
-                    {canInviteParticipant && (
-                      <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
-                        <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)' }}>
-                          Invitar jugador
-                        </div>
-                        {inviteBannerError && (
-                          <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
-                            {inviteBannerError}
-                          </div>
-                        )}
-                        <PlayerInviteSearch
-                          key={`${selectedBooking.id}-${inviteSearchKey}`}
-                          bookingId={selectedBooking.id}
-                          clubLabel={selectedBooking.club?.name || null}
-                          busy={inviteSubmitting}
-                          autoFocus={false}
-                          onPick={handleInvitePicked}
-                        />
-                        {inviteSubmitting && (
-                          <div style={{ fontSize: 12, fontWeight: 650, color: 'var(--text-muted)' }}>Enviando invitación…</div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {hasNoPublishedAccount ? (
-                <div className="bk-compact-status" style={{ marginBottom: 18 }}>
-                  <span className="bk-compact-status-label">Estado de pago</span>
-                  <span className="bk-compact-status-copy">Consultá el estado con el club</span>
-                </div>
-              ) : (
-              <div className={`bk-collapsible${paymentExpanded ? ' bk-collapsible-open' : ''}`} style={{ marginBottom: 18 }}>
-                <button
-                  type="button"
-                  className="bk-collapsible-head"
-                  onClick={() => setPaymentExpanded((prev) => !prev)}
-                  aria-expanded={paymentExpanded}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                    <div className="bk-detail-total-label">Estado de pago</div>
-                  </div>
-                  <ChevronDown size={14} className="bk-collapsible-chevron" />
-                </button>
-
-                {paymentExpanded && (
-                  <div className="bk-collapsible-body">
-                    <div style={{ display: 'grid', gap: 10 }}>
-                      {checkoutLoading ? (
-                        <UserLoadingState mode="inline" message="Cargando pago..." />
-                      ) : checkoutError ? (
-                        <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--error-bg)', color: 'var(--error-fg)', fontSize: 13, fontWeight: 600 }}>
-                          {checkoutError}
-                        </div>
-                      ) : checkoutSummary?.shares ? (
-                        <>
-                          {checkoutSummary.shares.mine && (
-                            <div className="bk-pay-mine">
-                              <div style={{ minWidth: 0 }}>
-                                <div className="bk-pay-mine-label">Tu parte</div>
-                                <div className={`bk-pay-mine-status${minePartPending(checkoutSummary) <= 0.009 ? ' is-paid' : ''}`}>
-                                  {minePartPending(checkoutSummary) <= 0.009
-                                    ? 'Pagada'
-                                    : checkoutSummary.shares.mine.memberPricePending
-                                      ? 'Precio socio pendiente de validar'
-                                      : checkoutSummary.shares.mine.paid > 0.009
-                                        ? `Pagaste ${formatMoney(checkoutSummary.shares.mine.paid)} · falta ${formatMoney(minePartPending(checkoutSummary))}`
-                                        : 'Pendiente'}
-                                </div>
-                              </div>
-                              <div className="bk-pay-mine-amount">{formatMoney(checkoutSummary.shares.mine.amount)}</div>
-                            </div>
-                          )}
-                          {checkoutSummary.shares.extras.length > 0 && (
-                            <div className="bk-pay-extras">
-                              <div className="bk-pay-extras-head">
-                                <span>{checkoutSummary.shares.extras.some((extra) => extra.isMine) ? 'Consumos a tu cargo' : 'Consumos'}</span>
-                                <strong>{formatMoney(checkoutSummary.shares.extras.reduce((sum, extra) => sum + extra.pending, 0))}</strong>
-                              </div>
-                              {checkoutSummary.shares.extras.map((extra, index) => (
-                                <div key={`${extra.label}-${index}`} className="bk-pay-extra">
-                                  <span>{extra.label}</span>
-                                  <span>{formatMoney(extra.pending)}</span>
-                                </div>
-                              ))}
-                              {!checkoutSummary.shares.extras.some((extra) => extra.isMine) && (
-                                <div className="bk-pay-extra-note">Los paga el titular de la reserva.</div>
-                              )}
-                            </div>
-                          )}
-                          <div className="bk-pay-total">{sharesTotalCopy(checkoutSummary)}</div>
-                          {renderDepositAction(checkoutSummary)}
-                          {renderPriceHintsNote(checkoutSummary)}
-                          {!checkoutSummary.checkout.enabled && (
-                            <div className="bk-pay-note">{getCheckoutReasonMessage(checkoutSummary)}</div>
-                          )}
-                          {checkoutSummary.checkout.enabled && (
-                            <button
-                              type="button"
-                              className="bk-action-btn bk-action-rebook"
-                              onClick={() => { void handleStartOnlineCheckout('OWN_SHARE'); }}
-                              disabled={checkoutSubmitting}
-                            >
-                              <BusyLabel busy={checkoutSubmitting}>
-                                <Ticket size={15} />
-                                {checkoutSummary.shares.mine
-                                  ? `${minePayLabel(checkoutSummary)} · ${formatMoney(checkoutSummary.priceHints?.onlineAmount ?? checkoutSummary.shares.mine.pending)}`
-                                  : 'Pagar online con Mercado Pago'}
-                              </BusyLabel>
-                            </button>
-                          )}
-                          {checkoutSummary.shares.canPayAll && checkoutSummary.shares.allPending > (checkoutSummary.shares.mine?.pending || 0) + 0.009 && (
-                            // Solo con todos los lugares ocupados y precios validados: nadie pierde su precio socio.
-                            <button
-                              type="button"
-                              className="bk-action-btn bk-action-secondary"
-                              onClick={() => { void handleStartOnlineCheckout('ALL_SHARES'); }}
-                              disabled={checkoutSubmitting}
-                            >
-                              Pagar todas las partes · {formatMoney(checkoutSummary.shares.allPending)}
-                            </button>
-                          )}
-                          {checkoutSummary.checkout.enabled && (
-                            <div className="bk-pay-note">{sharesPayNote(checkoutSummary)}</div>
-                          )}
-                        </>
-                      ) : checkoutSummary ? (
-                        <>
-                          <div
-                            style={{
-                              display: 'grid',
-                              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                              gap: 10
-                            }}
-                          >
-                            {[
-                              { label: 'Total', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.total) : '—' },
-                              { label: 'Pagado', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.paid) : '—' },
-                              { label: 'Pendiente', value: checkoutSummary.account ? formatMoney(checkoutSummary.account.pending) : '—' }
-                            ].map((item) => (
-                              <div
-                                key={item.label}
-                                style={{
-                                  padding: '12px 14px',
-                                  borderRadius: 14,
-                                  background: 'var(--surface-2)',
-                                  border: '1px solid var(--border-subtle)'
-                                }}
-                              >
-                                <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 6 }}>
-                                  {item.label}
-                                </div>
-                                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>{item.value}</div>
-                              </div>
-                            ))}
-                          </div>
-
-                          {checkoutSummary.account?.items?.length ? (
-                            <div style={{ display: 'grid', gap: 8 }}>
-                              {checkoutSummary.account.items.map((item, index) => (
-                                <div
-                                  key={`${item.label}-${index}`}
-                                  style={{
-                                    padding: '10px 12px',
-                                    borderRadius: 12,
-                                    background: 'var(--surface-2)',
-                                    border: '1px solid var(--border-subtle)',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    gap: 12
-                                  }}
-                                >
-                                  <div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{item.label}</div>
-                                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                                      {accountItemTypeLabel(item.type)} · {item.quantity} x {formatMoney(item.unitPrice)}
-                                    </div>
-                                  </div>
-                                  <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
-                                    {formatMoney(item.total)}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                              No hay conceptos de cobro visibles para esta reserva.
-                            </div>
-                          )}
-
-                          <div
-                            style={{
-                              padding: '12px 14px',
-                              borderRadius: 12,
-                              background: checkoutSummary.checkout.enabled
-                                ? 'var(--positive-bg)'
-                                : checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
-                                ? 'var(--positive-bg)'
-                                : 'var(--surface-2)',
-                              border: checkoutSummary.checkout.enabled
-                                ? '1px solid var(--accent-border-subtle)'
-                                : checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
-                                ? '1px solid var(--accent-border-subtle)'
-                                : '1px solid var(--border-subtle)',
-                              color: checkoutSummary.checkout.enabled
-                                ? 'var(--accent-fg)'
-                                : checkoutSummary.checkout.reason === 'NO_PENDING_BALANCE'
-                                ? 'var(--accent-fg)'
-                                : 'var(--text-secondary)',
-                              fontSize: 13,
-                              fontWeight: 600,
-                              lineHeight: 1.5
-                            }}
-                          >
-                            {getCheckoutReasonMessage(checkoutSummary)}
-                          </div>
-
-                          {checkoutSummary.checkout.enabled && (
-                            <button
-                              type="button"
-                              className="bk-action-btn bk-action-rebook"
-                              onClick={() => { void handleStartOnlineCheckout('OWN_SHARE'); }}
-                              disabled={checkoutSubmitting}
-                            >
-                              <BusyLabel busy={checkoutSubmitting}>
-                                <Ticket size={15} />
-                                {checkoutSummary.priceHints?.onlineAmount != null
-                                  ? `Pagar online · ${formatMoney(checkoutSummary.priceHints.onlineAmount)}`
-                                  : 'Pagar online con Mercado Pago'}
-                              </BusyLabel>
-                            </button>
-                          )}
-                          {renderDepositAction(checkoutSummary)}
-                          {renderPriceHintsNote(checkoutSummary)}
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-              </div>
-              )}
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {activeTab === 'ACTIVE' && selectedBooking.capabilities?.canCancelBooking && (
-                  <button className="bk-action-btn bk-action-cancel" onClick={() => handleCancel(selectedBooking.id)}>
-                    <XCircle size={15} /> Cancelar reserva
-                  </button>
-                )}
-                {activeTab === 'ACTIVE' && !selectedBooking.capabilities?.canCancelBooking && selectedBooking.capabilities?.canLeaveBooking && (
-                  <button className="bk-action-btn bk-action-cancel" onClick={() => handleLeaveBooking(selectedBooking)} disabled={participantActionId === selectedBooking.id}>
-                    <BusyLabel busy={participantActionId === selectedBooking.id}><LogOut size={15} />Salir de la reserva</BusyLabel>
-                  </button>
-                )}
-                {(activeTab === 'PAST' || activeTab === 'CANCELLED') && selectedBooking.club?.slug && (
-                  <>
-                    {activeTab === 'PAST' && selectedClubHasCompletedBooking && (
-                      <button className="bk-action-btn bk-action-review" onClick={() => handleOpenReviewModal(selectedBooking)}>
-                        <MessageSquare size={15} /> Dejar / editar reseña del club
-                      </button>
-                    )}
-                    <Link href={`/club/${selectedBooking.club.slug}?view=reservar`} className="bk-action-btn bk-action-rebook">
-                      <CheckCircle2 size={15} /> Volver a reservar
-                    </Link>
-                  </>
-                )}
-              </div>
-            </div>
+            isCompact ? null : renderDetail()
           ) : (
             <div className="bk-detail-empty">
               <Ticket size={48} className="bk-detail-empty-icon" />

@@ -442,6 +442,13 @@ router.post('/:slug/admin/bookings/:id/confirm',
     bookingController.confirmBooking
 );
 
+router.post('/:slug/admin/bookings/:id/resolve-past',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    bookingController.resolvePastPendingBooking
+);
+
 router.post('/:slug/admin/bookings/:id/complete',
     authMiddleware,
     verifyClubAccess,

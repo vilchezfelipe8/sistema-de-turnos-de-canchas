@@ -9,7 +9,8 @@ import { sendAppError, zodValidationAppError } from '../errors';
 
 const PAGE_SIZE = 25;
 
-const VIEWS = ['UPCOMING', 'PENDING', 'CANCELLED', 'PAST'] as const;
+// TO_RESOLVE: pendientes cuyo turno ya terminó sin que nadie las confirme ni cancele.
+const VIEWS = ['UPCOMING', 'PENDING', 'CANCELLED', 'PAST', 'TO_RESOLVE'] as const;
 type BookingListView = (typeof VIEWS)[number];
 
 const listSchema = z.object({
@@ -31,7 +32,9 @@ const viewWhere = (view: BookingListView, now: Date): Prisma.BookingWhereInput =
     case 'CANCELLED':
       return { status: 'CANCELLED' };
     case 'PAST':
-      return { status: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] }, endDateTime: { lt: now } };
+      return { status: { in: ['CONFIRMED', 'COMPLETED'] }, endDateTime: { lt: now } };
+    case 'TO_RESOLVE':
+      return { status: 'PENDING', endDateTime: { lt: now } };
   }
 };
 
@@ -157,14 +160,14 @@ export class AdminBookingListController {
         };
       });
 
-      const [upcoming, pending, cancelled, past] = counts;
+      const [upcoming, pending, cancelled, past, toResolve] = counts;
       return res.json({
         items,
         total,
         page,
         pageSize: PAGE_SIZE,
         pages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
-        counts: { upcoming, pending, cancelled, past },
+        counts: { upcoming, pending, cancelled, past, toResolve },
         timeZone
       });
     } catch (error) {

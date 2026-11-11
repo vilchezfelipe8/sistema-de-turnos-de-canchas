@@ -10,6 +10,7 @@ import { showAdminToast } from '../../utils/adminToast';
 import { ClubAdminService } from '../../services/ClubAdminService';
 import {
   listAdminBookings,
+  resolvePastPendingBooking,
   listAdminFixedBookings,
   type FixedBookingListItem,
   type BookingListItem,
@@ -25,6 +26,7 @@ type PageView = BookingListView | 'FIXED';
 const VIEWS: Array<{ value: PageView; label: string; countKey?: keyof BookingListResult['counts']; empty: string }> = [
   { value: 'UPCOMING', label: 'Próximas', countKey: 'upcoming', empty: 'No hay reservas próximas' },
   { value: 'PENDING', label: 'Sin confirmar', countKey: 'pending', empty: 'No hay reservas sin confirmar' },
+  { value: 'TO_RESOLVE', label: 'Sin resolver', countKey: 'toResolve', empty: 'No quedan turnos sin resolver' },
   { value: 'FIXED', label: 'Turnos fijos', empty: 'No hay turnos fijos' },
   { value: 'CANCELLED', label: 'Canceladas', countKey: 'cancelled', empty: 'No hay reservas canceladas' },
   { value: 'PAST', label: 'Pasadas', countKey: 'past', empty: 'No hay reservas pasadas' },
@@ -33,7 +35,7 @@ const VIEWS: Array<{ value: PageView; label: string; countKey?: keyof BookingLis
 const parseView = (value: unknown): PageView => {
   const raw = String(value || '').toUpperCase();
   if (raw === 'FIJOS') return 'FIXED';
-  return raw === 'PENDING' || raw === 'CANCELLED' || raw === 'PAST' ? raw : 'UPCOMING';
+  return raw === 'PENDING' || raw === 'CANCELLED' || raw === 'PAST' || raw === 'TO_RESOLVE' ? raw : 'UPCOMING';
 };
 
 const WEEKDAYS = ['Domingos', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábados'];
@@ -81,6 +83,8 @@ const formatShortDate = (iso: string, timeZone: string) =>
 
 const statusChip = (b: BookingListItem): { label: string; className: string } => {
   if (b.status === 'CANCELLED') return { label: 'Cancelada', className: 'bg-p-surface-2 text-p-text-muted' };
+  if (b.status === 'PENDING' && new Date(b.endDateTime).getTime() < Date.now())
+    return { label: 'Sin resolver', className: 'bg-p-warning-bg text-p-warning' };
   if (b.status === 'PENDING') return { label: 'Sin confirmar', className: 'bg-p-warning-bg text-p-warning' };
   if (b.status === 'COMPLETED' || new Date(b.endDateTime).getTime() < Date.now())
     return { label: 'Jugada', className: 'bg-p-surface-2 text-p-text-secondary' };
@@ -102,7 +106,7 @@ const formatDayShort = (iso: string, timeZone: string) =>
     .replace(/\./g, '')
     .replace(',', '');
 
-type RowAction = 'confirm' | 'cancel';
+type RowAction = 'confirm' | 'cancel' | 'played' | 'not_played';
 
 function BookingRow({
   booking,
@@ -123,6 +127,8 @@ function BookingRow({
   // Pendientes que todavía no pasaron: se confirman o cancelan desde acá.
   const actionable = Boolean(onAction) && booking.status === 'PENDING' && new Date(booking.endDateTime).getTime() >= Date.now();
   const hasPayments = booking.paidAmount > 0.009;
+  // Pendientes que ya pasaron: el club dice qué pasó.
+  const resolvable = Boolean(onAction) && booking.status === 'PENDING' && new Date(booking.endDateTime).getTime() < Date.now();
   const [askCancel, setAskCancel] = useState(false);
 
   const body = (
@@ -152,7 +158,11 @@ function BookingRow({
       </div>
       <div className="shrink-0 text-right">
         <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${chip.className}`}>{chip.label}</span>
-        {!cancelled && booking.totalAmount > 0 && (
+        {/* Sin confirmar no hay cuenta todavía: se muestra el precio, no una deuda. */}
+        {booking.status === 'PENDING' && booking.totalAmount > 0 && (
+          <p className="mt-1 text-[12px] tabular-nums text-p-text-secondary">{formatMoney(booking.totalAmount)}</p>
+        )}
+        {!cancelled && booking.status !== 'PENDING' && booking.totalAmount > 0 && (
           <p
             className={`mt-1 text-[12px] font-semibold tabular-nums ${
               booking.remainingAmount > 0 ? 'text-[var(--error-fg)]' : 'text-p-positive'
@@ -174,6 +184,29 @@ function BookingRow({
       >
         {body}
       </Link>
+      {resolvable && (
+        <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pl-[80px]">
+          <p className="w-full text-[12px] text-p-text-secondary">El turno pasó y nunca se confirmó. ¿Se jugó?</p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onAction!(booking, 'played')}
+            className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+            title="La confirma y queda la cuenta para cobrar"
+          >
+            {busy ? 'Guardando…' : 'Se jugó'}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onAction!(booking, 'not_played')}
+            className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+            title="La cancela, sin avisarle al jugador"
+          >
+            No se jugó
+          </button>
+        </div>
+      )}
       {actionable && (
         <div className="px-4 pb-3">
           {askCancel ? (
@@ -474,7 +507,14 @@ function BookingsContent({ slug }: { slug: string }) {
     async (booking: BookingListItem, action: RowAction) => {
       setBusyId(booking.id);
       try {
-        if (action === 'confirm') {
+        if (action === 'played' || action === 'not_played') {
+          await resolvePastPendingBooking(slug, booking.id, action === 'played' ? 'PLAYED' : 'NOT_PLAYED');
+          showAdminToast(
+            action === 'played'
+              ? `Listo: el turno de ${booking.client.name} quedó como jugado.`
+              : `Listo: el turno de ${booking.client.name} quedó como no jugado.`
+          );
+        } else if (action === 'confirm') {
           await ClubAdminService.confirmBooking(slug, booking.id);
           showAdminToast(`Reserva de ${booking.client.name} confirmada.`);
         } else {
@@ -486,7 +526,14 @@ function BookingsContent({ slug }: { slug: string }) {
       } catch (err) {
         reportUiError({ area: 'AdminBookingsPage', action }, err);
         showAdminToast(
-          extractErrorMessage(err, action === 'confirm' ? 'No se pudo confirmar la reserva.' : 'No se pudo cancelar la reserva.'),
+          extractErrorMessage(
+            err,
+            action === 'confirm'
+              ? 'No se pudo confirmar la reserva.'
+              : action === 'cancel'
+                ? 'No se pudo cancelar la reserva.'
+                : 'No se pudo guardar qué pasó con el turno.'
+          ),
           'error'
         );
         return false;
@@ -611,7 +658,9 @@ function BookingsContent({ slug }: { slug: string }) {
                   ? fixedItems.length
                   : null;
               const selected = view === option.value;
-              const alert = option.value === 'PENDING' && (count ?? 0) > 0;
+              // "Sin resolver" solo aparece cuando hay algo para resolver.
+              if (option.value === 'TO_RESOLVE' && !selected && !(count && count > 0)) return null;
+              const alert = (option.value === 'PENDING' || option.value === 'TO_RESOLVE') && (count ?? 0) > 0;
               return (
                 <button
                   key={option.value}
@@ -631,6 +680,17 @@ function BookingsContent({ slug }: { slug: string }) {
             })}
           </div>
         </div>
+
+        {view !== 'TO_RESOLVE' && (result?.counts.toResolve ?? 0) > 0 && (
+          <AdminFeedbackBanner tone="warning">
+            {result!.counts.toResolve === 1
+              ? 'Hay 1 turno que ya pasó y nunca se confirmó.'
+              : `Hay ${result!.counts.toResolve} turnos que ya pasaron y nunca se confirmaron.`}{' '}
+            <button type="button" className="font-semibold underline" onClick={() => setQuery({ ver: 'TO_RESOLVE', dia: '' })}>
+              {result!.counts.toResolve === 1 ? 'Resolverlo' : 'Resolverlos'}
+            </button>
+          </AdminFeedbackBanner>
+        )}
 
         {error && (
           <AdminFeedbackBanner tone="error">

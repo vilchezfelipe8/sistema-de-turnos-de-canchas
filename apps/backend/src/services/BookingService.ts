@@ -54,6 +54,8 @@ import { applyPercentToAmounts, buildPublicPriceHints, normalizePaymentMethodDis
 type CancelBookingReason = 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED';
 type CancelBookingOptions = {
     reason?: CancelBookingReason;
+    // Sin avisos (WhatsApp/push): para resolver turnos que ya pasaron, donde avisar no tiene sentido.
+    silent?: boolean;
     // Motivo para el jugador (ej. "lluvia"): se incluye en el aviso de cancelación.
     playerReasonText?: string | null;
     triggeredBy?: 'USER' | 'ADMIN' | 'SYSTEM';
@@ -150,8 +152,17 @@ export type PlayerBookingDto = {
     status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
     myRole: 'OWNER' | 'PARTICIPANT';
     paymentSummary: {
-        status: 'NOT_REQUIRED' | 'PENDING' | 'PARTIAL' | 'PAID';
+        // AWAITING_CONFIRMATION: pendiente, todavía sin cuenta (se cobra cuando el club confirme).
+        // NOT_CONFIRMED: el turno pasó y el club nunca la confirmó: no hay nada para cobrar.
+        status: 'NOT_REQUIRED' | 'PENDING' | 'PARTIAL' | 'PAID' | 'AWAITING_CONFIRMATION' | 'NOT_CONFIRMED';
         label: string;
+        // ACCOUNT = montos reales de la cuenta; ESTIMATE = precio de la reserva (sin cuenta todavía).
+        source: 'ACCOUNT' | 'ESTIMATE' | 'NONE';
+        totalAmount: number;
+        paidAmount: number;
+        remainingAmount: number;
+        // Parte del jugador cuando la reserva se cobra por jugador; null si se cobra por cancha.
+        myShareAmount: number | null;
     };
     capabilities: {
         canView: true;
@@ -671,10 +682,69 @@ export class BookingService {
         return new Date(booking.startDateTime).getTime() > now.getTime();
     }
 
+    // Resumen de pago para Mis reservas. Sin cuenta (reserva todavía no confirmada) no mostramos
+    // "sin deuda": usamos el precio de la reserva como estimado, o avisamos que nunca se confirmó.
+    private resolvePlayerBookingListPaymentSummary(input: {
+        booking: {
+            status: BookingStatus | string;
+            startDateTime: Date | string;
+            price?: Prisma.Decimal | number | string | null;
+            playerSlots?: Array<{ slotIndex: number; userId: number | null; shareAmount: Prisma.Decimal | number | string }> | null;
+        };
+        account: { totalAmount: number; paidAmount: number } | null;
+        userId: number;
+        isOwner: boolean;
+        now: Date;
+    }): PlayerBookingDto['paymentSummary'] {
+        const slots = Array.isArray(input.booking.playerSlots) ? input.booking.playerSlots : [];
+        const mySlot = slots.find((slot) => Number(slot.userId || 0) === Number(input.userId))
+            ?? (input.isOwner ? slots.find((slot) => slot.slotIndex === 1) : undefined);
+        const myShareAmount = mySlot ? this.roundCurrency(Number(mySlot.shareAmount || 0)) : null;
+
+        if (input.account) {
+            const totalAmount = this.roundCurrency(Math.max(0, input.account.totalAmount || 0));
+            const paidAmount = this.roundCurrency(Math.max(0, input.account.paidAmount || 0));
+            return {
+                ...this.resolvePlayerPaymentSummary(input.account),
+                source: 'ACCOUNT',
+                totalAmount,
+                paidAmount,
+                remainingAmount: this.roundCurrency(Math.max(0, totalAmount - paidAmount)),
+                myShareAmount
+            };
+        }
+
+        const none = { source: 'NONE' as const, totalAmount: 0, paidAmount: 0, remainingAmount: 0, myShareAmount: null };
+        const status = String(input.booking.status);
+        if (status === 'CANCELLED') {
+            return { status: 'NOT_REQUIRED', label: 'Reserva cancelada: no hay nada para pagar.', ...none };
+        }
+        const hasStarted = new Date(input.booking.startDateTime).getTime() <= input.now.getTime();
+        if (status === 'PENDING' && hasStarted) {
+            return { status: 'NOT_CONFIRMED', label: 'El club no confirmó esta reserva: no hay nada para pagar.', ...none };
+        }
+
+        const estimatedTotal = this.roundCurrency(Math.max(0, Number(input.booking.price || 0)));
+        if (estimatedTotal <= 0.009) {
+            return { status: 'NOT_REQUIRED', label: 'Sin pagos requeridos por ahora.', ...none };
+        }
+        return {
+            status: status === 'PENDING' ? 'AWAITING_CONFIRMATION' : 'PENDING',
+            label: status === 'PENDING'
+                ? 'Se paga en el club, cuando confirmen la reserva.'
+                : 'Pago pendiente con el club.',
+            source: 'ESTIMATE',
+            totalAmount: estimatedTotal,
+            paidAmount: 0,
+            remainingAmount: estimatedTotal,
+            myShareAmount
+        };
+    }
+
     private resolvePlayerPaymentSummary(input: {
         totalAmount: number;
         paidAmount: number;
-    }): PlayerBookingDto['paymentSummary'] {
+    }): { status: 'NOT_REQUIRED' | 'PENDING' | 'PARTIAL' | 'PAID'; label: string } {
         const total = Number(Math.max(0, input.totalAmount || 0).toFixed(2));
         const paid = Number(Math.max(0, input.paidAmount || 0).toFixed(2));
         const remaining = Number(Math.max(0, total - paid).toFixed(2));
@@ -4853,8 +4923,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 staffEventsV2Enabled
             });
 
-            await this.outboxService.enqueueMany(messagesToEnqueue, tx);
-            if (customerEventsV2Enabled) {
+            const silent = options?.silent === true;
+            if (!silent) await this.outboxService.enqueueMany(messagesToEnqueue, tx);
+            if (customerEventsV2Enabled && !silent) {
                 await this.bookingCustomerWhatsappNotificationService.enqueueBookingCancelled({
                     bookingId,
                     clubId: booking.court.club.id,
@@ -4869,7 +4940,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     cancelledBy
                 }, tx);
             }
-            if (staffEventsV2Enabled) {
+            if (staffEventsV2Enabled && !silent) {
                 await this.bookingStaffWhatsappNotificationService.enqueueBookingCancelled({
                     bookingId,
                     clubId: booking.court.club.id,
@@ -4888,7 +4959,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 await this.projectionService.refreshAccountSummary(account.id, tx);
             }
             // Solo cuando cancela el club (desde el admin) o el sistema; si cancela el propio jugador, no.
-            if (clubId != null || isAutoCancel) {
+            if ((clubId != null || isAutoCancel) && !silent) {
                 await this.enqueueBookingCancelledPushTx(tx, {
                     bookingId,
                     clubId: booking.court.club.id,
@@ -5273,7 +5344,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         });
     }
 
-    async confirmBooking(bookingId: number, actorUserId: number, clubId: number) {
+    async confirmBooking(bookingId: number, actorUserId: number, clubId: number, options?: { silent?: boolean }) {
         const updatedStatus = await prisma.$transaction(async (tx) => {
             const booking = await tx.booking.findFirst({
                 where: { id: bookingId, clubId },
@@ -5296,7 +5367,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             });
 
             const nextStatus = await this.bookingDomainService.confirmBookingManuallyTx(tx, { bookingId, clubId });
-            if (nextStatus === 'CONFIRMED') {
+            if (nextStatus === 'CONFIRMED' && options?.silent !== true) {
                 await this.enqueueBookingConfirmedPushTx(tx, { bookingId, clubId, actorUserId });
             }
             await this.eventService.bookingConfirmed(clubId, {
@@ -5409,6 +5480,37 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         });
 
         return this.getBookingById(bookingId, clubId);
+    }
+
+    // Pendientes cuyo turno ya terminó y el club nunca resolvió. El admin decide qué pasó:
+    // PLAYED = se jugó (confirma, crea la cuenta para cobrar y la finaliza);
+    // NOT_PLAYED = no se jugó (cancela). En ambos casos sin avisos: el turno ya pasó.
+    async resolvePastPendingBooking(input: {
+        bookingId: number;
+        clubId: number;
+        actorUserId: number;
+        outcome: 'PLAYED' | 'NOT_PLAYED';
+        now?: Date;
+    }) {
+        const now = input.now ?? new Date();
+        const booking = await prisma.booking.findFirst({
+            where: { id: input.bookingId, clubId: input.clubId },
+            select: { id: true, status: true, endDateTime: true }
+        });
+        if (!booking) throw this.bookingNotFound();
+        if (booking.status !== 'PENDING') {
+            throw this.bookingInvalidStatus('Esta reserva ya no está pendiente.');
+        }
+        if (new Date(booking.endDateTime).getTime() > now.getTime()) {
+            throw this.bookingInvalidStatus('El turno todavía no terminó: confirmala o cancelala como cualquier reserva.');
+        }
+        if (input.outcome === 'NOT_PLAYED') {
+            await this.cancelBooking(input.bookingId, input.actorUserId, input.clubId, { silent: true, triggeredBy: 'ADMIN' });
+        } else {
+            await this.confirmBooking(input.bookingId, input.actorUserId, input.clubId, { silent: true });
+            await this.completeBooking(input.bookingId, input.actorUserId, input.clubId);
+        }
+        return this.getBookingById(input.bookingId, input.clubId);
     }
 
     async completeExpiredConfirmedBookings(now: Date = new Date(), actorUserId: number = 0) {
@@ -5534,6 +5636,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                         status: true,
                         role: true
                     }
+                },
+                playerSlots: {
+                    select: {
+                        slotIndex: true,
+                        userId: true,
+                        shareAmount: true
+                    }
                 }
             },
             orderBy: { startDateTime: 'desc' }
@@ -5573,10 +5682,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
 
         return visibleBookings.map((booking) => {
             const startDateTime = new Date(booking.startDateTime);
-            const paymentData = paymentSummaryByBookingId.get(Number(booking.id)) ?? {
-                totalAmount: 0,
-                paidAmount: 0
-            };
+            const accountPaymentData = paymentSummaryByBookingId.get(Number(booking.id)) ?? null;
+            const paymentData = accountPaymentData ?? { totalAmount: 0, paidAmount: 0 };
             const isOwner = this.isExplicitBookingOwner(booking, userId);
             const isParticipant = !isOwner && this.isBookingParticipantJoined(booking, userId);
             const hasRegisteredPayments = paymentData.paidAmount > 0.009;
@@ -5622,7 +5729,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 endDateTime: new Date(booking.endDateTime).toISOString(),
                 status: booking.status,
                 myRole: isOwner ? 'OWNER' : 'PARTICIPANT',
-                paymentSummary: this.resolvePlayerPaymentSummary(paymentData),
+                paymentSummary: this.resolvePlayerBookingListPaymentSummary({
+                    booking,
+                    account: accountPaymentData,
+                    userId,
+                    isOwner,
+                    now
+                }),
                 capabilities: {
                     canView: true,
                     canCancelBooking,
