@@ -92,17 +92,23 @@ export class FiscalConfigController {
 
       const { inicioActividadesAt, defaultPuntoDeVentaFiscalId, ...rest } = parsed.data;
 
+      // El punto de venta principal tiene que ser de este club.
+      if (defaultPuntoDeVentaFiscalId) {
+        const pdv = await prisma.puntoDeVentaFiscal.findFirst({
+          where: { id: defaultPuntoDeVentaFiscalId, clubId },
+          select: { id: true }
+        });
+        if (!pdv) return res.status(400).json({ error: 'Ese punto de venta no es de este club.' });
+      }
+
+      // Campo escalar (no connect): el upsert usa la forma "unchecked" porque create lleva clubId.
       const updateData: Record<string, unknown> = {
         ...rest,
         ...(inicioActividadesAt !== undefined
           ? { inicioActividadesAt: inicioActividadesAt ? new Date(inicioActividadesAt) : null }
           : {}),
         ...(defaultPuntoDeVentaFiscalId !== undefined
-          ? {
-              defaultPuntoDeVentaFiscal: defaultPuntoDeVentaFiscalId
-                ? { connect: { id: defaultPuntoDeVentaFiscalId } }
-                : { disconnect: true }
-            }
+          ? { defaultPuntoDeVentaFiscalId: defaultPuntoDeVentaFiscalId || null }
           : {})
       };
 

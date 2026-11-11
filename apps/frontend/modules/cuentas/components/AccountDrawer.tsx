@@ -453,7 +453,7 @@ export default function AccountDrawer({
     getFiscalConfig(slug)
       .then((config) => {
         if (cancelled) return;
-        setFiscalEnabled(Boolean(config?.activo && config.modoFacturacion && config.modoFacturacion !== 'DESHABILITADA'));
+        setFiscalEnabled(Boolean(config?.facturacionHabilitada && config.modoFacturacion && config.modoFacturacion !== 'DESHABILITADA'));
       })
       .catch(() => {
         if (!cancelled) setFiscalEnabled(false);

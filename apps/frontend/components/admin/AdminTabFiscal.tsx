@@ -1,8 +1,10 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown, FileUp, Plus, Star } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getActiveClubSlug } from '../../utils/session';
-import { extractErrorMessage } from '../../utils/uiError';
+import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { showAdminToast } from '../../utils/adminToast';
+import { AdminFeedbackBanner } from './ui/AdminFeedback';
 import {
   getFiscalConfig,
   updateFiscalConfig,
@@ -10,129 +12,168 @@ import {
   createPuntoDeVenta,
   togglePuntoDeVenta,
   type FiscalConfigData,
-  type PuntoDeVentaFiscal
+  type FiscalConfigUpdateInput,
+  type PuntoDeVentaFiscal,
 } from '../../services/FiscalConfigService';
-import { CheckCircle, XCircle, AlertTriangle, ShieldCheck, Plus, ToggleLeft, ToggleRight, Upload, Activity, RefreshCw, Star } from 'lucide-react';
-import {
-  getFiscalHealth,
-  invalidateWsaaAuth,
-  type FiscalHealthResult,
-  type HealthCheckStatus
-} from '../../services/FiscalHealthService';
+import { getFiscalHealth, invalidateWsaaAuth, type FiscalHealthResult, type HealthCheck } from '../../services/FiscalHealthService';
+
+// Ajustes > Facturación: dejar el club listo para facturar con ARCA, paso a paso.
 
 // ---------- helpers ----------
 
 const IVA_OPTIONS = [
-  { value: 'RESPONSABLE_INSCRIPTO', label: 'Responsable Inscripto' },
   { value: 'MONOTRIBUTO', label: 'Monotributo' },
+  { value: 'RESPONSABLE_INSCRIPTO', label: 'Responsable inscripto' },
   { value: 'EXENTO', label: 'Exento' },
-  { value: 'CONSUMIDOR_FINAL', label: 'Consumidor Final' },
-  { value: 'OTRO', label: 'Otro' }
 ];
 
-const formatCuit = (raw: string | null) => {
-  if (!raw) return '';
-  const d = raw.replace(/\D/g, '');
-  if (d.length !== 11) return raw;
-  return `${d.slice(0, 2)}-${d.slice(2, 10)}-${d[10]}`;
+type BillingMode = 'NONE' | 'MANUAL' | 'AUTO';
+
+const BILLING_MODES: Array<{ value: BillingMode; title: string; description: string }> = [
+  { value: 'NONE', title: 'No facturo', description: 'Pique no emite facturas.' },
+  { value: 'MANUAL', title: 'A mano', description: 'Tocás "Emitir factura" en la cuenta que quieras.' },
+  { value: 'AUTO', title: 'Sola al cobrar', description: 'Cada cobro sale facturado a Consumidor final.' },
+];
+
+const billingModeOf = (config: FiscalConfigData | null): BillingMode => {
+  if (!config?.facturacionHabilitada || !config.modoFacturacion || config.modoFacturacion === 'DESHABILITADA') return 'NONE';
+  return config.modoFacturacion === 'OBLIGATORIA' ? 'AUTO' : 'MANUAL';
 };
 
-const stripCuit = (v: string) => v.replace(/\D/g, '');
+const billingModeUpdate = (mode: BillingMode): FiscalConfigUpdateInput => {
+  if (mode === 'AUTO') return { facturacionHabilitada: true, modoFacturacion: 'OBLIGATORIA' };
+  if (mode === 'MANUAL') return { facturacionHabilitada: true, modoFacturacion: 'OPCIONAL' };
+  return { facturacionHabilitada: false, modoFacturacion: 'DESHABILITADA' };
+};
+
+const onlyDigits = (value: string) => value.replace(/\D/g, '');
+
+const formatCuit = (raw: string | null | undefined) => {
+  const digits = onlyDigits(raw || '');
+  if (digits.length !== 11) return raw || '';
+  return `${digits.slice(0, 2)}-${digits.slice(2, 10)}-${digits[10]}`;
+};
 
 const formatDate = (iso: string | null) => {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' }).replace(/\./g, '');
 };
 
-const certExpired = (iso: string | null) => {
-  if (!iso) return false;
-  return new Date(iso) < new Date();
+const daysUntil = (iso: string | null) => {
+  if (!iso) return null;
+  return Math.floor((new Date(iso).getTime() - Date.now()) / 86_400_000);
 };
 
-const certNearExpiry = (iso: string | null) => {
-  if (!iso) return false;
-  const days30 = 30 * 24 * 60 * 60 * 1000;
-  return new Date(iso).getTime() - Date.now() < days30;
+const pdvNumber = (value: number) => String(value).padStart(4, '0');
+
+// Lo que devuelve "probar conexión", dicho en simple.
+const healthCheckText = (key: 'config' | 'certificate' | 'wsaa', check?: HealthCheck) => {
+  if (!check || check.status === 'unknown') return { ok: false, text: 'No se pudo revisar.' };
+  if (key === 'config') return check.status === 'ok' ? { ok: true, text: 'Datos del club cargados.' } : { ok: false, text: 'Faltan los datos del club.' };
+  if (key === 'certificate') {
+    if (check.status === 'ok') return { ok: true, text: 'Certificado vigente.' };
+    if (check.status === 'error') return { ok: false, text: 'El certificado está vencido. Cargá uno nuevo.' };
+    return { ok: false, text: check.detail === 'Sin certificado cargado.' ? 'Falta cargar el certificado.' : check.detail || 'Revisá el certificado.' };
+  }
+  return check.status === 'ok'
+    ? { ok: true, text: 'ARCA aceptó el certificado.' }
+    : { ok: false, text: `ARCA no respondió bien: ${check.detail || 'sin detalle'}.` };
 };
 
-// ---------- sub-components ----------
+const readFileText = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => resolve(String(event.target?.result || ''));
+    reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+    reader.readAsText(file);
+  });
 
-const SectionCard = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <div className="rounded-xl border border-slate-200 bg-white p-5">
-    <h3 className="mb-4 text-sm font-semibold text-slate-800">{title}</h3>
-    {children}
-  </div>
-);
+// ---------- estilos ----------
 
-const FieldRow = ({ label, children }: { label: string; children: React.ReactNode }) => (
-  <div className="flex flex-col gap-1.5">
-    <label className="text-xs font-medium text-slate-600">{label}</label>
-    {children}
-  </div>
-);
+const inputClass =
+  'h-10 w-full rounded-lg border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-text-secondary disabled:opacity-60';
+const labelClass = 'block text-[12px] font-semibold text-p-text-secondary';
+const primaryButtonClass =
+  'inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-ink-900 px-4 text-[13px] font-semibold !text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50';
+const secondaryButtonClass =
+  'inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-50';
 
-const inputCls = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:bg-slate-50 disabled:text-slate-400';
+// ---------- piezas ----------
 
-const Toggle = ({
-  checked,
-  onChange,
-  label,
+function StepCard({
+  number,
+  done,
+  title,
   description,
-  disabled
+  children,
+  id,
 }: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
+  number: number;
+  done: boolean;
+  title: string;
+  description: string;
+  children: ReactNode;
+  id: string;
+}) {
+  return (
+    <section id={id} className="scroll-mt-4 overflow-hidden rounded-xl border border-p-border bg-p-surface">
+      <div className="flex items-start gap-3 border-b border-p-border px-4 py-3 sm:px-5">
+        <span
+          className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-bold ${
+            done ? 'bg-p-positive-bg text-p-positive' : 'bg-p-surface-2 text-p-text-secondary'
+          }`}
+        >
+          {done ? <Check size={14} strokeWidth={3} /> : number}
+        </span>
+        <div className="min-w-0">
+          <p className="text-[14px] font-semibold text-p-text">{title}</p>
+          <p className="mt-0.5 text-[12px] leading-snug text-p-text-muted">{description}</p>
+        </div>
+      </div>
+      <div className="px-4 py-4 sm:px-5">{children}</div>
+    </section>
+  );
+}
+
+function FilePicker({
+  label,
+  accept,
+  fileName,
+  onPick,
+  disabled,
+}: {
   label: string;
-  description?: string;
+  accept: string;
+  fileName: string;
+  onPick: (file: File) => void;
   disabled?: boolean;
-}) => (
-  <label className={`flex cursor-pointer items-start gap-3 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}>
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => !disabled && onChange(!checked)}
-      className={`mt-0.5 flex-shrink-0 w-10 h-6 rounded-full transition-colors ${checked ? 'bg-indigo-600' : 'bg-slate-200'}`}
-    >
-      <span
-        className={`block h-5 w-5 rounded-full bg-white shadow transition-transform mx-0.5 ${checked ? 'translate-x-4' : 'translate-x-0'}`}
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <button type="button" className={secondaryButtonClass} disabled={disabled} onClick={() => inputRef.current?.click()}>
+        <FileUp size={15} />
+        {label}
+      </button>
+      <span className={`min-w-0 truncate text-[12px] ${fileName ? 'text-p-text' : 'text-p-text-muted'}`}>
+        {fileName || 'Ningún archivo elegido'}
+      </span>
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) onPick(file);
+          event.target.value = '';
+        }}
       />
-    </button>
-    <span>
-      <span className="block text-sm font-medium text-slate-700">{label}</span>
-      {description && <span className="block text-xs text-slate-500 mt-0.5">{description}</span>}
-    </span>
-  </label>
-);
-
-const HEALTH_COLORS: Record<HealthCheckStatus, string> = {
-  ok: 'text-emerald-600',
-  degraded: 'text-amber-600',
-  error: 'text-red-600',
-  unknown: 'text-slate-400'
-};
-
-const HealthStatusIcon = ({ status }: { status: HealthCheckStatus }) => {
-  if (status === 'ok') return <CheckCircle size={16} className="text-emerald-600" />;
-  if (status === 'error') return <XCircle size={16} className="text-red-600" />;
-  return <AlertTriangle size={16} className="text-amber-500" />;
-};
-
-const HealthCheckRow = ({ label, check }: { label: string; check: { status: HealthCheckStatus; detail?: string; daysUntilExpiry?: number } }) => (
-  <div className="flex items-start gap-1.5">
-    <HealthStatusIcon status={check.status} />
-    <div>
-      <span className="text-xs font-medium text-slate-700">{label}</span>
-      {check.detail && <p className={`text-xs mt-0.5 ${HEALTH_COLORS[check.status]}`}>{check.detail}</p>}
-      {check.daysUntilExpiry !== undefined && check.daysUntilExpiry >= 0 && !check.detail && (
-        <p className="text-xs mt-0.5 text-slate-500">{check.daysUntilExpiry} días restantes</p>
-      )}
     </div>
-  </div>
-);
+  );
+}
 
-// ---------- main component ----------
+// ---------- componente ----------
 
 export default function AdminTabFiscal() {
   const { user } = useAuth();
@@ -142,131 +183,152 @@ export default function AdminTabFiscal() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
-  // --- datos fiscales form ---
-  const [formDatos, setFormDatos] = useState({
-    razonSocial: '',
-    cuit: '',
-    condicionIva: '',
-    modoFacturacion: 'DESHABILITADA' as 'OBLIGATORIA' | 'OPCIONAL' | 'DESHABILITADA',
-    ingresosBrutos: '',
-    inicioActividadesAt: ''
-  });
-  const [savingDatos, setSavingDatos] = useState(false);
+  // Paso 1: datos
+  const [fiscalForm, setFiscalForm] = useState({ razonSocial: '', cuit: '', condicionIva: '', ingresosBrutos: '', inicioActividadesAt: '' });
+  const [fiscalFormError, setFiscalFormError] = useState('');
+  const [savingFiscalForm, setSavingFiscalForm] = useState(false);
 
-  // --- flags ---
-  const [savingFlag, setSavingFlag] = useState(false);
-
-  // --- certificado ---
+  // Paso 2: certificado
   const [certPem, setCertPem] = useState('');
   const [keyPem, setKeyPem] = useState('');
-  const [passphrase, setPassphrase] = useState('');
+  const [certFileName, setCertFileName] = useState('');
+  const [keyFileName, setKeyFileName] = useState('');
+  const [keyPassword, setKeyPassword] = useState('');
+  const [certPasteOpen, setCertPasteOpen] = useState(false);
+  const [certReplaceOpen, setCertReplaceOpen] = useState(false);
+  const [certError, setCertError] = useState('');
   const [uploadingCert, setUploadingCert] = useState(false);
-  const certFileRef = useRef<HTMLInputElement>(null);
-  const keyFileRef = useRef<HTMLInputElement>(null);
 
-  // --- puntos de venta ---
-  const [newPdv, setNewPdv] = useState('');
+  // Paso 3: punto de venta
+  const [newPdvNumber, setNewPdvNumber] = useState('');
   const [newPdvName, setNewPdvName] = useState('');
+  const [pdvError, setPdvError] = useState('');
   const [addingPdv, setAddingPdv] = useState(false);
-  const [togglingPdv, setTogglingPdv] = useState<string | null>(null);
-  const [settingDefaultPdv, setSettingDefaultPdv] = useState<string | null>(null);
+  const [busyPdvId, setBusyPdvId] = useState<string | null>(null);
 
-  // --- health check ---
-  const [healthResult, setHealthResult] = useState<FiscalHealthResult | null>(null);
+  // Paso 4: probar
+  const [health, setHealth] = useState<FiscalHealthResult | null>(null);
   const [checkingHealth, setCheckingHealth] = useState(false);
-  const [invalidatingAuth, setInvalidatingAuth] = useState(false);
+  const [resettingAuth, setResettingAuth] = useState(false);
 
-  // ---------- load ----------
+  // Cuándo facturar / pruebas o real
+  const [savingMode, setSavingMode] = useState(false);
+  const [confirmRealOpen, setConfirmRealOpen] = useState(false);
+
+  const applyConfig = useCallback((data: FiscalConfigData | null) => {
+    setConfig(data);
+    setFiscalForm({
+      razonSocial: data?.razonSocial ?? '',
+      cuit: formatCuit(data?.cuit),
+      condicionIva: data?.condicionIva ?? '',
+      ingresosBrutos: data?.ingresosBrutos ?? '',
+      inicioActividadesAt: data?.inicioActividadesAt ? new Date(data.inicioActividadesAt).toISOString().slice(0, 10) : '',
+    });
+  }, []);
 
   const load = useCallback(async () => {
     if (!slug) return;
     setLoading(true);
     setLoadError('');
     try {
-      const data = await getFiscalConfig(slug);
-      setConfig(data);
-      if (data) {
-        setFormDatos({
-          razonSocial: data.razonSocial ?? '',
-          cuit: formatCuit(data.cuit),
-          condicionIva: data.condicionIva ?? '',
-          modoFacturacion: (data.modoFacturacion as 'OBLIGATORIA' | 'OPCIONAL' | 'DESHABILITADA') ?? 'DESHABILITADA',
-          ingresosBrutos: data.ingresosBrutos ?? '',
-          inicioActividadesAt: data.inicioActividadesAt
-            ? new Date(data.inicioActividadesAt).toISOString().slice(0, 10)
-            : ''
-        });
-      }
+      applyConfig(await getFiscalConfig(slug));
     } catch (err) {
-      setLoadError(extractErrorMessage(err, 'No se pudo cargar la configuración fiscal.'));
+      reportUiError({ area: 'AdminTabFiscal', action: 'load' }, err);
+      setLoadError(extractErrorMessage(err, 'No se pudo cargar la facturación del club.'));
     } finally {
       setLoading(false);
     }
-  }, [slug]);
+  }, [slug, applyConfig]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  // ---------- save datos fiscales ----------
+  // ---------- estado de los pasos ----------
 
-  const handleSaveDatos = async () => {
-    if (!slug) return;
-    setSavingDatos(true);
+  const activePdvs = (config?.puntosDeVentaFiscales ?? []).filter((pdv) => pdv.activo);
+  const defaultPdv = activePdvs.find((pdv) => pdv.id === config?.defaultPuntoDeVentaFiscalId) ?? null;
+  const certDays = daysUntil(config?.vencimientoCertificado ?? null);
+  const certExpired = Boolean(config?.hasCertificate && certDays !== null && certDays < 0);
+
+  const dataDone = Boolean(config?.razonSocial && config?.cuit && config?.condicionIva);
+  const certDone = Boolean(config?.hasCertificate && !certExpired);
+  const pdvDone = Boolean(defaultPdv);
+  const testDone = health?.overall === 'ok';
+  const readyToBill = dataDone && certDone && pdvDone;
+  const mode = billingModeOf(config);
+  const isTest = config?.usaHomologacion ?? true;
+
+  const missing = [
+    !dataDone && 'los datos del club',
+    !certDone && (certExpired ? 'un certificado nuevo' : 'el certificado'),
+    !pdvDone && 'el punto de venta',
+  ].filter(Boolean) as string[];
+
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // ---------- acciones ----------
+
+  const saveConfig = async (patch: FiscalConfigUpdateInput) => {
+    if (!slug) throw new Error('Sin club activo.');
+    const updated = await updateFiscalConfig(slug, patch);
+    setConfig(updated);
+    return updated;
+  };
+
+  const handleSaveFiscalForm = async () => {
+    if (savingFiscalForm) return;
+    const cuitDigits = onlyDigits(fiscalForm.cuit);
+    if (!fiscalForm.razonSocial.trim()) return setFiscalFormError('Falta la razón social (como figura en ARCA).');
+    if (cuitDigits.length !== 11) return setFiscalFormError('El CUIT tiene que tener 11 números.');
+    if (!fiscalForm.condicionIva) return setFiscalFormError('Elegí si el club es monotributista, responsable inscripto o exento.');
     try {
-      const updated = await updateFiscalConfig(slug, {
-        razonSocial: formDatos.razonSocial || null,
-        cuit: formDatos.cuit ? stripCuit(formDatos.cuit) : null,
-        condicionIva: formDatos.condicionIva || null,
-        modoFacturacion: formDatos.modoFacturacion,
-        ingresosBrutos: formDatos.ingresosBrutos || null,
-        inicioActividadesAt: formDatos.inicioActividadesAt
-          ? new Date(formDatos.inicioActividadesAt).toISOString()
-          : null
+      setSavingFiscalForm(true);
+      setFiscalFormError('');
+      const updated = await saveConfig({
+        razonSocial: fiscalForm.razonSocial.trim(),
+        cuit: cuitDigits,
+        condicionIva: fiscalForm.condicionIva,
+        ingresosBrutos: fiscalForm.ingresosBrutos.trim() || null,
+        inicioActividadesAt: fiscalForm.inicioActividadesAt ? new Date(fiscalForm.inicioActividadesAt).toISOString() : null,
       });
-      setConfig(updated);
-      showAdminToast('Datos guardados.');
+      applyConfig(updated);
+      showAdminToast('Datos del club guardados.');
     } catch (err) {
-      showAdminToast(extractErrorMessage(err, 'No se pudieron guardar los datos.'));
+      reportUiError({ area: 'AdminTabFiscal', action: 'saveFiscalForm' }, err);
+      setFiscalFormError(extractErrorMessage(err, 'No se pudieron guardar los datos.'));
     } finally {
-      setSavingDatos(false);
+      setSavingFiscalForm(false);
     }
   };
 
-  // ---------- toggle flags ----------
-
-  const handleToggleFlag = async (field: 'facturacionHabilitada' | 'usaHomologacion' | 'activo', value: boolean) => {
-    if (!slug) return;
-    setSavingFlag(true);
+  const pickFile = async (file: File, target: 'cert' | 'key') => {
     try {
-      const updated = await updateFiscalConfig(slug, { [field]: value });
-      setConfig(updated);
+      const text = await readFileText(file);
+      if (target === 'cert') {
+        setCertPem(text);
+        setCertFileName(file.name);
+      } else {
+        setKeyPem(text);
+        setKeyFileName(file.name);
+      }
+      setCertError('');
     } catch (err) {
-      showAdminToast(extractErrorMessage(err, 'No se pudo actualizar.'));
-    } finally {
-      setSavingFlag(false);
+      setCertError(extractErrorMessage(err, 'No se pudo leer el archivo.'));
     }
   };
-
-  // ---------- certificado ----------
-
-  const readFile = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target?.result as string);
-      reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
-      reader.readAsText(file);
-    });
 
   const handleUploadCert = async () => {
-    if (!slug || !certPem || !keyPem) {
-      showAdminToast('Ingresá el certificado y la clave privada.');
-      return;
-    }
-    setUploadingCert(true);
+    if (!slug || uploadingCert) return;
+    if (!certPem.includes('BEGIN CERTIFICATE')) return setCertError('El certificado no parece válido: tiene que ser el archivo .crt que te dio ARCA.');
+    if (!keyPem.includes('PRIVATE KEY')) return setCertError('La clave no parece válida: tiene que ser el archivo .key que generaste para pedir el certificado.');
     try {
+      setUploadingCert(true);
+      setCertError('');
       const result = await uploadCertificate(slug, {
         certificadoPem: certPem.trim(),
         clavePrivadaPem: keyPem.trim(),
-        clavePrivadaPassphrase: passphrase.trim() || undefined
+        clavePrivadaPassphrase: keyPassword.trim() || undefined,
       });
       setConfig((prev) =>
         prev
@@ -275,477 +337,627 @@ export default function AdminTabFiscal() {
               hasCertificate: true,
               certificadoSerial: result.certificadoSerial,
               certificadoSubject: result.certificadoSubject,
-              vencimientoCertificado: result.vencimientoCertificado
+              vencimientoCertificado: result.vencimientoCertificado,
             }
           : prev
       );
       setCertPem('');
       setKeyPem('');
-      setPassphrase('');
+      setCertFileName('');
+      setKeyFileName('');
+      setKeyPassword('');
+      setCertPasteOpen(false);
+      setCertReplaceOpen(false);
+      setHealth(null);
       showAdminToast('Certificado guardado.');
     } catch (err) {
-      showAdminToast(extractErrorMessage(err, 'No se pudo guardar el certificado.'));
+      reportUiError({ area: 'AdminTabFiscal', action: 'uploadCertificate' }, err);
+      setCertError(extractErrorMessage(err, 'No se pudo guardar el certificado.'));
     } finally {
       setUploadingCert(false);
     }
   };
 
-  // ---------- puntos de venta ----------
-
   const handleAddPdv = async () => {
-    if (!slug || !newPdv) return;
-    const num = parseInt(newPdv, 10);
-    if (!num || num < 1 || num > 9999) {
-      showAdminToast('Ingresá un número de punto de venta válido (1–9999).');
-      return;
-    }
-    setAddingPdv(true);
+    if (!slug || addingPdv) return;
+    const number = Number(newPdvNumber);
+    if (!Number.isInteger(number) || number < 1 || number > 9999) return setPdvError('El número tiene que ser entre 1 y 9999.');
     try {
-      const item = await createPuntoDeVenta(slug, { puntoDeVenta: num, nombre: newPdvName || undefined });
-      setConfig((prev) =>
-        prev
-          ? { ...prev, puntosDeVentaFiscales: [...prev.puntosDeVentaFiscales, item] }
-          : prev
-      );
-      setNewPdv('');
+      setAddingPdv(true);
+      setPdvError('');
+      const item = await createPuntoDeVenta(slug, { puntoDeVenta: number, nombre: newPdvName.trim() || undefined });
+      setConfig((prev) => (prev ? { ...prev, puntosDeVentaFiscales: [...prev.puntosDeVentaFiscales, item] } : prev));
+      setNewPdvNumber('');
       setNewPdvName('');
-      showAdminToast('Punto de venta agregado.');
+      showAdminToast(`Punto de venta ${pdvNumber(number)} agregado.`);
+      // El primero queda como principal: sin principal no se puede facturar.
+      if (!defaultPdv) await saveConfig({ defaultPuntoDeVentaFiscalId: item.id });
     } catch (err) {
-      showAdminToast(extractErrorMessage(err, 'No se pudo agregar el punto de venta.'));
+      reportUiError({ area: 'AdminTabFiscal', action: 'addPdv' }, err);
+      setPdvError(extractErrorMessage(err, 'No se pudo agregar el punto de venta.'));
     } finally {
       setAddingPdv(false);
     }
   };
 
-  const handleCheckHealth = async () => {
-    if (!slug) return;
-    setCheckingHealth(true);
+  const handleSetDefaultPdv = async (pdv: PuntoDeVentaFiscal) => {
+    if (busyPdvId) return;
     try {
-      const result = await getFiscalHealth(slug);
-      setHealthResult(result);
+      setBusyPdvId(pdv.id);
+      setPdvError('');
+      await saveConfig({ defaultPuntoDeVentaFiscalId: pdv.id });
+      showAdminToast(`Se factura con el ${pdvNumber(pdv.puntoDeVenta)}.`);
     } catch (err) {
-      showAdminToast(extractErrorMessage(err, 'No se pudo verificar el estado de ARCA.'));
+      reportUiError({ area: 'AdminTabFiscal', action: 'setDefaultPdv' }, err);
+      setPdvError(extractErrorMessage(err, 'No se pudo cambiar el punto de venta.'));
+    } finally {
+      setBusyPdvId(null);
+    }
+  };
+
+  const handleTogglePdv = async (pdv: PuntoDeVentaFiscal) => {
+    if (!slug || busyPdvId) return;
+    try {
+      setBusyPdvId(pdv.id);
+      setPdvError('');
+      const updated = await togglePuntoDeVenta(slug, pdv.id);
+      setConfig((prev) =>
+        prev ? { ...prev, puntosDeVentaFiscales: prev.puntosDeVentaFiscales.map((item) => (item.id === updated.id ? updated : item)) } : prev
+      );
+    } catch (err) {
+      reportUiError({ area: 'AdminTabFiscal', action: 'togglePdv' }, err);
+      setPdvError(extractErrorMessage(err, 'No se pudo cambiar el punto de venta.'));
+    } finally {
+      setBusyPdvId(null);
+    }
+  };
+
+  const handleCheckHealth = async () => {
+    if (!slug || checkingHealth) return;
+    try {
+      setCheckingHealth(true);
+      setHealth(await getFiscalHealth(slug));
+    } catch (err) {
+      reportUiError({ area: 'AdminTabFiscal', action: 'checkHealth' }, err);
+      showAdminToast(extractErrorMessage(err, 'No se pudo probar la conexión con ARCA.'));
     } finally {
       setCheckingHealth(false);
     }
   };
 
-  const handleInvalidateAuth = async () => {
-    if (!slug) return;
-    setInvalidatingAuth(true);
+  const handleResetAuth = async () => {
+    if (!slug || resettingAuth) return;
     try {
+      setResettingAuth(true);
       await invalidateWsaaAuth(slug);
-      setHealthResult(null);
-      showAdminToast('Cache de autenticación WSAA invalidado.');
+      setHealth(null);
+      showAdminToast('Listo. La próxima factura vuelve a pedir permiso a ARCA.');
     } catch (err) {
-      showAdminToast(extractErrorMessage(err, 'No se pudo invalidar la autenticación.'));
+      reportUiError({ area: 'AdminTabFiscal', action: 'resetAuth' }, err);
+      showAdminToast(extractErrorMessage(err, 'No se pudo pedir permiso de nuevo.'));
     } finally {
-      setInvalidatingAuth(false);
+      setResettingAuth(false);
     }
   };
 
-  const handleTogglePdv = async (pdv: PuntoDeVentaFiscal) => {
-    if (!slug) return;
-    setTogglingPdv(pdv.id);
+  const handleChangeMode = async (next: BillingMode) => {
+    if (next === mode || savingMode) return;
     try {
-      const updated = await togglePuntoDeVenta(slug, pdv.id);
-      setConfig((prev) =>
-        prev
-          ? {
-              ...prev,
-              puntosDeVentaFiscales: prev.puntosDeVentaFiscales.map((p) =>
-                p.id === updated.id ? updated : p
-              )
-            }
-          : prev
-      );
+      setSavingMode(true);
+      await saveConfig(billingModeUpdate(next));
+      showAdminToast(next === 'NONE' ? 'Facturación apagada.' : next === 'AUTO' ? 'Ahora cada cobro sale facturado.' : 'Listo: facturás a mano desde la cuenta.');
     } catch (err) {
-      showAdminToast(extractErrorMessage(err, 'No se pudo actualizar.'));
+      reportUiError({ area: 'AdminTabFiscal', action: 'changeMode' }, err);
+      showAdminToast(extractErrorMessage(err, 'No se pudo cambiar cuándo facturás.'));
     } finally {
-      setTogglingPdv(null);
+      setSavingMode(false);
     }
   };
 
-  const handleSetDefaultPdv = async (pdvId: string) => {
-    if (!slug) return;
-    setSettingDefaultPdv(pdvId);
+  const handleChangeEnvironment = async (test: boolean) => {
+    if (test === isTest || savingMode) return;
     try {
-      const updated = await updateFiscalConfig(slug, { defaultPuntoDeVentaFiscalId: pdvId });
-      setConfig((prev) => prev ? { ...prev, defaultPuntoDeVentaFiscalId: updated.defaultPuntoDeVentaFiscalId } : prev);
-      showAdminToast('Punto de venta predeterminado actualizado.');
+      setSavingMode(true);
+      setConfirmRealOpen(false);
+      await saveConfig({ usaHomologacion: test });
+      setHealth(null);
+      showAdminToast(test ? 'Volviste a modo prueba.' : 'Listo: las facturas ahora son reales.');
     } catch (err) {
-      showAdminToast(extractErrorMessage(err, 'No se pudo establecer el predeterminado.'));
+      reportUiError({ area: 'AdminTabFiscal', action: 'changeEnvironment' }, err);
+      showAdminToast(extractErrorMessage(err, 'No se pudo cambiar el modo.'));
     } finally {
-      setSettingDefaultPdv(null);
+      setSavingMode(false);
     }
   };
 
   // ---------- render ----------
 
   if (loading) {
-    return (
-      <div className="flex h-40 items-center justify-center text-sm text-slate-500">
-        Cargando configuración fiscal…
-      </div>
-    );
+    return <div className="flex h-40 items-center justify-center text-[13px] text-p-text-muted">Cargando facturación…</div>;
   }
 
   if (loadError) {
     return (
-      <div className="flex h-40 items-center justify-center text-sm text-red-600">{loadError}</div>
+      <AdminFeedbackBanner tone="error">
+        {loadError}{' '}
+        <button type="button" className="font-semibold underline" onClick={() => void load()}>
+          Reintentar
+        </button>
+      </AdminFeedbackBanner>
     );
   }
 
-  const isEnabled = config?.facturacionHabilitada ?? false;
-  const isTest = config?.usaHomologacion ?? true;
-  const vto = config?.vencimientoCertificado ?? null;
-  const certOk = config?.hasCertificate && !certExpired(vto);
+  const hasConfig = Boolean(config);
+  const certFormVisible = !config?.hasCertificate || certReplaceOpen || certExpired;
 
   return (
-    <div className="flex flex-col gap-5 max-w-2xl">
+    <div className="flex max-w-2xl flex-col gap-4">
+      {/* ── Resumen y cuándo facturar ── */}
+      <section className="overflow-hidden rounded-xl border border-p-border bg-p-surface">
+        <div className="px-4 py-4 sm:px-5">
+          <p className="text-[15px] font-semibold text-p-text">Facturación electrónica con ARCA</p>
+          {readyToBill ? (
+            <p className="mt-1 text-[13px] text-p-text-secondary">
+              {mode === 'NONE'
+                ? 'El club está listo. Elegí cuándo querés facturar.'
+                : isTest
+                ? 'Facturando en modo prueba: las facturas no tienen validez.'
+                : `Facturando con el punto de venta ${pdvNumber(defaultPdv!.puntoDeVenta)}.`}
+            </p>
+          ) : (
+            <p className="mt-1 text-[13px] text-p-text-secondary">
+              Para empezar a facturar te falta {missing.length > 1 ? `${missing.slice(0, -1).join(', ')} y ${missing[missing.length - 1]}` : missing[0]}.
+            </p>
+          )}
 
-      {/* Status header */}
-      <div className="flex flex-wrap gap-2">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${isEnabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-          {isEnabled ? <CheckCircle size={13} /> : <XCircle size={13} />}
-          {isEnabled ? 'Facturación habilitada' : 'Facturación deshabilitada'}
-        </span>
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${isTest ? 'bg-amber-50 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
-          {isTest ? <AlertTriangle size={13} /> : <ShieldCheck size={13} />}
-          {isTest ? 'Homologación (pruebas)' : 'Producción'}
-        </span>
-        {config?.hasCertificate && (
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${certOk ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-            {certOk ? <CheckCircle size={13} /> : <AlertTriangle size={13} />}
-            {certOk ? `Cert. válido hasta ${formatDate(vto)}` : `Cert. vencido ${formatDate(vto)}`}
-          </span>
-        )}
-        {!config?.hasCertificate && (
-          <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium bg-red-50 text-red-700">
-            <AlertTriangle size={13} />Sin certificado
-          </span>
-        )}
-      </div>
-
-      {/* Flags */}
-      <SectionCard title="Estado">
-        <div className="flex flex-col gap-4">
-          <Toggle
-            checked={isEnabled}
-            onChange={(v) => handleToggleFlag('facturacionHabilitada', v)}
-            label="Facturación habilitada"
-            description="Permite emitir comprobantes electrónicos via ARCA."
-            disabled={savingFlag}
-          />
-          <Toggle
-            checked={isTest}
-            onChange={(v) => handleToggleFlag('usaHomologacion', v)}
-            label="Modo homologación (pruebas)"
-            description="Activo: usa el ambiente de pruebas de ARCA. Desactivar solo cuando esté todo probado."
-            disabled={savingFlag}
-          />
+          {!readyToBill && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[
+                { id: 'fiscal-paso-datos', label: 'Datos del club', done: dataDone },
+                { id: 'fiscal-paso-certificado', label: 'Certificado', done: certDone },
+                { id: 'fiscal-paso-punto', label: 'Punto de venta', done: pdvDone },
+              ].map((step, index) => (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => scrollTo(step.id)}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[12px] font-semibold transition ${
+                    step.done
+                      ? 'border-transparent bg-p-positive-bg text-p-positive'
+                      : 'border-p-border bg-p-surface text-p-text hover:bg-p-surface-2'
+                  }`}
+                >
+                  {step.done ? <Check size={13} strokeWidth={3} /> : <span className="text-p-text-muted">{index + 1}.</span>}
+                  {step.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      </SectionCard>
 
-      {/* Datos fiscales */}
-      <SectionCard title="Datos fiscales">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <FieldRow label="Razón social">
+        <div className="border-t border-p-border px-4 py-4 sm:px-5">
+          <p className="text-[13px] font-semibold text-p-text">¿Cuándo facturás?</p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            {BILLING_MODES.map((option) => {
+              const selected = mode === option.value;
+              const locked = option.value !== 'NONE' && !readyToBill;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={savingMode || locked}
+                  onClick={() => void handleChangeMode(option.value)}
+                  className={`rounded-xl border px-3 py-2.5 text-left transition disabled:cursor-not-allowed ${
+                    selected ? 'border-ink-900 bg-p-surface-2 ring-1 ring-ink-900' : 'border-p-border bg-p-surface hover:bg-p-surface-2'
+                  } ${locked ? 'opacity-50' : ''}`}
+                >
+                  <span className="flex items-center gap-1.5 text-[13px] font-semibold text-p-text">
+                    {selected && <Check size={14} strokeWidth={3} />}
+                    {option.title}
+                  </span>
+                  <span className="mt-0.5 block text-[12px] leading-snug text-p-text-muted">{option.description}</span>
+                </button>
+              );
+            })}
+          </div>
+          {!readyToBill && <p className="mt-2 text-[12px] text-p-text-muted">Se habilita cuando completes los pasos de abajo.</p>}
+        </div>
+
+        {hasConfig && (
+          <div className="border-t border-p-border px-4 py-4 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-p-text">{isTest ? 'Modo prueba' : 'Facturas reales'}</p>
+                <p className="mt-0.5 text-[12px] text-p-text-muted">
+                  {isTest
+                    ? 'Las facturas van al entorno de prueba de ARCA y no tienen validez. Usalo para ver que todo ande.'
+                    : 'Las facturas tienen validez fiscal. Una factura emitida no se borra: se anula con una nota de crédito.'}
+                </p>
+              </div>
+              {isTest ? (
+                <button type="button" className={secondaryButtonClass} disabled={savingMode || !readyToBill} onClick={() => setConfirmRealOpen(true)}>
+                  Pasar a facturas reales
+                </button>
+              ) : (
+                <button type="button" className={secondaryButtonClass} disabled={savingMode} onClick={() => void handleChangeEnvironment(true)}>
+                  Volver a modo prueba
+                </button>
+              )}
+            </div>
+            {confirmRealOpen && isTest && (
+              <div className="mt-3 rounded-xl border border-p-warning bg-p-warning-bg px-3 py-3">
+                <p className="text-[13px] font-semibold text-p-warning">¿Pasar a facturas reales?</p>
+                <p className="mt-1 text-[12px] text-p-warning">
+                  Desde ahora cada factura que emitas va a ARCA de verdad. Hacelo cuando ya hayas probado y el certificado sea el de producción (no el de prueba).
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" className={primaryButtonClass} disabled={savingMode} onClick={() => void handleChangeEnvironment(false)}>
+                    Sí, facturas reales
+                  </button>
+                  <button type="button" className={secondaryButtonClass} onClick={() => setConfirmRealOpen(false)}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ── Paso 1: datos ── */}
+      <StepCard
+        id="fiscal-paso-datos"
+        number={1}
+        done={dataDone}
+        title="Datos del club ante ARCA"
+        description="Como figuran en tu constancia de inscripción. Salen impresos en cada factura."
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="sm:col-span-2">
+            <span className={labelClass}>Razón social</span>
             <input
-              className={inputCls}
-              value={formDatos.razonSocial}
-              onChange={(e) => setFormDatos((p) => ({ ...p, razonSocial: e.target.value }))}
-              placeholder="Nombre o razón social"
+              className={`${inputClass} mt-1`}
+              value={fiscalForm.razonSocial}
+              onChange={(event) => setFiscalForm((prev) => ({ ...prev, razonSocial: event.target.value }))}
+              placeholder="Ej: Las Tejas SRL"
             />
-          </FieldRow>
-          <FieldRow label="CUIT">
+          </label>
+          <label>
+            <span className={labelClass}>CUIT</span>
             <input
-              className={inputCls}
-              value={formDatos.cuit}
-              onChange={(e) => setFormDatos((p) => ({ ...p, cuit: e.target.value }))}
-              placeholder="20-12345678-9"
+              className={`${inputClass} mt-1`}
+              value={fiscalForm.cuit}
+              onChange={(event) => setFiscalForm((prev) => ({ ...prev, cuit: event.target.value }))}
+              onBlur={() => setFiscalForm((prev) => ({ ...prev, cuit: formatCuit(prev.cuit) }))}
+              placeholder="30-12345678-9"
               inputMode="numeric"
             />
-          </FieldRow>
-          <FieldRow label="Condición IVA">
+          </label>
+          <label>
+            <span className={labelClass}>Ante el IVA el club es</span>
             <select
-              className={inputCls}
-              value={formDatos.condicionIva}
-              onChange={(e) => setFormDatos((p) => ({ ...p, condicionIva: e.target.value }))}
+              className={`${inputClass} mt-1`}
+              value={fiscalForm.condicionIva}
+              onChange={(event) => setFiscalForm((prev) => ({ ...prev, condicionIva: event.target.value }))}
             >
-              <option value="">— Seleccionar —</option>
-              {IVA_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+              <option value="">Elegí una opción</option>
+              {IVA_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
               ))}
             </select>
-          </FieldRow>
-          <FieldRow label="Modo de facturación">
-            <select
-              className={inputCls}
-              value={formDatos.modoFacturacion}
-              onChange={(e) => setFormDatos((p) => ({ ...p, modoFacturacion: e.target.value as any }))}
-            >
-              <option value="DESHABILITADA">Deshabilitada — no se emiten comprobantes</option>
-              <option value="OPCIONAL">Opcional — el operador decide por cuenta</option>
-              <option value="OBLIGATORIA">Obligatoria — se emite automáticamente</option>
-            </select>
-          </FieldRow>
-          <FieldRow label="Ingresos brutos">
+          </label>
+          <label>
+            <span className={labelClass}>
+              Ingresos brutos <span className="font-normal text-p-text-muted">(opcional)</span>
+            </span>
             <input
-              className={inputCls}
-              value={formDatos.ingresosBrutos}
-              onChange={(e) => setFormDatos((p) => ({ ...p, ingresosBrutos: e.target.value }))}
-              placeholder="Número o 'CM' para convenio"
+              className={`${inputClass} mt-1`}
+              value={fiscalForm.ingresosBrutos}
+              onChange={(event) => setFiscalForm((prev) => ({ ...prev, ingresosBrutos: event.target.value }))}
+              placeholder="Número de inscripción"
             />
-          </FieldRow>
-          <FieldRow label="Inicio de actividades">
+          </label>
+          <label>
+            <span className={labelClass}>
+              Inicio de actividades <span className="font-normal text-p-text-muted">(opcional)</span>
+            </span>
             <input
               type="date"
-              className={inputCls}
-              value={formDatos.inicioActividadesAt}
-              onChange={(e) => setFormDatos((p) => ({ ...p, inicioActividadesAt: e.target.value }))}
+              className={`${inputClass} mt-1`}
+              value={fiscalForm.inicioActividadesAt}
+              onChange={(event) => setFiscalForm((prev) => ({ ...prev, inicioActividadesAt: event.target.value }))}
             />
-          </FieldRow>
+          </label>
         </div>
+        {fiscalForm.condicionIva && (
+          <p className="mt-3 text-[12px] text-p-text-muted">
+            {fiscalForm.condicionIva === 'RESPONSABLE_INSCRIPTO'
+              ? 'Vas a emitir Factura A a quien tenga CUIT inscripto y Factura B al resto.'
+              : 'Vas a emitir Factura C.'}
+          </p>
+        )}
+        {fiscalFormError && (
+          <AdminFeedbackBanner tone="error" className="mt-3">
+            {fiscalFormError}
+          </AdminFeedbackBanner>
+        )}
         <div className="mt-4 flex justify-end">
-          <button
-            onClick={handleSaveDatos}
-            disabled={savingDatos}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {savingDatos ? 'Guardando…' : 'Guardar datos'}
+          <button type="button" className={primaryButtonClass} disabled={savingFiscalForm} onClick={() => void handleSaveFiscalForm()}>
+            {savingFiscalForm ? 'Guardando…' : 'Guardar datos'}
           </button>
         </div>
-      </SectionCard>
+      </StepCard>
 
-      {/* Certificado AFIP */}
-      <SectionCard title="Certificado AFIP">
-        {config?.hasCertificate && (
-          <div className="mb-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-600 space-y-1">
-            {config.certificadoSerial && <div><span className="font-medium">Serial:</span> {config.certificadoSerial}</div>}
-            {config.certificadoSubject && <div><span className="font-medium">CN:</span> {config.certificadoSubject}</div>}
-            <div>
-              <span className="font-medium">Vence:</span>{' '}
-              <span className={certExpired(vto) || certNearExpiry(vto) ? 'text-red-600 font-medium' : ''}>
-                {formatDate(vto)}
-                {certExpired(vto) ? ' — VENCIDO' : certNearExpiry(vto) ? ' — vence pronto' : ''}
-              </span>
-            </div>
-          </div>
-        )}
+      {/* ── Paso 2: certificado ── */}
+      <StepCard
+        id="fiscal-paso-certificado"
+        number={2}
+        done={certDone}
+        title="Certificado de ARCA"
+        description="Es el permiso para que Pique facture en nombre del club. Lo sacás en la web de ARCA (Administración de certificados digitales). Si no sabés cómo, pedíselo a tu contador."
+      >
+        {!hasConfig ? (
+          <p className="text-[13px] text-p-text-muted">Primero guardá los datos del club (paso 1).</p>
+        ) : (
+          <>
+            {config?.hasCertificate && (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className={`text-[13px] font-semibold ${certExpired ? 'text-[var(--error-fg)]' : 'text-p-text'}`}>
+                    {certExpired ? `Venció el ${formatDate(config.vencimientoCertificado)}` : `Cargado · vence el ${formatDate(config.vencimientoCertificado)}`}
+                  </p>
+                  {!certExpired && certDays !== null && certDays < 30 && (
+                    <p className="mt-0.5 text-[12px] font-semibold text-p-warning">Vence en {certDays} días: sacá uno nuevo en ARCA y cargalo acá.</p>
+                  )}
+                  {config.certificadoSubject && <p className="mt-0.5 truncate text-[12px] text-p-text-muted">{config.certificadoSubject}</p>}
+                </div>
+                {!certExpired && !certReplaceOpen && (
+                  <button type="button" className={secondaryButtonClass} onClick={() => setCertReplaceOpen(true)}>
+                    Cambiar certificado
+                  </button>
+                )}
+              </div>
+            )}
 
-        <div className="flex flex-col gap-3">
-          <FieldRow label="Certificado (.pem / .crt)">
-            <div className="flex gap-2">
-              <textarea
-                className={`${inputCls} h-20 resize-none font-mono text-xs`}
-                value={certPem}
-                onChange={(e) => setCertPem(e.target.value)}
-                placeholder="-----BEGIN CERTIFICATE-----&#10;…&#10;-----END CERTIFICATE-----"
-              />
-              <button
-                type="button"
-                onClick={() => certFileRef.current?.click()}
-                className="flex-shrink-0 rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
-                title="Cargar desde archivo"
-              >
-                <Upload size={16} />
-              </button>
-              <input
-                ref={certFileRef}
-                type="file"
-                accept=".pem,.crt,.cer"
-                className="hidden"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (f) setCertPem(await readFile(f));
-                }}
-              />
-            </div>
-          </FieldRow>
-
-          <FieldRow label="Clave privada (.key / .pem)">
-            <div className="flex gap-2">
-              <textarea
-                className={`${inputCls} h-20 resize-none font-mono text-xs`}
-                value={keyPem}
-                onChange={(e) => setKeyPem(e.target.value)}
-                placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;…&#10;-----END RSA PRIVATE KEY-----"
-              />
-              <button
-                type="button"
-                onClick={() => keyFileRef.current?.click()}
-                className="flex-shrink-0 rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50"
-                title="Cargar desde archivo"
-              >
-                <Upload size={16} />
-              </button>
-              <input
-                ref={keyFileRef}
-                type="file"
-                accept=".key,.pem"
-                className="hidden"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (f) setKeyPem(await readFile(f));
-                }}
-              />
-            </div>
-          </FieldRow>
-
-          <FieldRow label="Passphrase (si la clave está cifrada)">
-            <input
-              type="password"
-              className={inputCls}
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-              placeholder="Dejar vacío si no tiene passphrase"
-              autoComplete="new-password"
-            />
-          </FieldRow>
-
-          <div className="flex justify-end">
-            <button
-              onClick={handleUploadCert}
-              disabled={uploadingCert || !certPem || !keyPem}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {uploadingCert ? 'Guardando…' : config?.hasCertificate ? 'Reemplazar certificado' : 'Guardar certificado'}
-            </button>
-          </div>
-        </div>
-      </SectionCard>
-
-      {/* Conexión ARCA */}
-      <SectionCard title="Estado de conexión ARCA">
-        <div className="flex flex-wrap gap-2 mb-4">
-          <button
-            onClick={handleCheckHealth}
-            disabled={checkingHealth}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            <Activity size={15} />
-            {checkingHealth ? 'Verificando…' : 'Probar conexión WSAA'}
-          </button>
-          <button
-            onClick={handleInvalidateAuth}
-            disabled={invalidatingAuth}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            <RefreshCw size={15} />
-            {invalidatingAuth ? 'Invalidando…' : 'Invalidar cache auth'}
-          </button>
-        </div>
-
-        {healthResult && (
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <HealthStatusIcon status={healthResult.overall} />
-              <span className="text-sm font-medium text-slate-800">
-                {healthResult.overall === 'ok' ? 'Conexión operativa' : healthResult.overall === 'degraded' ? 'Conexión degradada' : 'Error de conexión'}
-              </span>
-              {healthResult.environment && (
-                <span className={`ml-auto rounded-full px-2 py-0.5 text-xs font-medium ${healthResult.environment === 'produccion' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
-                  {healthResult.environment === 'produccion' ? 'Producción' : 'Homologación'}
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {healthResult.checks.config && (
-                <HealthCheckRow label="Configuración" check={healthResult.checks.config} />
-              )}
-              {healthResult.checks.certificate && (
-                <HealthCheckRow label="Certificado" check={healthResult.checks.certificate} />
-              )}
-              {healthResult.checks.wsaa && (
-                <HealthCheckRow label="Token WSAA" check={healthResult.checks.wsaa} />
-              )}
-            </div>
-            <p className="text-xs text-slate-400">
-              Verificado: {new Date(healthResult.checkedAt).toLocaleTimeString('es-AR')}
-            </p>
-          </div>
-        )}
-      </SectionCard>
-
-      {/* Puntos de venta */}
-      <SectionCard title="Puntos de venta fiscales">
-        {(config?.puntosDeVentaFiscales ?? []).length > 0 ? (
-          <ul className="mb-4 divide-y divide-slate-100">
-            {(config?.puntosDeVentaFiscales ?? []).map((pdv) => {
-              const isDefault = config?.defaultPuntoDeVentaFiscalId === pdv.id;
-              return (
-                <li key={pdv.id} className="flex items-center justify-between py-2.5">
-                  <span className="flex items-center gap-2 text-sm text-slate-700">
-                    <span className="font-mono font-semibold">{String(pdv.puntoDeVenta).padStart(4, '0')}</span>
-                    {pdv.nombre && <span className="text-slate-500">{pdv.nombre}</span>}
-                    {isDefault && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                        <Star size={10} className="fill-amber-500 text-amber-500" />
-                        Predeterminado
-                      </span>
-                    )}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {!isDefault && (
-                      <button
-                        onClick={() => handleSetDefaultPdv(pdv.id)}
-                        disabled={settingDefaultPdv === pdv.id}
-                        title="Marcar como predeterminado para facturación automática"
-                        className="flex items-center gap-1 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 disabled:opacity-40"
-                      >
-                        <Star size={11} />
-                        {settingDefaultPdv === pdv.id ? 'Guardando…' : 'Predeterminar'}
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleTogglePdv(pdv)}
-                      disabled={togglingPdv === pdv.id}
-                      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${pdv.activo ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
-                    >
-                      {pdv.activo ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
-                      {pdv.activo ? 'Activo' : 'Inactivo'}
-                    </button>
+            {certFormVisible && (
+              <div className={`flex flex-col gap-3 ${config?.hasCertificate ? 'mt-4 border-t border-p-border pt-4' : ''}`}>
+                <div>
+                  <p className={labelClass}>Certificado (archivo .crt que te da ARCA)</p>
+                  <div className="mt-1">
+                    <FilePicker label="Elegir certificado" accept=".crt,.pem,.cer" fileName={certFileName} onPick={(file) => void pickFile(file, 'cert')} />
                   </div>
+                </div>
+                <div>
+                  <p className={labelClass}>Clave (archivo .key que generaste al pedirlo)</p>
+                  <div className="mt-1">
+                    <FilePicker label="Elegir clave" accept=".key,.pem" fileName={keyFileName} onPick={(file) => void pickFile(file, 'key')} />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="inline-flex w-fit items-center gap-1 text-[12px] font-semibold text-p-text-secondary hover:underline"
+                  onClick={() => setCertPasteOpen((open) => !open)}
+                >
+                  <ChevronDown size={14} className={`transition ${certPasteOpen ? 'rotate-180' : ''}`} />
+                  Los tengo como texto
+                </button>
+                {certPasteOpen && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label>
+                      <span className={labelClass}>Certificado</span>
+                      <textarea
+                        className={`${inputClass} mt-1 h-24 resize-none py-2 font-mono text-[11px]`}
+                        value={certPem}
+                        onChange={(event) => {
+                          setCertPem(event.target.value);
+                          setCertFileName('');
+                        }}
+                        placeholder="-----BEGIN CERTIFICATE-----"
+                      />
+                    </label>
+                    <label>
+                      <span className={labelClass}>Clave</span>
+                      <textarea
+                        className={`${inputClass} mt-1 h-24 resize-none py-2 font-mono text-[11px]`}
+                        value={keyPem}
+                        onChange={(event) => {
+                          setKeyPem(event.target.value);
+                          setKeyFileName('');
+                        }}
+                        placeholder="-----BEGIN PRIVATE KEY-----"
+                      />
+                    </label>
+                  </div>
+                )}
+
+                <label className="sm:max-w-xs">
+                  <span className={labelClass}>
+                    Contraseña de la clave <span className="font-normal text-p-text-muted">(solo si le pusiste una)</span>
+                  </span>
+                  <input
+                    type="password"
+                    className={`${inputClass} mt-1`}
+                    value={keyPassword}
+                    onChange={(event) => setKeyPassword(event.target.value)}
+                    autoComplete="new-password"
+                  />
+                </label>
+
+                {certError && <AdminFeedbackBanner tone="error">{certError}</AdminFeedbackBanner>}
+
+                <div className="flex flex-wrap justify-end gap-2">
+                  {certReplaceOpen && (
+                    <button
+                      type="button"
+                      className={secondaryButtonClass}
+                      onClick={() => {
+                        setCertReplaceOpen(false);
+                        setCertError('');
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                  <button type="button" className={primaryButtonClass} disabled={uploadingCert || !certPem || !keyPem} onClick={() => void handleUploadCert()}>
+                    {uploadingCert ? 'Guardando…' : 'Guardar certificado'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-p-text-muted">Una vez guardada, la clave no se vuelve a mostrar.</p>
+              </div>
+            )}
+          </>
+        )}
+      </StepCard>
+
+      {/* ── Paso 3: punto de venta ── */}
+      <StepCard
+        id="fiscal-paso-punto"
+        number={3}
+        done={pdvDone}
+        title="Punto de venta"
+        description='El número de punto de venta que diste de alta en ARCA para "Factura electrónica - Web services". No sirve uno de controlador fiscal ni de factura en línea.'
+      >
+        {!hasConfig ? (
+          <p className="text-[13px] text-p-text-muted">Primero guardá los datos del club (paso 1).</p>
+        ) : (
+          <>
+            {(config?.puntosDeVentaFiscales ?? []).length > 0 && (
+              <ul className="mb-4 divide-y divide-p-border rounded-xl border border-p-border">
+                {(config?.puntosDeVentaFiscales ?? []).map((pdv) => {
+                  const isDefault = config?.defaultPuntoDeVentaFiscalId === pdv.id;
+                  const busy = busyPdvId === pdv.id;
+                  return (
+                    <li key={pdv.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className={`text-[13px] font-semibold ${pdv.activo ? 'text-p-text' : 'text-p-text-muted line-through'}`}>
+                          {pdvNumber(pdv.puntoDeVenta)}
+                          {pdv.nombre ? <span className="font-normal text-p-text-muted"> · {pdv.nombre}</span> : null}
+                        </p>
+                        {isDefault && pdv.activo && (
+                          <p className="mt-0.5 inline-flex items-center gap-1 text-[12px] font-semibold text-p-positive">
+                            <Star size={12} className="fill-current" />
+                            Se factura con este
+                          </p>
+                        )}
+                        {!pdv.activo && <p className="mt-0.5 text-[12px] text-p-text-muted">Pausado</p>}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {!isDefault && pdv.activo && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleSetDefaultPdv(pdv)}
+                            className="text-[12px] font-semibold text-p-text hover:underline disabled:opacity-50"
+                          >
+                            Facturar con este
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleTogglePdv(pdv)}
+                          className="text-[12px] font-semibold text-p-text-muted hover:underline disabled:opacity-50"
+                        >
+                          {pdv.activo ? 'Pausar' : 'Reactivar'}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {(config?.puntosDeVentaFiscales ?? []).length > 0 && !pdvDone && (
+              <AdminFeedbackBanner tone="warning" className="mb-3">
+                Elegí con qué punto de venta se factura.
+              </AdminFeedbackBanner>
+            )}
+
+            <div className="flex flex-wrap items-end gap-2">
+              <label>
+                <span className={labelClass}>Número</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={9999}
+                  className={`${inputClass} mt-1 w-24`}
+                  value={newPdvNumber}
+                  onChange={(event) => setNewPdvNumber(event.target.value)}
+                  placeholder="Ej: 3"
+                />
+              </label>
+              <label className="min-w-0 flex-1 sm:flex-none">
+                <span className={labelClass}>
+                  Nombre <span className="font-normal text-p-text-muted">(opcional)</span>
+                </span>
+                <input
+                  className={`${inputClass} mt-1 sm:w-48`}
+                  value={newPdvName}
+                  onChange={(event) => setNewPdvName(event.target.value)}
+                  placeholder="Ej: Club"
+                />
+              </label>
+              <button type="button" className={secondaryButtonClass} disabled={addingPdv || !newPdvNumber} onClick={() => void handleAddPdv()}>
+                <Plus size={15} />
+                {addingPdv ? 'Agregando…' : 'Agregar'}
+              </button>
+            </div>
+            {pdvError && (
+              <AdminFeedbackBanner tone="error" className="mt-3">
+                {pdvError}
+              </AdminFeedbackBanner>
+            )}
+          </>
+        )}
+      </StepCard>
+
+      {/* ── Paso 4: probar ── */}
+      <StepCard
+        id="fiscal-paso-probar"
+        number={4}
+        done={testDone}
+        title="Probar la conexión"
+        description="Pique le pide permiso a ARCA con tu certificado. No emite ninguna factura."
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" className={primaryButtonClass} disabled={checkingHealth || !hasConfig} onClick={() => void handleCheckHealth()}>
+            {checkingHealth ? 'Probando…' : 'Probar conexión'}
+          </button>
+          {health && (
+            <span className={`text-[13px] font-semibold ${health.overall === 'ok' ? 'text-p-positive' : 'text-p-warning'}`}>
+              {health.overall === 'ok' ? 'Todo bien: ya podés facturar.' : 'Hay algo para revisar.'}
+            </span>
+          )}
+        </div>
+        {health && (
+          <ul className="mt-3 space-y-1.5">
+            {(['config', 'certificate', 'wsaa'] as const).map((key) => {
+              const result = healthCheckText(key, health.checks[key]);
+              return (
+                <li key={key} className="flex items-start gap-2 text-[13px]">
+                  <span className={`mt-0.5 shrink-0 ${result.ok ? 'text-p-positive' : 'text-p-warning'}`}>{result.ok ? <Check size={14} strokeWidth={3} /> : '•'}</span>
+                  <span className={result.ok ? 'text-p-text' : 'text-p-text-secondary'}>{result.text}</span>
                 </li>
               );
             })}
           </ul>
-        ) : (
-          <p className="mb-4 text-sm text-slate-500">No hay puntos de venta configurados.</p>
         )}
-
-        <div className="flex gap-2 items-end">
-          <FieldRow label="Número">
-            <input
-              type="number"
-              min={1}
-              max={9999}
-              className={`${inputCls} w-24`}
-              value={newPdv}
-              onChange={(e) => setNewPdv(e.target.value)}
-              placeholder="1"
-            />
-          </FieldRow>
-          <FieldRow label="Nombre (opcional)">
-            <input
-              className={`${inputCls} w-40`}
-              value={newPdvName}
-              onChange={(e) => setNewPdvName(e.target.value)}
-              placeholder="Ej: Sede central"
-            />
-          </FieldRow>
-          <button
-            onClick={handleAddPdv}
-            disabled={addingPdv || !newPdv}
-            className="mb-0.5 flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            <Plus size={15} />
-            {addingPdv ? 'Agregando…' : 'Agregar'}
-          </button>
-        </div>
-      </SectionCard>
-
+        {hasConfig && (
+          <details className="mt-4">
+            <summary className="cursor-pointer text-[12px] font-semibold text-p-text-muted">¿Cambiaste el certificado y ARCA lo sigue rechazando?</summary>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <p className="text-[12px] text-p-text-muted">Pique guarda el permiso de ARCA unas horas. Podés descartarlo para que lo pida de nuevo.</p>
+              <button type="button" className={secondaryButtonClass} disabled={resettingAuth} onClick={() => void handleResetAuth()}>
+                {resettingAuth ? 'Pidiendo…' : 'Pedir permiso de nuevo'}
+              </button>
+            </div>
+          </details>
+        )}
+      </StepCard>
     </div>
   );
 }
