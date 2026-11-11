@@ -9135,10 +9135,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const startTime = `${String(localStart.getHours()).padStart(2, '0')}:${String(localStart.getMinutes()).padStart(2, '0')}`;
         const endTime = `${String(localEnd.getHours()).padStart(2, '0')}:${String(localEnd.getMinutes()).padStart(2, '0')}`;
         const startTimeMinutes = TimeHelper.timeToMinutes(startTime);
+        // Puede ser menor que el inicio: una serie de 23:30 a 01:00 cruza la medianoche.
+        // La duración ya está validada; endTimeMinutes solo se usa para mostrar la hora de fin.
         const endTimeMinutes = TimeHelper.timeToMinutes(endTime);
-        if (startTimeMinutes >= endTimeMinutes) {
-            throw this.invalidInput('Horario inválido para turno fijo: start debe ser menor a end');
-        }
         const dayOfWeek = localStart.getDay();
 
         if (!this.isClubOpenOnLocalDate(clubConfigForFixed, startDateTime, clubTimeZone)) {
@@ -9176,6 +9175,30 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         });
 
         if (previewConflictsOnly) {
+            // La vista previa valida lo mismo que la creación: que el horario exista en la grilla del club.
+            if (!canProfessorDurationOverride) {
+                const previewSchedule = await this.resolveActivityScheduleForDate(activity, startDateTime, clubTimeZone);
+                if (previewSchedule.isClosed) {
+                    throw this.bookingSlotUnavailable('La actividad está cerrada para la fecha solicitada');
+                }
+                const previewSlots = buildSlotsFromSchedule(
+                    {
+                        scheduleMode: previewSchedule.schedule.mode,
+                        scheduleOpenTime: previewSchedule.schedule.openTime,
+                        scheduleCloseTime: previewSchedule.schedule.closeTime,
+                        scheduleIntervalMinutes: previewSchedule.schedule.intervalMinutes,
+                        scheduleWindows: previewSchedule.schedule.rangeWindows,
+                        scheduleDurations: previewSchedule.schedule.durations,
+                        scheduleFixedSlots: previewSchedule.schedule.fixedSlots
+                    },
+                    activity.defaultDurationMinutes,
+                    duration
+                ) as Array<{ slotTime: string; dayOffset: number }>;
+                if (!previewSlots.some((slot) => slot.slotTime === startTime)) {
+                    throw this.bookingSlotUnavailable('Horario no permitido por el club');
+                }
+            }
+
             const existingBookings = await prisma.booking.findMany({
                 where: {
                     courtId,
