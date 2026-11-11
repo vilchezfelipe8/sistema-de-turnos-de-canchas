@@ -48,6 +48,7 @@ const CHECKOUT_CSS = `
   .ck-date small { display:block; color:var(--accent-fg); font-size:10px; font-weight:900; letter-spacing:.04em; }
   .ck-date b { display:block; color:var(--text-primary); font-size:21px; font-weight:900; line-height:1.1; }
   .ck-sum-main { margin:0; color:var(--text-primary); font-size:16px; font-weight:900; }
+  .ck-nowrap { white-space:nowrap; }
   .ck-sum-sub { margin:3px 0 0; color:var(--text-muted); font-size:12px; font-weight:650; line-height:1.35; }
   .ck-sum-club { margin:3px 0 0; color:var(--text-secondary); font-size:12px; font-weight:750; }
   .ck-cal { margin-top:12px; padding:11px 0 0; border:0; border-top:1px solid var(--border-subtle); width:100%; background:transparent; display:flex; align-items:center; justify-content:space-between; color:var(--accent-fg); font-family:var(--font-sans); font-size:12px; font-weight:800; cursor:pointer; }
@@ -747,7 +748,7 @@ export default function CheckoutPage() {
           <span className="ck-date"><small>{dateBadge.weekday}</small><b>{dateBadge.day}</b></span>
         )}
         <div style={{ minWidth: 0 }}>
-          <p className="ck-sum-main">{timeRange} · {durationLabel}</p>
+          <p className="ck-sum-main"><span className="ck-nowrap">{timeRange}</span> <span className="ck-nowrap">· {durationLabel}</span></p>
           <p className="ck-sum-sub">{[activityLabel, draft.courtName].filter(Boolean).join(' · ')}{draft.playerCount ? ` · ${draft.playerCount} jugadores` : ''}</p>
           {clubDisplayName && <p className="ck-sum-club">{clubDisplayName}</p>}
         </div>
@@ -948,7 +949,7 @@ export default function CheckoutPage() {
                     <p className="checkout-player-name">¿Con quién jugás?</p>
                     <p className="checkout-player-status">
                       {draft.playerCount && draft.playerCount > 1
-                        ? `Opcional · ${draft.playerCount - 1} ${draft.playerCount - 1 === 1 ? 'lugar libre' : 'lugares libres'}${isPerPlayer ? ' · se cobran como no socio' : ''}`
+                        ? `Opcional · ${draft.playerCount - 1} ${draft.playerCount - 1 === 1 ? 'lugar libre' : 'lugares libres'}${isPerPlayer ? ' · si quedan vacíos se cobran a precio general' : ''}`
                         : 'Opcional · también podés invitar después'}
                     </p>
                   </div>
@@ -1052,7 +1053,7 @@ export default function CheckoutPage() {
                         <div className="checkout-player-info">
                           <p className="checkout-player-name is-muted">{draft.playerCount ? 'Lugar libre' : 'Sumar otro jugador'}</p>
                           <p className="checkout-player-status">
-                            {isPerPlayer ? 'Se cobra como no socio hasta que alguien lo ocupe' : 'Opcional'}
+                            {isPerPlayer ? 'Si nadie lo ocupa, se cobra a precio general' : 'Opcional'}
                           </p>
                         </div>
                         {isPerPlayer && <span className="checkout-player-amount is-muted">{formatMoney(generalShare)}</span>}

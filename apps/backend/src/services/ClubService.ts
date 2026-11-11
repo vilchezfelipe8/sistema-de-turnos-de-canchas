@@ -113,7 +113,28 @@ export class ClubService {
     async getClubBySlug(slug: string): Promise<Club> {
         const club = await this.clubRepo.findClubBySlug(slug);
         if (!club) throw notFound('Club no encontrado', ErrorCodes.CLUB_NOT_FOUND);
+        (club as Club & { openingHours?: { openTime: string; closeTime: string } | null }).openingHours =
+            await this.resolvePublicOpeningHours(club.id);
         return club;
+    }
+
+    // Horario general para mostrar en la ficha pública: la apertura más temprana y el cierre
+    // más tardío entre las actividades que tienen canchas habilitadas. Es orientativo; los turnos
+    // reales salen de la disponibilidad.
+    private async resolvePublicOpeningHours(clubId: number): Promise<{ openTime: string; closeTime: string } | null> {
+        try {
+            const activities = await prisma.activityType.findMany({
+                where: { clubId, courts: { some: { isUnderMaintenance: false } } },
+                select: { scheduleOpenTime: true, scheduleCloseTime: true }
+            });
+            const isTime = (value: unknown): value is string => typeof value === 'string' && /^\d{2}:\d{2}$/.test(value);
+            const opens = activities.map((a) => a.scheduleOpenTime).filter(isTime).sort();
+            const closes = activities.map((a) => a.scheduleCloseTime).filter(isTime).sort();
+            if (opens.length === 0 || closes.length === 0) return null;
+            return { openTime: opens[0], closeTime: closes[closes.length - 1] };
+        } catch {
+            return null;
+        }
     }
 
     async getAllClubs(): Promise<Club[]> {

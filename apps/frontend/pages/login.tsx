@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { beginAppleOAuthLogin, beginFacebookOAuthLogin, beginGoogleOAuthLogin, register, verifyMagicLink } from '../services/AuthService';
 import { normalizeDniInput, usePlayerSignIn } from '../hooks/usePlayerSignIn';
 import { ClubService } from '../services/ClubService';
-import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Moon, Sun, ArrowLeft, KeyRound } from 'lucide-react';
+import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Moon, Sun, ArrowLeft, KeyRound, CalendarCheck } from 'lucide-react';
 import { AppleMark, FacebookMark, GoogleMark } from '../components/AuthProviderMarks';
 import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
 import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, resolveCallingCodeByIso2 } from '../utils/phone';
@@ -39,6 +39,7 @@ const LOGIN_CSS = `
   .lg-notice { display:flex; align-items:flex-start; gap:10px; padding:12px 16px; border-radius:12px; font-size:13px; font-weight:600; line-height:1.5; }
   .lg-err { background:var(--error-bg); border:1px solid var(--danger-border); color:var(--error-fg); }
   .lg-ok { background:var(--positive-bg); border:1px solid var(--accent-border); color:var(--positive-fg); }
+  .lg-intent { background:var(--surface-2, var(--positive-bg)); border:1px solid var(--border-subtle); color:var(--text-primary); font-weight:600; }
   .lg-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
   .lg-full { grid-column:1 / -1; }
   .lg-field { display:flex; flex-direction:column; gap:5px; }
@@ -126,6 +127,26 @@ const LOGIN_CSS = `
   @media(max-height:820px) and (min-width:481px) { .lg-root { padding-top:48px; padding-bottom:16px; } .lg-screen-nav { top:16px; } .lg-header { padding:20px 24px 18px; } .lg-brand-link { margin-bottom:12px; } .lg-title { font-size:20px; } .lg-body { padding:18px 24px 22px; gap:12px; } .lg-form { gap:10px; } .lg-grid2 { gap:8px 10px; } .lg-field { gap:4px; } .lg-input { padding-top:9px; padding-bottom:9px; } .lg-phone-input { padding-top:9px; padding-bottom:9px; } .lg-toggle { padding-top:12px; } }
 `;
 
+const INTENT_WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+// "/club/las-tejas?date=2026-11-11&time=11:00&continue=1" → { slug, date, time }
+function parseBookingIntent(returnTo: string | null): { slug: string; dateLabel: string; time: string } | null {
+  if (!returnTo) return null;
+  try {
+    const url = new URL(returnTo, 'http://local');
+    const match = url.pathname.match(/^\/club\/([^/]+)\/?$/);
+    if (!match || url.searchParams.get('continue') !== '1') return null;
+    const date = url.searchParams.get('date') || '';
+    const time = url.searchParams.get('time') || '';
+    const dateMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!dateMatch || !/^\d{2}:\d{2}$/.test(time)) return null;
+    const day = new Date(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]));
+    return { slug: decodeURIComponent(match[1]), dateLabel: `el ${INTENT_WEEKDAYS[day.getDay()]} ${day.getDate()}`, time };
+  } catch {
+    return null;
+  }
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { isLight, toggleTheme } = useUserTheme();
@@ -136,6 +157,17 @@ export default function LoginPage() {
     !router.query.from.startsWith('//')
       ? router.query.from
       : null;
+  // Si viene de "Continuar" en la reserva, contamos para qué tiene que ingresar.
+  const bookingIntent = parseBookingIntent(returnTo);
+  const [bookingIntentClubName, setBookingIntentClubName] = useState('');
+  useEffect(() => {
+    if (!bookingIntent?.slug) return;
+    let cancelled = false;
+    ClubService.getClubBySlug(bookingIntent.slug)
+      .then((club) => { if (!cancelled) setBookingIntentClubName(String(club?.name || '')); })
+      .catch(() => { /* el aviso funciona igual sin el nombre */ });
+    return () => { cancelled = true; };
+  }, [bookingIntent?.slug]);
   const openRegisterMode =
     router.query.mode === 'register' ||
     router.query.view === 'register' ||
@@ -461,6 +493,16 @@ export default function LoginPage() {
 
           {/* Body */}
           <div className="lg-body">
+
+            {bookingIntent && !recoveryMode && (
+              <div className="lg-notice lg-intent">
+                <CalendarCheck size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>
+                  {isLogin ? 'Ingresá' : 'Creá tu cuenta'} para reservar {bookingIntent.dateLabel} a las {bookingIntent.time}
+                  {bookingIntentClubName ? ` en ${bookingIntentClubName}` : ''}. Después volvés a tu turno.
+                </span>
+              </div>
+            )}
 
             {/* Error */}
             {error && (

@@ -35,6 +35,8 @@ const GRID_CSS = `
   .bg-day:focus-visible { outline:none; box-shadow:var(--shadow-focus); }
   .bg-day-label { font-size:13px; font-weight:800; white-space:nowrap; }
   .bg-day-sub { font-size:10px; font-weight:700; opacity:.8; white-space:nowrap; }
+  .bg-day.is-closed { color:var(--text-disabled, var(--text-secondary)); opacity:.6; }
+  .bg-day.is-closed .bg-day-sub { text-transform:none; }
   .bg-day[aria-pressed="true"] { background:var(--surface-1); border-color:var(--accent-border); color:var(--accent-fg); }
   .bg-fields { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px 16px; margin-bottom:22px; }
   .bg-field { position:relative; min-width:0; }
@@ -554,6 +556,26 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     max.setDate(max.getDate() + bookingAdvanceLimitDays);
     return max;
   }, [bookingAdvanceLimitDays]);
+
+  // Días que el club no abre (día de la semana fuera de openingDays o fecha de cierre puntual).
+  // Sin configuración se asume abierto: no inventamos cierres.
+  const closedReasonFor = useCallback((date: Date): 'WEEKDAY' | 'CLOSURE' | null => {
+    if (!clubConfig) return null;
+    if (Array.isArray(clubConfig.closureDates) && clubConfig.closureDates.includes(formatLocalDate(date))) return 'CLOSURE';
+    const days = clubConfig.openingDays;
+    if (Array.isArray(days) && days.length > 0 && !days.includes(date.getDay())) return 'WEEKDAY';
+    return null;
+  }, [clubConfig]);
+
+  // Próximo día abierto después de `date`, dentro del rango reservable.
+  const nextOpenDateAfter = useCallback((date: Date): Date | null => {
+    for (let offset = 1; offset <= 14; offset += 1) {
+      const candidate = new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset);
+      if (candidate.getTime() > maxAllowedDate.getTime()) return null;
+      if (!closedReasonFor(candidate)) return candidate;
+    }
+    return null;
+  }, [closedReasonFor, maxAllowedDate]);
 
   useEffect(() => {
     if (!selectedDate) return;
@@ -1149,16 +1171,18 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
         <div className="bg-days" role="group" aria-label="Día" ref={daysRef}>
           {bookingDays.map((day) => {
             const isSelected = Boolean(selectedDate) && formatLocalDate(selectedDate as Date) === day.key;
+            const isClosed = Boolean(closedReasonFor(day.date));
             return (
               <button
                 key={day.key}
                 type="button"
-                className="bg-day"
+                className={`bg-day${isClosed ? ' is-closed' : ''}`}
                 aria-pressed={isSelected}
+                aria-label={isClosed ? `${day.label} ${day.sub}, cerrado` : undefined}
                 onClick={() => { setSelectedDate(day.date); setSelectedSlot(null); setSelectedCourt(null); }}
               >
                 <span className="bg-day-label">{day.label}</span>
-                <span className="bg-day-sub">{day.sub}</span>
+                <span className="bg-day-sub">{isClosed ? 'Cerrado' : day.sub}</span>
               </button>
             );
           })}
@@ -1579,9 +1603,9 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
                 --slot-hover-bg: var(--accent-bg-faint, rgba(182,243,106,.045));
                 --slot-hover-border: var(--accent-border, rgba(182,243,106,.32));
                 --slot-hover-shadow: var(--shadow-md);
-                --slot-selected-bg: var(--accent-bg-muted, rgba(182,243,106,.16));
-                --slot-selected-border: var(--accent-border-strong, rgba(182,243,106,.52));
-                --slot-selected-text: var(--accent-fg, #5C8E1A);
+                --slot-selected-bg: var(--brand, #B6F36A);
+                --slot-selected-border: var(--brand, #B6F36A);
+                --slot-selected-text: var(--brand-on, #1F3A0E);
                 --slot-selected-ring: 0 0 0 3px var(--accent-border-subtle, rgba(182,243,106,.22));
                 --slot-disabled-bg: var(--surface-3, #F3F4F6);
                 --slot-disabled-border: var(--border-strong, #E5E7EB);
@@ -1782,14 +1806,45 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
       )}
       {/* No slots */}
       {!loading && selectedActivityFilter && availableSlots.length === 0 && selectedDate && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '32px 20px', background: T.bgSubtle, border: `1px dashed ${T.borderSubtle}`, borderRadius: 16, fontSize: 13, fontWeight: 600, color: T.textDisabled, marginBottom: 20, textAlign: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '28px 20px', background: T.bgSubtle, border: `1px dashed ${T.borderSubtle}`, borderRadius: 16, fontSize: 13, fontWeight: 600, color: T.textSecondary, marginBottom: 20, textAlign: 'center' }}>
           {(() => {
             const now = new Date();
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const sel = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-            if (sel < today) return <><Hourglass size={16} /> No se puede viajar al pasado…</>;
-            if (sel.getTime() === today.getTime() && slotsWithCourts.length > 0) return <><Moon size={16} /> Ya no quedan turnos por hoy.</>;
-            return <><Ban size={16} /> No hay canchas disponibles para esta fecha.</>;
+            if (sel < today) return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Hourglass size={16} /> No se puede viajar al pasado…</span>;
+            const weekdayPlural = ['domingos', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábados'];
+            const weekdayName = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+            const closedReason = closedReasonFor(sel);
+            const isToday = sel.getTime() === today.getTime();
+            // Cerrado ≠ lleno: decimos cuál es, y ofrecemos el próximo día que abre.
+            const message = closedReason === 'WEEKDAY'
+              ? <><Moon size={16} /> El club no abre los {weekdayPlural[sel.getDay()]}.</>
+              : closedReason === 'CLOSURE'
+                ? <><Ban size={16} /> El club está cerrado este día.</>
+                : isToday
+                  ? <><Moon size={16} /> Ya no quedan turnos libres por hoy.</>
+                  : <><Ban size={16} /> No quedan turnos libres este día.</>;
+            const next = nextOpenDateAfter(sel);
+            const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+            const nextLabel = next
+              ? next.getTime() === tomorrow.getTime()
+                ? 'Ver mañana'
+                : `Ver el ${weekdayName[next.getDay()]} ${next.getDate()}`
+              : null;
+            return (
+              <>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{message}</span>
+                {next && nextLabel && (
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedDate(next); setSelectedSlot(null); setSelectedCourt(null); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 999, border: `1px solid ${T.borderSubtle}`, background: T.bgCard, color: T.textPrimary, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                  >
+                    {nextLabel} <ChevronRight size={14} />
+                  </button>
+                )}
+              </>
+            );
           })()}
         </div>
       )}

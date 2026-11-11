@@ -18,7 +18,7 @@ import { getMyBookings } from '../../services/BookingService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { isAuthSessionInvalidatedError } from '../../utils/apiClient';
-import { MapPin, Calendar, Phone, Instagram, Facebook, Globe, Share2, Trophy, Star, Heart, X, Navigation, SearchX } from 'lucide-react';
+import { MapPin, Clock, Phone, Instagram, Facebook, Globe, Share2, Trophy, Star, Heart, X, Navigation, SearchX } from 'lucide-react';
 import ClubAppHome from '../../components/clubApp/ClubAppHome';
 import ClubInstallButton from '../../components/clubApp/ClubInstallButton';
 import { useClubApp } from '../../hooks/useClubApp';
@@ -52,6 +52,30 @@ const APP_NOTICE_EVENT = 'app:notice';
 type AppNoticeTone = 'success' | 'error' | 'info' | 'warning';
 
 const DAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]; // la semana arranca el lunes
+
+// "Lun a Sáb · 08:00 a 22:00" / "Dom · Cerrado": agrupa días seguidos con el mismo estado.
+function buildScheduleLines(openingDays: number[], hours: { openTime: string; closeTime: string } | null | undefined) {
+  const lines: Array<{ label: string; value: string; closed: boolean }> = [];
+  let group: number[] = [];
+  let groupOpen = false;
+  const flush = () => {
+    if (group.length === 0) return;
+    const first = DAY_LABELS[group[0]];
+    const last = DAY_LABELS[group[group.length - 1]];
+    const label = group.length === 1 ? first : group.length === 2 ? `${first} y ${last}` : `${first} a ${last}`;
+    const value = groupOpen ? (hours ? `${hours.openTime} a ${hours.closeTime}` : 'Abierto') : 'Cerrado';
+    lines.push({ label, value, closed: !groupOpen });
+  };
+  WEEK_ORDER.forEach((day) => {
+    const open = openingDays.includes(day);
+    if (group.length > 0 && open !== groupOpen) { flush(); group = []; }
+    groupOpen = open;
+    group.push(day);
+  });
+  flush();
+  return lines;
+}
 const REVIEWS_SHOWN = 3;
 
 const formatClubAddress = (club: Club) =>
@@ -142,8 +166,11 @@ const PAGE_CSS = `
   a.cl-panel-row { transition:color .15s; }
   a.cl-panel-row:hover { color:var(--accent-fg); }
   .cl-panel-icon { color:var(--text-muted); flex-shrink:0; margin-top:2px; }
-  .cl-days { display:flex; flex-wrap:wrap; gap:4px; }
-  .cl-day-chip { padding:3px 8px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); border-radius:6px; font-size:10px; font-weight:800; color:var(--accent-fg); }
+  .cl-hours { display:flex; flex-direction:column; gap:2px; flex:1; min-width:0; }
+  .cl-hours-row { display:flex; justify-content:space-between; gap:12px; }
+  .cl-hours-day { color:var(--text-primary); font-weight:600; }
+  .cl-hours-time { font-variant-numeric:tabular-nums; }
+  .cl-hours-row.is-closed .cl-hours-time { color:var(--text-muted); }
   /* Reseñas */
   .cl-rating-sum { display:flex; align-items:center; gap:12px; margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border-subtle); }
   .cl-rating-big { font-size:28px; font-weight:800; color:var(--accent-fg); letter-spacing:-.03em; line-height:1; }
@@ -647,11 +674,14 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
                 )}
                 {openingDays.length > 0 && (
                   <div className="cl-panel-row">
-                    <Calendar size={14} className="cl-panel-icon" />
-                    <div className="cl-days" aria-label="Días abiertos">
-                      {DAY_LABELS.map((label, idx) =>
-                        openingDays.includes(idx) ? <span key={label} className="cl-day-chip">{label}</span> : null
-                      )}
+                    <Clock size={14} className="cl-panel-icon" />
+                    <div className="cl-hours" aria-label="Horario">
+                      {buildScheduleLines(openingDays, club.openingHours).map((line) => (
+                        <div key={line.label} className={`cl-hours-row${line.closed ? ' is-closed' : ''}`}>
+                          <span className="cl-hours-day">{line.label}</span>
+                          <span className="cl-hours-time">{line.value}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
