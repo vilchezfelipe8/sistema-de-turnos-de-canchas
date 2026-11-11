@@ -89,7 +89,10 @@ export class PricingService {
     return round2(safeBase * (safeEffective / safeReference));
   }
 
-  // Recargo por luces: monto fijo por turno si el turno empieza a partir de lightsFromHour (hora local del club).
+  // Recargo por luces: monto fijo por turno si el turno empieza de noche (hora local del club):
+  // desde lightsFromHour hasta medianoche, y también pasada la medianoche hasta LIGHTS_UNTIL_MINUTES.
+  static readonly LIGHTS_UNTIL_MINUTES = 6 * 60;
+
   static computeLightsExtra(startDateTime: Date, timeZone: string, lights?: LightsConfig | null): number {
     if (!lights || !lights.lightsEnabled || !lights.lightsFromHour) return 0;
     const amount = Number(lights.lightsExtraAmount ?? 0);
@@ -100,7 +103,8 @@ export class PricingService {
 
     const localStart = TimeHelper.utcToLocal(startDateTime, timeZone);
     const bookingTotalMinutes = localStart.getHours() * 60 + localStart.getMinutes();
-    return bookingTotalMinutes >= lh * 60 + lm ? round2(amount) : 0;
+    const isNight = bookingTotalMinutes >= lh * 60 + lm || bookingTotalMinutes < PricingService.LIGHTS_UNTIL_MINUTES;
+    return isNight ? round2(amount) : 0;
   }
 
   // Única fuente del precio de un turno en modo por cancha: regla horaria/Court.price + duración + luces.

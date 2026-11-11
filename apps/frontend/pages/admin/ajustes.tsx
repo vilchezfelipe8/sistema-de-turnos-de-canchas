@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Plug,
   Repeat,
+  Receipt,
   ScrollText,
   Star,
   Tag,
@@ -30,6 +31,7 @@ const SETTINGS_TABS: Array<{ value: SettingsTab; label: string; comingSoon?: boo
   { value: 'reservas', label: 'Reservas' },
   { value: 'horarios', label: 'Horarios' },
   { value: 'precios', label: 'Precios' },
+  { value: 'facturacion', label: 'Facturación' },
   { value: 'integraciones', label: 'Integraciones' },
   { value: 'usuarios', label: 'Usuarios' },
   { value: 'socios', label: 'Socios' },
@@ -63,6 +65,7 @@ const MOBILE_SETTINGS_GROUPS: Array<{
       { value: 'socios', description: 'Padrón y precios diferenciales', icon: Users },
       { value: 'planes', description: 'Abonos, cuotas y vencimientos', icon: Repeat },
       { value: 'caja', description: 'Reglas para cerrar la caja', icon: Wallet },
+      { value: 'facturacion', description: 'Factura electrónica con ARCA', icon: Receipt },
     ],
   },
   {
@@ -96,6 +99,7 @@ const parseSettingsTab = (value: unknown): SettingsTab => {
   if (raw === 'caja') return 'caja';
   if (raw === 'excepciones') return 'excepciones';
   if (raw === 'auditoria') return 'auditoria';
+  if (raw === 'facturacion') return 'facturacion';
   if (raw === 'resenas' || raw === 'reseñas' || raw === 'reviews' || raw === 'review') return 'resenas';
   return 'club';
 };

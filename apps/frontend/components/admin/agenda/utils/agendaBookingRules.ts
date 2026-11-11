@@ -16,6 +16,8 @@ export type AgendaActivityBookingRules = {
   durations: number[];
   formats: AgendaBookingFormatRule[];
   slots: Array<{ start: string; durationMinutes: number }>;
+  // Turnos de esta noche que empiezan pasada la medianoche ("00:30" = 24:30).
+  overnightSlots?: Array<{ start: string; durationMinutes: number }>;
 };
 
 export type AgendaBookingRules = {
@@ -38,8 +40,12 @@ const timeToMinutes = (value: string) => {
 export function toRuleSlots(rule: AgendaActivityBookingRules | null | undefined): AgendaRuleSlot[] {
   if (!rule || rule.isClosed) return [];
   const result: AgendaRuleSlot[] = [];
-  for (const slot of rule.slots) {
-    const offset = timeToMinutes(slot.start) - startHour * 60;
+  const all = [
+    ...rule.slots.map((slot) => ({ ...slot, extra: 0 })),
+    ...(rule.overnightSlots || []).map((slot) => ({ ...slot, extra: 24 * 60 })),
+  ];
+  for (const slot of all) {
+    const offset = timeToMinutes(slot.start) + slot.extra - startHour * 60;
     if (!Number.isFinite(offset) || offset < 0 || offset % slotMinutes !== 0) continue;
     if (slot.durationMinutes % slotMinutes !== 0) continue;
     const startSlot = offset / slotMinutes;

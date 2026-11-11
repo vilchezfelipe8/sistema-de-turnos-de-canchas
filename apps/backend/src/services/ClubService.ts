@@ -8,6 +8,7 @@ import { normalizeEmail } from '../utils/magicLink';
 import { getPhoneIdentityVariants, normalizeIdentityPhone } from '../utils/phone';
 import { ErrorCodes, badRequest, conflict, forbidden, notFound } from '../errors';
 import { PersonService, type PersonSearchResult } from './PersonService';
+import { DEFAULT_FIXED_SLOT_STARTS, buildSlotsFromSchedule, normalizeSchedule } from '../utils/ActivityScheduleHelper';
 import { MemberService, type MemberSummary } from './MemberService';
 
 // 👇 1. USAMOS TUS IMPORTS CORRECTOS
@@ -113,7 +114,61 @@ export class ClubService {
     async getClubBySlug(slug: string): Promise<Club> {
         const club = await this.clubRepo.findClubBySlug(slug);
         if (!club) throw notFound('Club no encontrado', ErrorCodes.CLUB_NOT_FOUND);
+        (club as Club & { openingHours?: { openTime: string; closeTime: string } | null }).openingHours =
+            await this.resolvePublicOpeningHours(club.id);
         return club;
+    }
+
+    // Horario general para mostrar en la ficha pública: la apertura más temprana y el cierre
+    // más tardío entre las actividades que tienen canchas habilitadas. Es orientativo; los turnos
+    // reales salen de la disponibilidad.
+    private async resolvePublicOpeningHours(clubId: number): Promise<{ openTime: string; closeTime: string } | null> {
+        try {
+            const activities = await prisma.activityType.findMany({
+                where: { clubId, courts: { some: { isUnderMaintenance: false } } },
+                select: {
+                    defaultDurationMinutes: true,
+                    scheduleMode: true,
+                    scheduleOpenTime: true,
+                    scheduleCloseTime: true,
+                    scheduleIntervalMinutes: true,
+                    scheduleWindows: true,
+                    scheduleDurations: true,
+                    scheduleFixedSlots: true
+                }
+            });
+            // Se calcula con los mismos turnos que ve el jugador (incluye horarios por defecto, turnos
+            // fijos y los que terminan pasada la medianoche), en minutos desde el inicio del día.
+            let firstStart = Number.POSITIVE_INFINITY;
+            let lastEnd = Number.NEGATIVE_INFINITY;
+            for (const activity of activities) {
+                const fallbackDuration = Number(activity.defaultDurationMinutes) || 60;
+                const normalized = normalizeSchedule(activity, fallbackDuration);
+                const durations = normalized.durations.length > 0 ? normalized.durations : [fallbackDuration];
+                // Igual que la grilla: modo FIXED sin turnos cargados usa los turnos por defecto.
+                const usesDefaultFixedSlots = normalized.mode === 'FIXED' && normalized.fixedSlots.length === 0;
+                const source = usesDefaultFixedSlots
+                    ? { ...activity, scheduleFixedSlots: DEFAULT_FIXED_SLOT_STARTS.map((start) => ({ start, duration: durations[0] })) }
+                    : activity;
+                for (const duration of durations) {
+                    for (const slot of buildSlotsFromSchedule(source, fallbackDuration, duration)) {
+                        const [h, m] = String(slot.slotTime).split(':').map(Number);
+                        if (!Number.isFinite(h) || !Number.isFinite(m)) continue;
+                        const start = (Number(slot.dayOffset) || 0) * 1440 + h * 60 + m;
+                        firstStart = Math.min(firstStart, start);
+                        lastEnd = Math.max(lastEnd, start + duration);
+                    }
+                }
+            }
+            if (!Number.isFinite(firstStart) || !Number.isFinite(lastEnd)) return null;
+            const toTime = (minutes: number) => {
+                const wrapped = ((minutes % 1440) + 1440) % 1440;
+                return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
+            };
+            return { openTime: toTime(firstStart), closeTime: toTime(lastEnd) };
+        } catch {
+            return null;
+        }
     }
 
     async getAllClubs(): Promise<Club[]> {

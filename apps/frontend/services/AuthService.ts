@@ -22,7 +22,8 @@ export type AuthLogoutReason =
   | 'manual'
   | 'session_expired'
   | 'session_invalid'
-  | 'session_revoked';
+  | 'session_revoked'
+  | 'account_deleted';
 
 type PendingLogoutRedirect = {
   target: string;
@@ -462,6 +463,55 @@ export const logoutAllSessions = async () => {
   }
 };
 
+/** Cierra todos los accesos menos el de este dispositivo. Devuelve cuántos cerró. */
+export const logoutOtherSessions = async (): Promise<number> => {
+  const headers = await buildCsrfHeaders();
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const response = await fetch(`${apiBase()}/auth/session/logout-others`, {
+    method: 'POST',
+    headers,
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, 'No se pudieron cerrar las otras sesiones.');
+  }
+  const data = await response.json().catch(() => ({}));
+  return Number(data?.closed || 0);
+};
+
+/** Cierra un acceso puntual (otro dispositivo). */
+export const deleteMyAccount = async (confirmation: string) => {
+  const headers = await buildCsrfHeaders({ 'Content-Type': 'application/json' });
+  const response = await fetch(`${apiBase()}/auth/account/delete`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify({ confirmation })
+  });
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, 'No se pudo eliminar la cuenta.');
+  }
+};
+
+export const revokeSession = async (sessionId: string) => {
+  const headers = await buildCsrfHeaders();
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const response = await fetch(`${apiBase()}/auth/session/${encodeURIComponent(sessionId)}/revoke`, {
+    method: 'POST',
+    headers,
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, 'No se pudo cerrar esa sesión.');
+  }
+};
+
 export const claimClubProfile = async (clubId: number): Promise<{ profile: ClubProfileSummary }> => {
   const headers = await buildCsrfHeaders();
   const activeClubId = getActiveClubId();
@@ -526,7 +576,14 @@ export const logout = (options?: { redirectTo?: string | null; reason?: AuthLogo
   }
 
   const explicitTarget = String(options?.redirectTo || '').trim();
-  const fallbackTarget = explicitTarget ? null : resolveDefaultLogoutRedirect();
+  // Si la persona cerró sesión a mano desde una página privada, va al inicio (no a 'Ingresá de nuevo').
+  const leavingPrivatePageOnPurpose = options?.reason === 'manual'
+    && isPrivatePath(String(window.location.pathname || ''));
+  const fallbackTarget = explicitTarget
+    ? null
+    : leavingPrivatePageOnPurpose
+      ? '/'
+      : resolveDefaultLogoutRedirect();
   const target = explicitTarget || fallbackTarget || '';
   if (target) {
     logoutRedirectTarget = logoutRedirectTarget || target;

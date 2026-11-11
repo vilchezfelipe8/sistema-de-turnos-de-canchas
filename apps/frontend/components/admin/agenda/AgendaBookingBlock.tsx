@@ -30,6 +30,8 @@ type AgendaBookingBlockProps = {
   hasPendingNotification?: boolean;
   /** Reemplaza la etiqueta de pago (ej: clases). */
   badgeLabel?: string;
+  /** Horario real a mostrar (si no, se arma con los slots, que se recortan al final de la grilla). */
+  timeRangeLabel?: string;
   isConflict?: boolean;
   conflictLabel?: string;
   className?: string;
@@ -71,6 +73,7 @@ export default function AgendaBookingBlock({
   sportLabel = '',
   hasPendingNotification = false,
   badgeLabel,
+  timeRangeLabel,
   isConflict = false,
   conflictLabel = 'Superposicion',
   className,
@@ -82,6 +85,7 @@ export default function AgendaBookingBlock({
   children,
 }: AgendaBookingBlockProps) {
   const durationMinutes = (endSlot - startSlot) * slotMinutes;
+  const timeLabel = timeRangeLabel || `${slotToTime(startSlot)} - ${slotToTime(endSlot)}`;
   const debtAmount = typeof remainingAmount === 'number' ? remainingAmount : totalAmount;
   const showAmountPill = paymentState !== 'paid' && typeof debtAmount === 'number' && debtAmount > 0;
   // Una sola etiqueta que se lee de un vistazo: pagado, o cuánto falta cobrar.
@@ -153,7 +157,7 @@ export default function AgendaBookingBlock({
                   {isConflict ? conflictLabel : title}
                 </p>
                 <span className="text-[12px] font-bold opacity-80 whitespace-nowrap">
-                  {slotToTime(startSlot)} - {slotToTime(endSlot)}
+                  {timeLabel}
                 </span>
               </div>
             ) : (
@@ -167,7 +171,7 @@ export default function AgendaBookingBlock({
           )}
           {visibility.showTimeRange && !visibility.inlineTimeWithBadges && (
             <p className="text-[11px] font-semibold opacity-75">
-              {slotToTime(startSlot)} - {slotToTime(endSlot)}
+              {timeLabel}
             </p>
           )}
           {!visibility.showTitle && !visibility.showTimeRange && (

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { CalendarDays, Check, ChevronLeft, ChevronRight, DollarSign, Lock, Plus, Repeat, Search, Users, X } from 'lucide-react';
 import type { Booking, Court } from './types/agendaTypes';
-import { slotMinutes, slotToTime, startHour, totalSlots } from './utils/agendaDateUtils';
+import { minutesFromDayStart, slotMinutes, slotToTime, startHour, totalSlots } from './utils/agendaDateUtils';
 import { bookingColor, isSettledPastBooking } from './utils/agendaDisplayUtils';
 import AgendaColorLegend from './AgendaColorLegend';
 import type { AgendaRuleSlot } from './utils/agendaBookingRules';
@@ -135,8 +135,9 @@ export default function AgendaMobileGrid({
 
   const now = new Date(nowTick);
   const isToday = isSameDay(selectedDate, now);
-  const minutesFromStart = now.getHours() * 60 + now.getMinutes() - startHour * 60;
-  const nowTop = isToday ? (minutesFromStart / slotMinutes) * MOBILE_SLOT_PX : null;
+  // Desde la medianoche del día que se mira: si la grilla pasa la medianoche, la 00:30 sigue siendo esta noche.
+  const minutesFromStart = minutesFromDayStart(now, selectedDate) - startHour * 60;
+  const nowTop = (minutesFromStart / slotMinutes) * MOBILE_SLOT_PX;
   const showNowLine = nowTop !== null && nowTop >= 0 && nowTop <= totalSlots * MOBILE_SLOT_PX;
   const gridHeight = totalSlots * MOBILE_SLOT_PX;
 
@@ -478,7 +479,7 @@ export default function AgendaMobileGrid({
                           </span>
                           {height >= 30 && (
                             <span className="truncate text-[10px] font-semibold opacity-70 tabular-nums">
-                              {slotToTime(booking.startSlot)}–{slotToTime(booking.endSlot)}
+                              {booking.startTimeLabel && booking.endTimeLabel ? `${booking.startTimeLabel}–${booking.endTimeLabel}` : `${slotToTime(booking.startSlot)}–${slotToTime(booking.endSlot)}`}
                             </span>
                           )}
                           {height >= 52 && isClass && booking.classInfo?.enrolled != null && (
@@ -658,7 +659,7 @@ export default function AgendaMobileGrid({
                         <span>{previewCourt?.name || 'Cancha'}</span>
                         {previewCourt?.sport ? <span>· {previewCourt.sport}</span> : null}
                         <span className="tabular-nums">
-                          · {slotToTime(previewBooking.startSlot)} a {slotToTime(previewBooking.endSlot)}
+                          · {previewBooking.startTimeLabel ?? slotToTime(previewBooking.startSlot)} a {previewBooking.endTimeLabel ?? slotToTime(previewBooking.endSlot)}
                         </span>
                         {!isBlocked && !isClass && Number(previewBooking.participantsCount || 0) > 0 && (
                           <span className="inline-flex items-center gap-0.5">

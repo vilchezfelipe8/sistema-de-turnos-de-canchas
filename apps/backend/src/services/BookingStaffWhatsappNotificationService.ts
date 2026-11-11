@@ -41,6 +41,7 @@ type BookingCancelledInput = {
   startDateTime: Date;
   timeZone: string;
   reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED';
+  cancelledBy?: 'CLIENT' | 'CLUB' | 'SYSTEM';
 };
 
 type BookingPendingWarningInput = {
@@ -192,7 +193,7 @@ export class BookingStaffWhatsappNotificationService {
 
     const { date, time } = this.formatBookingDateTime(input.startDateTime, input.timeZone);
     const cleanClientPhone = toDialablePhoneNumber(input.clientPhone);
-    const cancelReasonLabel = this.buildCancelReasonLabel(input.reason);
+    const cancelReasonLabel = this.buildCancelReasonLabel(input.reason, input.cancelledBy);
 
     try {
       if (!this.flags.ENABLE_WHATSAPP_STAFF_EVENTS_V2) {
@@ -331,15 +332,24 @@ export class BookingStaffWhatsappNotificationService {
     };
   }
 
-  private buildCancelReasonLabel(reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED') {
+  private buildCancelReasonLabel(
+    reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED',
+    cancelledBy?: 'CLIENT' | 'CLUB' | 'SYSTEM'
+  ) {
     if (reason === 'ONLINE_DEPOSIT_EXPIRED') {
-      return 'sena no pagada a tiempo';
+      return 'seña no pagada a tiempo';
     }
     if (reason === 'AUTO_CANCEL_UNCONFIRMED') {
-      return 'falta de confirmacion';
+      return 'falta de confirmación';
     }
 
-    return 'cancelacion solicitada';
+    if (cancelledBy === 'CLUB') {
+      return 'cancelada por el club';
+    }
+    if (cancelledBy === 'CLIENT') {
+      return 'cancelada por el cliente';
+    }
+    return 'cancelación solicitada';
   }
 
   private buildCreatedLegacyMessage(
@@ -366,7 +376,7 @@ Ingresó un nuevo turno web en *${input.clubName}*.
     return `
 ⚠️ *¡Turno Cancelado!* ⚠️
 
-${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en' : 'Un cliente canceló su reserva en'} *${input.clubName}*.
+${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en' : input.cancelledBy === 'CLUB' ? 'Se canceló desde el panel del club una reserva en' : 'Un cliente canceló su reserva en'} *${input.clubName}*.
 
 👤 *Cliente:* ${input.clientName}
 📞 *Tel:* ${input.cleanClientPhone ? `wa.me/${input.cleanClientPhone}` : 'No registrado'}

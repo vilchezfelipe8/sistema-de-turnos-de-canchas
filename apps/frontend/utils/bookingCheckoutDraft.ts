@@ -115,6 +115,33 @@ export const removeBookingCheckoutDraft = (id: string) => {
   }
 };
 
+// Borradores ya reservados: volver al link del checkout lleva a la reserva hecha,
+// no ofrece reservar el mismo turno otra vez.
+const COMPLETED_PREFIX = 'bookingCheckoutDone:';
+
+export const rememberCompletedCheckout = (draftId: string, bookingId: string) => {
+  if (typeof window === 'undefined') return;
+  const safeId = String(draftId || '').trim();
+  const safeBooking = String(bookingId || '').trim();
+  if (!safeId || !safeBooking) return;
+  try {
+    window.sessionStorage.setItem(`${COMPLETED_PREFIX}${safeId}`, safeBooking);
+  } catch {
+    // noop
+  }
+};
+
+export const readCompletedCheckout = (draftId: string): string => {
+  if (typeof window === 'undefined') return '';
+  const safeId = String(draftId || '').trim();
+  if (!safeId) return '';
+  try {
+    return window.sessionStorage.getItem(`${COMPLETED_PREFIX}${safeId}`) || '';
+  } catch {
+    return '';
+  }
+};
+
 // De dónde se abrió el checkout (la grilla con la selección en la dirección): "Volver" regresa ahí
 // con el historial del navegador en lugar de abrir la página del club como si fuera nueva.
 const CHECKOUT_RETURN_KEY = 'bookingCheckoutReturn';

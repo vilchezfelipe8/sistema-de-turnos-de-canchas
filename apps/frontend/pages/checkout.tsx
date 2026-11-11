@@ -31,6 +31,8 @@ import {
   readBookingCheckoutDraft,
   readCheckoutReturn,
   removeBookingCheckoutDraft,
+  rememberCompletedCheckout,
+  readCompletedCheckout,
   saveBookingCheckoutDraft,
   type BookingCheckoutDraft,
   type BookingCheckoutParticipantDraft,
@@ -48,6 +50,7 @@ const CHECKOUT_CSS = `
   .ck-date small { display:block; color:var(--accent-fg); font-size:10px; font-weight:900; letter-spacing:.04em; }
   .ck-date b { display:block; color:var(--text-primary); font-size:21px; font-weight:900; line-height:1.1; }
   .ck-sum-main { margin:0; color:var(--text-primary); font-size:16px; font-weight:900; }
+  .ck-nowrap { white-space:nowrap; }
   .ck-sum-sub { margin:3px 0 0; color:var(--text-muted); font-size:12px; font-weight:650; line-height:1.35; }
   .ck-sum-club { margin:3px 0 0; color:var(--text-secondary); font-size:12px; font-weight:750; }
   .ck-cal { margin-top:12px; padding:11px 0 0; border:0; border-top:1px solid var(--border-subtle); width:100%; background:transparent; display:flex; align-items:center; justify-content:space-between; color:var(--accent-fg); font-family:var(--font-sans); font-size:12px; font-weight:800; cursor:pointer; }
@@ -544,6 +547,7 @@ export default function CheckoutPage() {
         ? rawStatus === 'CONFIRMED'
         : draft.bookingConfirmationMode === 'AUTOMATIC';
       removeBookingCheckoutDraft(draft.id);
+      if (bookingId) rememberCompletedCheckout(draft.id, bookingId);
       if (payOnline && bookingId) {
         // La reserva ya está hecha: si el pago online no abre, se muestra la confirmación igual.
         try {
@@ -616,18 +620,41 @@ export default function CheckoutPage() {
     }
   };
 
-  const doneBookingId = typeof router.query.done === 'string' ? router.query.done : '';
-  useEffect(() => {
-    if (!draftLoaded || draft || confirmedBookingId !== null || !doneBookingId) return;
-    void router.replace(`/bookings?booking=${encodeURIComponent(doneBookingId)}`);
-  }, [confirmedBookingId, doneBookingId, draft, draftLoaded, router]);
+  const doneBookingId = typeof router.query.done === 'string' && router.query.done
+    ? router.query.done
+    : (draftLoaded && typeof router.query.draft === 'string' ? readCompletedCheckout(router.query.draft) : '');
 
   if (!authChecked || !draftLoaded) {
     return <UserLoadingState mode="page" message="Preparando checkout..." />;
   }
 
+  // Recargar la confirmación o volver a este link: la reserva ya está hecha.
+  // Se dice eso y se ofrece abrirla, en lugar de mandar a Mis reservas sin explicar.
   if (!draft && doneBookingId && confirmedBookingId === null) {
-    return <UserLoadingState mode="page" message="Abriendo tu reserva..." />;
+    const clubSlugParam = typeof router.query.club === 'string' ? router.query.club : '';
+    return (
+      <DarkPageLayout title="Reserva enviada | Pique" extraCss={CHECKOUT_CSS} breadcrumbs={checkoutBreadcrumbs}>
+        <main className="p-public-page-sm">
+          <section className="checkout-card checkout-card-pad checkout-success">
+            <div className="checkout-success-icon">
+              <Ticket size={30} />
+            </div>
+            <h1 className="checkout-title">Esta reserva ya está hecha</h1>
+            <p className="checkout-copy" style={{ margin: '0 auto 24px' }}>
+              La encontrás en Mis reservas, con su estado y quiénes juegan.
+            </p>
+            <div className="ck-lost-actions">
+              <Link href={`/bookings?booking=${encodeURIComponent(doneBookingId)}`} className="checkout-primary">
+                Ver mi reserva
+              </Link>
+              {clubSlugParam && (
+                <Link href={`/club/${encodeURIComponent(clubSlugParam)}`} className="ck-lost-other">Reservar otro turno</Link>
+              )}
+            </div>
+          </section>
+        </main>
+      </DarkPageLayout>
+    );
   }
 
   // El link del checkout trae club, día y hora: si el resumen no está, se puede retomar desde ahí.
@@ -747,7 +774,7 @@ export default function CheckoutPage() {
           <span className="ck-date"><small>{dateBadge.weekday}</small><b>{dateBadge.day}</b></span>
         )}
         <div style={{ minWidth: 0 }}>
-          <p className="ck-sum-main">{timeRange} · {durationLabel}</p>
+          <p className="ck-sum-main"><span className="ck-nowrap">{timeRange}</span> <span className="ck-nowrap">· {durationLabel}</span></p>
           <p className="ck-sum-sub">{[activityLabel, draft.courtName].filter(Boolean).join(' · ')}{draft.playerCount ? ` · ${draft.playerCount} jugadores` : ''}</p>
           {clubDisplayName && <p className="ck-sum-club">{clubDisplayName}</p>}
         </div>
@@ -948,7 +975,7 @@ export default function CheckoutPage() {
                     <p className="checkout-player-name">¿Con quién jugás?</p>
                     <p className="checkout-player-status">
                       {draft.playerCount && draft.playerCount > 1
-                        ? `Opcional · ${draft.playerCount - 1} ${draft.playerCount - 1 === 1 ? 'lugar libre' : 'lugares libres'}${isPerPlayer ? ' · se cobran como no socio' : ''}`
+                        ? `Opcional · ${draft.playerCount - 1} ${draft.playerCount - 1 === 1 ? 'lugar libre' : 'lugares libres'}${isPerPlayer ? ' · si quedan vacíos se cobran a precio general' : ''}`
                         : 'Opcional · también podés invitar después'}
                     </p>
                   </div>
@@ -1052,7 +1079,7 @@ export default function CheckoutPage() {
                         <div className="checkout-player-info">
                           <p className="checkout-player-name is-muted">{draft.playerCount ? 'Lugar libre' : 'Sumar otro jugador'}</p>
                           <p className="checkout-player-status">
-                            {isPerPlayer ? 'Se cobra como no socio hasta que alguien lo ocupe' : 'Opcional'}
+                            {isPerPlayer ? 'Si nadie lo ocupa, se cobra a precio general' : 'Opcional'}
                           </p>
                         </div>
                         {isPerPlayer && <span className="checkout-player-amount is-muted">{formatMoney(generalShare)}</span>}

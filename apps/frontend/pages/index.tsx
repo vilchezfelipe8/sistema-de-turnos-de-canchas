@@ -47,7 +47,7 @@ const SPORT_CARDS = [
   { name: PUBLIC_SPORT_LABELS.football, sub: 'F5 · F7 · F11', sport: 'football', photo: '/home/sport-football.webp', bgPosition: 'center 52%', accent: 'var(--brand)', countKey: 'futbol' as const },
   { name: PUBLIC_SPORT_LABELS.padel, sub: 'Cubierto & Panorámico', sport: 'padel', photo: '/home/sport-padel.webp', bgPosition: 'center 42%', accent: 'var(--accent-fg)', countKey: 'padel' as const },
   { name: PUBLIC_SPORT_LABELS.tennis, sub: 'Polvo & cemento', sport: 'tennis', photo: '/home/sport-tennis.webp', bgPosition: 'center 54%', accent: 'var(--lima-500)', countKey: 'tenis' as const },
-  { name: 'Otros deportes', sub: 'Hockey · Vóley · Básquet', sport: '', photo: '/home/sport-other.webp', bgPosition: 'center', accent: 'var(--accent-fg)', countKey: 'otros' as const },
+  { name: 'Otros deportes', sub: '', sport: '', photo: '/home/sport-other.webp', bgPosition: 'center', accent: 'var(--accent-fg)', countKey: 'otros' as const },
 ];
 
 // Solo cosas que la app hace hoy.
@@ -86,10 +86,29 @@ export default function Home() {
       if (sports.includes('football')) counts.futbol++;
       if (sports.includes('padel')) counts.padel++;
       if (sports.includes('tennis')) counts.tenis++;
-      if (sports.every(sport => !['football', 'padel', 'tennis'].includes(sport))) counts.otros++;
+      if (sports.some(sport => !['football', 'padel', 'tennis'].includes(sport))) counts.otros++;
     }
     return counts;
   }, [clubs]);
+
+  // "Otros deportes" nombra solo los que de verdad ofrece algún club.
+  const otherSportLabels = useMemo(() => {
+    const found = new Set<string>();
+    for (const club of clubs) {
+      for (const sport of club.publicSports || []) {
+        if (['football', 'padel', 'tennis'].includes(sport)) continue;
+        found.add(PUBLIC_SPORT_LABELS[sport as keyof typeof PUBLIC_SPORT_LABELS] || sport);
+      }
+    }
+    return [...found].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [clubs]);
+
+  const visibleSportCards = useMemo(
+    () => SPORT_CARDS
+      .filter(card => card.countKey !== 'otros' || (!loadingClubs && otherSportLabels.length > 0))
+      .map(card => (card.countKey === 'otros' ? { ...card, sub: otherSportLabels.join(' · ') } : card)),
+    [loadingClubs, otherSportLabels],
+  );
 
   // track which FAQ item is currently open (null if none)
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
@@ -390,7 +409,7 @@ export default function Home() {
     .p-home-sports-head { max-width:1360px; margin:0 auto 36px; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; }
     .p-home-sports-h3 { font-size:32px; font-weight:700; letter-spacing:-.03em; margin:0; color:var(--text-primary); }
     .p-home-sports-h3 i { font-style:italic; color:var(--accent-fg); }
-    .p-home-sports-grid { max-width:1360px; margin:0 auto; display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    .p-home-sports-grid { max-width:1360px; margin:0 auto; display:grid; grid-template-columns:repeat(var(--sport-cols,4),1fr); gap:12px; }
     .p-home-sport-card { position:relative; height:260px; border-radius:18px; overflow:hidden; border:1px solid var(--border-subtle); display:flex; flex-direction:column; justify-content:flex-end; padding:20px 22px; cursor:pointer; transition:border-color .3s,transform .3s; text-decoration:none; }
     .p-home-sport-card:hover { border-color:var(--accent-border); transform:translateY(-3px); }
     .p-home-sport-bg { position:absolute; inset:0; background-size:cover; background-position:center; transition:transform .5s; }
@@ -474,6 +493,7 @@ export default function Home() {
       .p-home-owner-inner{grid-template-columns:1fr;gap:48px;padding:72px 32px}
       .p-home-faq-grid{grid-template-columns:1fr;gap:40px}
       .p-home-sports-grid{grid-template-columns:repeat(2,1fr)}
+      .p-home-sports-grid > .p-home-sport-card:last-child:nth-child(odd){grid-column:1/-1}
     }
     @media(max-width:900px){
     }
@@ -649,7 +669,7 @@ export default function Home() {
     .p-home-sport-card:focus-visible, .p-home-marquee-item:focus-visible { outline:2px solid var(--accent-fg); outline-offset:3px; }
     .p-home-marquee-item { text-decoration:none; }
     .p-home-value-body h3 { margin:0 0 8px; font-size:20px; font-weight:800; color:var(--text-primary); }
-    .p-home-faq-q { width:100%; padding:0; border:0; background:none; font-family:inherit; text-align:left; cursor:pointer; }
+    .p-home-faq-q { width:100%; min-height:44px; padding:0; border:0; background:none; font-family:inherit; text-align:left; cursor:pointer; }
     /* Pantallas táctiles: los campos van a 16px (evita el zoom de iPhone, ver pique.css);
        el resto del buscador acompaña para que todo tenga el mismo tamaño y grosor. */
     @media (hover:none) and (pointer:coarse) {
@@ -695,6 +715,7 @@ export default function Home() {
       .p-home-sports-head { margin-bottom:16px; }
       .p-home-sports-h3 { font-size:24px; }
       .p-home-sports-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+      .p-home-sports-grid > .p-home-sport-card:last-child:nth-child(odd) { grid-column:1/-1; }
       .p-home-sport-card { height:150px; padding:14px; border-radius:16px; }
       .p-home-sport-name { font-size:17px; }
       .p-home-sport-count { display:none; }
@@ -943,8 +964,8 @@ export default function Home() {
         <div className="p-home-sports-head">
           <h2 className="p-home-sports-h3 p-home-sr">Encontrá tu deporte y <i>reservá sin vueltas.</i></h2>
         </div>
-        <div className="p-home-sports-grid">
-          {SPORT_CARDS.map((s, si) => (
+        <div className="p-home-sports-grid" style={{ '--sport-cols': visibleSportCards.length } as React.CSSProperties}>
+          {visibleSportCards.map((s, si) => (
             <Link
               key={s.name}
               href={{ pathname: '/complejos', query: s.sport ? { sport: s.sport } : {} }}

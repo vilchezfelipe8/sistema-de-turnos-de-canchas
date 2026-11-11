@@ -1,4 +1,5 @@
 import AdminTabClub from '../../../components/admin/AdminTabClub';
+import AdminTabFiscal from '../../../components/admin/AdminTabFiscal';
 import SettingsIntegrationsSection from './SettingsIntegrationsSection';
 import SettingsMembersSection from './SettingsMembersSection';
 
@@ -84,6 +85,10 @@ export function SettingsReviewsSection() {
 
 export function SettingsIntegrationsWorkspaceSection() {
   return <SettingsIntegrationsSection />;
+}
+
+export function SettingsFiscalSection() {
+  return <AdminTabFiscal />;
 }
 
 export { SettingsMembersSection };

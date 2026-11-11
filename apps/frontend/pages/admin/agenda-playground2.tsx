@@ -56,10 +56,16 @@ import type {
 import {
   buildSelectionDateTime,
   buildStartDateTimeFromSlot,
+  configureAgendaHours,
+  DEFAULT_AGENDA_END_HOUR,
+  DEFAULT_AGENDA_START_HOUR,
   endHour,
   formatLocalDate,
   getNextDateForDay,
   gridHeight,
+  MAX_AGENDA_END_HOUR,
+  minutesFromDayStart,
+  slotToDayTime,
   minutesToHourLabel,
   rowHeight,
   slotHeight,
@@ -748,7 +754,22 @@ function resolveHasPendingNotification(
   return fallbackPending;
 }
 
-function parseScheduleSlotToBooking(slot: any): Booking | null {
+/**
+ * Slots que ocupa un tramo en la grilla del día `day`. Cuenta los minutos desde la medianoche de ese día,
+ * así un turno de 23:00 a 00:30 mide 90 minutos y uno de las 00:30 de la madrugada cae al final de la noche.
+ * null si no se ve en la grilla (por ejemplo, el turno de anoche visto desde el día siguiente).
+ */
+function gridSlotsFor(start: Date, end: Date, day: Date): { startSlot: number; endSlot: number } | null {
+  const baseMinutes = startHour * 60;
+  const startMinutes = minutesFromDayStart(start, day);
+  const endMinutes = Math.max(startMinutes + slotMinutes, minutesFromDayStart(end, day));
+  if (endMinutes <= baseMinutes || startMinutes >= endHour * 60) return null;
+  const startSlot = Math.max(0, Math.min(totalSlots - 1, Math.floor((startMinutes - baseMinutes) / slotMinutes)));
+  const endSlot = Math.max(startSlot + 1, Math.min(totalSlots, Math.ceil((endMinutes - baseMinutes) / slotMinutes)));
+  return { startSlot, endSlot };
+}
+
+function parseScheduleSlotToBooking(slot: any, day: Date): Booking | null {
   const booking = slot?.booking;
   if (!booking) return null;
 
@@ -761,13 +782,10 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
     end = new Date(start.getTime() + Math.max(30, duration) * 60000);
   }
 
-  const startMinutes = start.getHours() * 60 + start.getMinutes();
-  const endMinutes = end.getHours() * 60 + end.getMinutes();
-  const baseMinutes = startHour * 60;
-  const startSlotRaw = Math.floor((startMinutes - baseMinutes) / slotMinutes);
-  const endSlotRaw = Math.ceil((endMinutes - baseMinutes) / slotMinutes);
-  const startSlot = Math.max(0, Math.min(totalSlots - 1, startSlotRaw));
-  const endSlot = Math.max(startSlot + 1, Math.min(totalSlots, endSlotRaw));
+  const placement = gridSlotsFor(start, end, day);
+  if (!placement) return null;
+  const { startSlot, endSlot } = placement;
+  const toHHMM = (date: Date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
   const status = String(booking?.status || '').toUpperCase();
   const state: Booking['state'] =
@@ -813,8 +831,15 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
     hoverPaymentStatusRaw === 'PAID' || hoverPaymentStatusRaw === 'PARTIAL' || hoverPaymentStatusRaw === 'UNPAID'
       ? (hoverPaymentStatusRaw as Booking['hoverPayment']['status'])
       : fallbackHoverStatus;
-  const paymentState: Booking['paymentState'] =
-    bookingPrice <= 0 || paidAmount + 0.009 >= bookingPrice
+  // Si el backend manda el estado de la cuenta (incluye consumos), manda ese.
+  // Con solo el precio de la cancha, una reserva con un agua sin cobrar figuraba "Pagado".
+  const paymentState: Booking['paymentState'] = hoverPaymentRaw && hoverPaymentStatusRaw
+    ? hoverPaymentStatus === 'PAID'
+      ? 'paid'
+      : hoverPaymentStatus === 'PARTIAL'
+        ? 'partial'
+        : 'unpaid'
+    : bookingPrice <= 0 || paidAmount + 0.009 >= bookingPrice
       ? 'paid'
       : paidAmount > 0.009
         ? 'partial'
@@ -825,6 +850,8 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
     courtId: String(slot?.courtId || booking?.courtId || booking?.court?.id || ''),
     startSlot,
     endSlot,
+    startTimeLabel: toHHMM(start),
+    endTimeLabel: toHHMM(end),
     title: resolvedTitle,
     state,
     paymentState,
@@ -904,15 +931,13 @@ function courtBlockIdFromBookingId(id: string) {
   return String(id || '').slice(COURT_BLOCK_ID_PREFIX.length);
 }
 
-function parseCourtBlockToBooking(block: CourtBlockDto): Booking | null {
+function parseCourtBlockToBooking(block: CourtBlockDto, day: Date): Booking | null {
   const start = new Date(block.startDateTime);
   const end = new Date(block.endDateTime);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  const baseMinutes = startHour * 60;
-  const startMinutes = start.getHours() * 60 + start.getMinutes();
-  const endMinutes = end.getHours() * 60 + end.getMinutes() || 24 * 60;
-  const startSlot = Math.max(0, Math.min(totalSlots - 1, Math.floor((startMinutes - baseMinutes) / slotMinutes)));
-  const endSlot = Math.max(startSlot + 1, Math.min(totalSlots, Math.ceil((endMinutes - baseMinutes) / slotMinutes)));
+  const placement = gridSlotsFor(start, end, day);
+  if (!placement) return null;
+  const { startSlot, endSlot } = placement;
   return {
     id: `${COURT_BLOCK_ID_PREFIX}${block.id}`,
     courtId: String(block.courtId),
@@ -933,17 +958,14 @@ function isClassSessionBookingId(id: string | null | undefined) {
 
 const CLASS_STATUSES_ON_AGENDA = new Set(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'DRAFT']);
 
-function parseClassSessionToBooking(row: AdminClassSession, localDate: string): Booking | null {
+function parseClassSessionToBooking(row: AdminClassSession, day: Date): Booking | null {
   if (!row.courtId || !CLASS_STATUSES_ON_AGENDA.has(String(row.status))) return null;
   const start = new Date(row.startsAt);
   const end = new Date(row.endsAt);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
-  if (formatLocalDate(start) !== localDate) return null;
-  const baseMinutes = startHour * 60;
-  const startMinutes = start.getHours() * 60 + start.getMinutes();
-  const endMinutes = end.getHours() * 60 + end.getMinutes() || 24 * 60;
-  const startSlot = Math.max(0, Math.min(totalSlots - 1, Math.floor((startMinutes - baseMinutes) / slotMinutes)));
-  const endSlot = Math.max(startSlot + 1, Math.min(totalSlots, Math.ceil((endMinutes - baseMinutes) / slotMinutes)));
+  const placement = gridSlotsFor(start, end, day);
+  if (!placement) return null;
+  const { startSlot, endSlot } = placement;
   const activityName = row.activityType?.name || null;
   const teacherName = row.teacher?.displayName || null;
   return {
@@ -1145,7 +1167,154 @@ function allocatePaymentProportionallyByDebt(input: {
     }));
 }
 
-export default function AdminAgendaPlaygroundPage() {
+// ---------- rango de horas de la grilla según el club ----------
+
+const AGENDA_HOURS_CACHE_PREFIX = 'pique:agenda-hours:';
+const AGENDA_HOURS_LOOKAHEAD_DAYS = 7;
+const AGENDA_HOURS_WAIT_MS = 1500;
+
+// Día que se está mirando. Vive fuera del componente para que, si la grilla se vuelve a armar
+// (cambió el horario del club), no se salte a hoy.
+let agendaLastSelectedDate: Date | null = null;
+
+/** Día con el que abre la agenda: hoy, salvo en la madrugada de una noche que sigue abierta (es la de ayer). */
+const defaultAgendaDate = () => {
+  const now = new Date();
+  if (endHour > 24 && now.getHours() * 60 + now.getMinutes() < (endHour - 24) * 60) {
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, now.getHours(), now.getMinutes());
+  }
+  return now;
+};
+
+type AgendaHourRange = { start: number; end: number };
+
+const readAgendaClubSlug = () => {
+  try {
+    const raw = localStorage.getItem('user');
+    if (!raw) return '';
+    return getActiveClubSlug(normalizeSessionUser(JSON.parse(raw))) || '';
+  } catch {
+    return '';
+  }
+};
+
+const readCachedAgendaHours = (slug: string): AgendaHourRange | null => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`${AGENDA_HOURS_CACHE_PREFIX}${slug}`) || 'null');
+    if (parsed && Number.isFinite(parsed.start) && Number.isFinite(parsed.end) && parsed.end > parsed.start) return parsed;
+  } catch {
+    // sin caché
+  }
+  return null;
+};
+
+const writeCachedAgendaHours = (slug: string, range: AgendaHourRange) => {
+  try {
+    localStorage.setItem(`${AGENDA_HOURS_CACHE_PREFIX}${slug}`, JSON.stringify(range));
+  } catch {
+    // sin caché
+  }
+};
+
+/**
+ * Desde el primer turno hasta el fin del último, mirando los turnos válidos de la próxima semana
+ * (los horarios pueden cambiar según el día). Si el club cierra pasada la medianoche, la grilla llega hasta ahí:
+ * esa madrugada se muestra como parte de la noche.
+ */
+const computeAgendaHourRange = (rulesByDay: AgendaBookingRules[]): AgendaHourRange | null => {
+  let minStart = Infinity;
+  let maxEnd = -Infinity;
+  for (const rules of rulesByDay) {
+    for (const activity of rules?.activities || []) {
+      if (activity.isClosed) continue;
+      for (const slot of activity.slots || []) {
+        const [hours, minutes] = String(slot.start || '').split(':').map(Number);
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes)) continue;
+        const start = hours * 60 + minutes;
+        minStart = Math.min(minStart, start);
+        maxEnd = Math.max(maxEnd, start + Number(slot.durationMinutes || 0));
+      }
+      for (const slot of activity.overnightSlots || []) {
+        const [hours, minutes] = String(slot.start || '').split(':').map(Number);
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes)) continue;
+        maxEnd = Math.max(maxEnd, 24 * 60 + hours * 60 + minutes + Number(slot.durationMinutes || 0));
+      }
+    }
+  }
+  if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd) || maxEnd <= minStart) return null;
+  // Nunca más chica que la grilla de siempre (08 a 23): así no se esconden reservas
+  // hechas fuera de horario. Se agranda si el club abre antes o cierra después.
+  return {
+    start: Math.min(DEFAULT_AGENDA_START_HOUR, Math.floor(minStart / 60)),
+    end: Math.max(DEFAULT_AGENDA_END_HOUR, Math.min(MAX_AGENDA_END_HOUR, Math.ceil(maxEnd / 60))),
+  };
+};
+
+/**
+ * Ajusta la grilla al horario del club antes de montar la agenda: estaba fija de 08:00 a 23:00,
+ * así que un club que abre a las 7 o cierra a la medianoche no veía (ni podía reservar) esos turnos.
+ */
+export default function AdminAgendaPage() {
+  const [range, setRange] = useState<AgendaHourRange | null>(null);
+
+  useEffect(() => {
+    const slug = readAgendaClubSlug();
+    const cached = slug ? readCachedAgendaHours(slug) : null;
+    const mount = (next: AgendaHourRange) => {
+      configureAgendaHours(next.start, next.end);
+      setRange({ start: startHour, end: endHour });
+    };
+    // Con horario guardado se arma ya. Sin él (primera vez), se espera el horario real un momento
+    // para no armar la grilla dos veces; si tarda, se arma con la de siempre.
+    let fallbackTimer: number | null = null;
+    if (cached || !slug) {
+      mount(cached || { start: DEFAULT_AGENDA_START_HOUR, end: DEFAULT_AGENDA_END_HOUR });
+    } else {
+      fallbackTimer = window.setTimeout(() => {
+        fallbackTimer = null;
+        mount({ start: DEFAULT_AGENDA_START_HOUR, end: DEFAULT_AGENDA_END_HOUR });
+      }, AGENDA_HOURS_WAIT_MS);
+    }
+    if (!slug) return;
+
+    let cancelled = false;
+    const today = new Date();
+    const dates = Array.from({ length: AGENDA_HOURS_LOOKAHEAD_DAYS }, (_, index) => {
+      const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + index, 12);
+      return formatLocalDate(day);
+    });
+    Promise.allSettled(dates.map((date) => ClubAdminService.getBookingRules(slug, date))).then((results) => {
+      if (cancelled) return;
+      const rules = results
+        .filter((result): result is PromiseFulfilledResult<AgendaBookingRules> => result.status === 'fulfilled')
+        .map((result) => result.value);
+      const computed = computeAgendaHourRange(rules);
+      const waiting = fallbackTimer != null;
+      if (fallbackTimer != null) {
+        window.clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+      if (!computed) {
+        if (waiting) mount({ start: DEFAULT_AGENDA_START_HOUR, end: DEFAULT_AGENDA_END_HOUR });
+        return;
+      }
+      writeCachedAgendaHours(slug, computed);
+      if (!waiting && computed.start === startHour && computed.end === endHour) return;
+      // Primera vez, o cambió el horario: se arma (o se vuelve a armar) con la grilla nueva.
+      // El día que se estaba mirando se conserva (ver agendaLastSelectedDate).
+      mount(computed);
+    });
+    return () => {
+      cancelled = true;
+      if (fallbackTimer != null) window.clearTimeout(fallbackTimer);
+    };
+  }, []);
+
+  if (!range) return null;
+  return <AdminAgendaPlaygroundPage key={`${range.start}-${range.end}`} />;
+}
+
+function AdminAgendaPlaygroundPage() {
   const router = useRouter();
   const [classPeekBooking, setClassPeekBooking] = useState<Booking | null>(null);
   const [freeFinderOpen, setFreeFinderOpen] = useState(false);
@@ -1159,7 +1328,10 @@ export default function AdminAgendaPlaygroundPage() {
   const [sportFilter, setSportFilter] = useState<SportFilter>('Todos');
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [courtsData, setCourtsData] = useState<Court[]>([]);
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date>(() => agendaLastSelectedDate ?? defaultAgendaDate());
+  useEffect(() => {
+    agendaLastSelectedDate = selectedDate;
+  }, [selectedDate]);
   const [nowTick, setNowTick] = useState<number>(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick(Date.now()), 60_000);
@@ -1345,23 +1517,18 @@ export default function AdminAgendaPlaygroundPage() {
     const todayKey = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
     const selectedKey =
       selectedDate.getFullYear() * 10000 + (selectedDate.getMonth() + 1) * 100 + selectedDate.getDate();
-    if (selectedKey < todayKey) return totalSlots;
     if (selectedKey > todayKey) return 0;
-    const minutesFromStart = now.getHours() * 60 + now.getMinutes() - startHour * 60;
+    // Cuenta desde la medianoche del día que se mira: a la 00:30, la noche de ayer todavía no terminó.
+    const minutesFromStart = minutesFromDayStart(now, selectedDate) - startHour * 60;
     return Math.max(0, Math.min(totalSlots, Math.floor(minutesFromStart / slotMinutes)));
   }, [nowTick, selectedDate]);
   const nowLineTop = useMemo(() => {
     const now = new Date(nowTick);
-    const isSameDay =
-      now.getFullYear() === selectedDate.getFullYear() &&
-      now.getMonth() === selectedDate.getMonth() &&
-      now.getDate() === selectedDate.getDate();
-    if (!isSameDay) return null;
-    const minutesFromStart = now.getHours() * 60 + now.getMinutes() - startHour * 60;
-    if (minutesFromStart < 0) return null;
+    const minutesFromStart = minutesFromDayStart(now, selectedDate) - startHour * 60;
     const maxMinutes = (endHour - startHour) * 60;
-    const clampedMinutes = Math.min(minutesFromStart, maxMinutes);
-    return Number(((clampedMinutes / slotMinutes) * slotHeight).toFixed(2));
+    // Solo si "ahora" cae dentro de la grilla de este día (incluida la madrugada si la grilla pasa la medianoche).
+    if (minutesFromStart < 0 || minutesFromStart > maxMinutes) return null;
+    return Number(((minutesFromStart / slotMinutes) * slotHeight).toFixed(2));
   }, [nowTick, selectedDate]);
   const [deleteBookingConfirmOpen, setDeleteBookingConfirmOpen] = useState(false);
   const [deleteBookingFinalConfirmOpen, setDeleteBookingFinalConfirmOpen] = useState(false);
@@ -2014,33 +2181,55 @@ export default function AdminAgendaPlaygroundPage() {
     try {
       const localDate = formatLocalDate(selectedDate);
       const slug = getClubSlug();
-      // Los bloqueos se piden en paralelo; si fallan, la agenda igual carga las reservas.
-      const [raw, blocks, classSessions] = await Promise.all([
-        getAdminSchedule(localDate),
+      // Si la grilla pasa la medianoche, la madrugada es del día siguiente: se piden los dos días.
+      const nextLocalDate =
+        endHour > 24
+          ? formatLocalDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate() + 1, 12))
+          : null;
+      const loadBlocks = (date: string) =>
         slug
-          ? ClubAdminService.listCourtBlocks(slug, localDate).catch((error) => {
+          ? ClubAdminService.listCourtBlocks(slug, date).catch((error) => {
               reportUiError({ area: 'AgendaPlayground', action: 'loadCourtBlocks' }, error);
               return [] as CourtBlockDto[];
             })
-          : Promise.resolve([] as CourtBlockDto[]),
+          : Promise.resolve([] as CourtBlockDto[]);
+      // Los bloqueos se piden en paralelo; si fallan, la agenda igual carga las reservas.
+      const [rawToday, blocksToday, classSessions, rawNext, blocksNext] = await Promise.all([
+        getAdminSchedule(localDate),
+        loadBlocks(localDate),
         slug
           ? ClubAdminService.getClassSessions(slug).catch((error) => {
               reportUiError({ area: 'AgendaPlayground', action: 'loadClassSessions' }, error);
               return [] as AdminClassSession[];
             })
           : Promise.resolve([] as AdminClassSession[]),
+        nextLocalDate
+          ? getAdminSchedule(nextLocalDate).catch((error) => {
+              reportUiError({ area: 'AgendaPlayground', action: 'loadNextDaySchedule' }, error);
+              return [];
+            })
+          : Promise.resolve([]),
+        nextLocalDate ? loadBlocks(nextLocalDate) : Promise.resolve([] as CourtBlockDto[]),
       ]);
+      const raw: any[] = [...(Array.isArray(rawToday) ? rawToday : []), ...(Array.isArray(rawNext) ? rawNext : [])];
+      const blocks = [...blocksToday, ...blocksNext];
+      const seenIds = new Set<string>();
       const mapped = [
-        ...(Array.isArray(raw) ? raw : [])
-          .map(parseScheduleSlotToBooking)
+        ...raw
+          .map((slot) => parseScheduleSlotToBooking(slot, selectedDate))
           .filter((booking): booking is Booking => Boolean(booking)),
         ...blocks
-          .map(parseCourtBlockToBooking)
+          .map((block) => parseCourtBlockToBooking(block, selectedDate))
           .filter((booking): booking is Booking => Boolean(booking)),
         ...classSessions
-          .map((row) => parseClassSessionToBooking(row, localDate))
+          .map((row) => parseClassSessionToBooking(row, selectedDate))
           .filter((booking): booking is Booking => Boolean(booking)),
-      ];
+      ].filter((booking) => {
+        // Un turno que cruza la medianoche viene en los dos días: va una sola vez.
+        if (seenIds.has(booking.id)) return false;
+        seenIds.add(booking.id);
+        return true;
+      });
       // Si mientras tanto salió otro pedido (cambio de fecha, refresco automático), gana el más nuevo.
       if (requestSeq === scheduleRequestSeqRef.current) {
         setBookings(mapped);
@@ -3462,7 +3651,7 @@ export default function AdminAgendaPlaygroundPage() {
       const suggestedStartSlot = isSelectedDateToday
         ? Math.max(
             0,
-            Math.min(totalSlots - 1, Math.ceil((now.getHours() * 60 + now.getMinutes() - startHour * 60) / slotMinutes))
+            Math.min(totalSlots - 1, Math.ceil((minutesFromDayStart(now, selectedDate) - startHour * 60) / slotMinutes))
           )
         : Math.max(0, Math.min(totalSlots - 1, selectedStartSlot));
       const suggestedEndSlot = Math.max(
@@ -3563,7 +3752,7 @@ export default function AdminAgendaPlaygroundPage() {
       recurringFrequencyPreset === 'custom' && customRecurrenceDays.length > 0
         ? [...customRecurrenceDays].sort((a, b) => a - b)[0]
         : recurringDayOfWeek;
-    return getNextDateForDay(baseDate, firstDay, slotToTime(selectedStartSlot));
+    return getNextDateForDay(baseDate, firstDay, slotToDayTime(selectedStartSlot));
   }, [customRecurrenceDays, recurringDayOfWeek, recurringFrequencyPreset, selectedDate, selectedStartSlot]);
   const customRecurrenceDaysSummary = useMemo(() => {
     const days = Array.from(new Set(customRecurrenceDays));
@@ -3689,7 +3878,7 @@ export default function AdminAgendaPlaygroundPage() {
     baseDate.setHours(12, 0, 0, 0);
     let last: Date | null = null;
     for (const day of recurringExecutionPlan.recurrenceDays) {
-      const candidate = getNextDateForDay(baseDate, day, slotToTime(selectedStartSlot));
+      const candidate = getNextDateForDay(baseDate, day, slotToDayTime(selectedStartSlot));
       candidate.setDate(candidate.getDate() + (repetitions - 1) * recurringExecutionPlan.frequencyDays);
       if (!last || candidate.getTime() > last.getTime()) last = candidate;
     }
@@ -3724,6 +3913,13 @@ export default function AdminAgendaPlaygroundPage() {
       Number(editingBaseline.endSlot) !== Number(selectedEndSlot)
     );
   }, [editingBaseline, selectedCourtId, selectedEndSlot, selectedStartSlot]);
+  // Horario a mostrar en el panel: el real de la reserva mientras no se cambie
+  // (los slots se recortan al final de la grilla: 22:00–23:30 se veía 22:00–23:00).
+  const useRealEditingTimes = Boolean(
+    editingBooking?.startTimeLabel && editingBooking?.endTimeLabel && editingBaseline && !hasScheduleChanges
+  );
+  const selectedStartTimeLabel = useRealEditingTimes ? editingBooking!.startTimeLabel! : slotToTime(selectedStartSlot);
+  const selectedEndTimeLabel = useRealEditingTimes ? editingBooking!.endTimeLabel! : slotToTime(selectedEndSlot);
   const isCompletedReservation = Boolean(
     persistedEditingBookingId &&
     bookingKind !== 'block' &&
@@ -3875,7 +4071,7 @@ export default function AdminAgendaPlaygroundPage() {
       ? 'Bloquear'
       : 'Crear reserva';
   const primaryActionMeta = editingBookingId
-    ? `${slotToTime(selectedStartSlot)} - ${slotToTime(selectedEndSlot)}`
+    ? `${selectedStartTimeLabel} - ${selectedEndTimeLabel}`
     : (selectedCourt?.name || 'Sin cancha');
   const operationalChecklist = [
     {
@@ -4418,6 +4614,37 @@ export default function AdminAgendaPlaygroundPage() {
     void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
   }, [router, effectiveCourts.length, loadedScheduleDate, bookingRulesSettledDate, selectedDateKey, openQuickCreateBooking]);
 
+  // Desde Reservas: /admin/agenda?fecha=YYYY-MM-DD&reserva=<id> va a ese día y abre la reserva.
+  const dateFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (dateFromUrlHandledRef.current || !router.isReady) return;
+    dateFromUrlHandledRef.current = true;
+    const raw = String(router.query.fecha || '').trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (!match) return;
+    const target = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
+    if (Number.isNaN(target.getTime())) return;
+    setSelectedDate(target);
+  }, [router.isReady, router.query.fecha]);
+
+  const bookingFromUrlHandledRef = useRef(false);
+  useEffect(() => {
+    if (bookingFromUrlHandledRef.current || !router.isReady) return;
+    const bookingId = String(router.query.reserva || '').trim();
+    const dateParam = String(router.query.fecha || '').trim();
+    if (!bookingId && !dateParam) return;
+    // Esperar a que cargue el día pedido.
+    if (dateParam && (selectedDateKey !== dateParam || loadedScheduleDate !== dateParam)) return;
+    bookingFromUrlHandledRef.current = true;
+    if (bookingId) {
+      const target = bookings.find((booking) => String(booking.id) === bookingId);
+      if (target) openBookingInDrawer(target);
+      else showAdminToast('No encontramos esa reserva en el calendario.', 'error');
+    }
+    const { fecha: _fecha, reserva: _reserva, ...rest } = router.query;
+    void router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+  }, [router, bookings, selectedDateKey, loadedScheduleDate, openBookingInDrawer]);
+
   const runSimplifiedNewParticipantSearch = useCallback(async (rawValue: string) => {
     setSimplifiedNewParticipantName(rawValue);
     setSimplifiedNewParticipantContact('');
@@ -4917,6 +5144,8 @@ export default function AdminAgendaPlaygroundPage() {
     try {
       setIsSubmittingBooking(true);
       const slotTime = slotToTime(selectedStartSlot);
+      // Para series: "24:30" cae en la madrugada del día siguiente al elegido.
+      const slotDayTime = slotToDayTime(selectedStartSlot);
 
       if (isRecurringKind) {
         setRecurringOverlapModalOpen(false);
@@ -4996,7 +5225,7 @@ export default function AdminAgendaPlaygroundPage() {
             }
 
             for (const dayOfWeek of recurrenceDays) {
-              const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotTime);
+              const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotDayTime);
               try {
                 const preview = await createFixedBooking(Number(court.id), activityId, firstOccurrence, {
                   durationMinutes: selectionMinutes,
@@ -5071,7 +5300,7 @@ export default function AdminAgendaPlaygroundPage() {
           activityId: number,
           dayOfWeek: number
         ) => {
-          const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotTime);
+          const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotDayTime);
           const requestPayload = {
             durationMinutes: selectionMinutes,
             everyDays: frequencyDays,
@@ -5227,7 +5456,7 @@ export default function AdminAgendaPlaygroundPage() {
                     pushOverlapDetail(item, court.name);
                   });
                 } else {
-                  const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotTime);
+                  const firstOccurrence = getNextDateForDay(baseDate, dayOfWeek, slotDayTime);
                   overlapDetails.push({
                     courtName: court.name,
                     requestedDateLabel: formatSeriesDateLabel(firstOccurrence, activeClubTimeZone),
@@ -5311,7 +5540,8 @@ export default function AdminAgendaPlaygroundPage() {
           setFormError('No se pudo resolver la actividad de la cancha. Revisá la configuración del club.');
           return;
         }
-        const bookingDate = new Date(selectedDate);
+        // Fecha real del turno: si es de la madrugada, es el día siguiente al que se mira.
+        const bookingDate = buildStartDateTimeFromSlot(selectedDate, selectedStartSlot);
         const createdPayload: any = await createBooking(Number(selectedCourtId), selectedActivityId, bookingDate, slotTime, {
           durationMinutes: selectionMinutes,
           ...(bookingActivityFormatId ? { activityFormatId: bookingActivityFormatId } : {}),
@@ -5824,7 +6054,7 @@ export default function AdminAgendaPlaygroundPage() {
         const quote = await getBookingQuote({
           courtId: Number(selectedCourtId),
           activityId,
-          date: new Date(selectedDate),
+          date: buildStartDateTimeFromSlot(selectedDate, selectedStartSlot),
           slotTime: slotToTime(selectedStartSlot),
           durationMinutes: selectionMinutes,
           activityFormatId: bookingActivityFormatId || null,
@@ -5914,7 +6144,8 @@ export default function AdminAgendaPlaygroundPage() {
       .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
       .replace(/,/g, '')
       .replace(/\./g, '');
-  const simplifiedCreateDateLabel = formatShortDayLabel(selectedDate);
+  // Un turno pasada la medianoche pertenece al día siguiente: la etiqueta usa la fecha real del turno.
+  const simplifiedCreateDateLabel = formatShortDayLabel(buildStartDateTimeFromSlot(selectedDate, selectedStartSlot));
   const simplifiedEditDateLabel = simplifiedCreateDateLabel;
   // Precio por jugador: el total se muestra como "4 × $10.000".
   const createPlayerCount = Number(
@@ -5942,7 +6173,7 @@ export default function AdminAgendaPlaygroundPage() {
     const baseDate = new Date(selectedDate);
     baseDate.setHours(12, 0, 0, 0);
     const firstDate = recurringExecutionPlan.recurrenceDays
-      .map((day) => getNextDateForDay(baseDate, day, slotToTime(selectedStartSlot)))
+      .map((day) => getNextDateForDay(baseDate, day, slotToDayTime(selectedStartSlot)))
       .sort((a, b) => a.getTime() - b.getTime())[0] ?? recurringFirstOccurrence;
     const first = formatShortDayLabel(firstDate);
     if (!Number.isFinite(recurringEstimatedOccurrencesTotal) || !recurringLastOccurrence) {
@@ -6585,7 +6816,7 @@ export default function AdminAgendaPlaygroundPage() {
   // El editor de horario/cancha se abre solo si hay cambios sin guardar o errores, para no esconderlos.
   const simplifiedScheduleEditorVisible =
     simplifiedScheduleEditorOpen || hasScheduleChanges || Boolean(timeFieldError) || Boolean(courtFieldError);
-  const simplifiedHeaderTimeLabel = `${slotToTime(selectedStartSlot)}–${slotToTime(selectedEndSlot)}`;
+  const simplifiedHeaderTimeLabel = `${selectedStartTimeLabel}–${selectedEndTimeLabel}`;
   const simplifiedHeaderShortDateLabel = (() => {
     const label = selectionStartDateTime
       .toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' })
@@ -6971,6 +7202,11 @@ export default function AdminAgendaPlaygroundPage() {
                                         paymentState={booking.paymentState}
                                         totalAmount={booking.hoverPayment?.totalAmount}
                                         remainingAmount={booking.hoverPayment?.remainingAmount}
+                                        timeRangeLabel={
+                                          booking.startTimeLabel && booking.endTimeLabel
+                                            ? `${booking.startTimeLabel} - ${booking.endTimeLabel}`
+                                            : undefined
+                                        }
                                         isRecurring={booking.isRecurring}
                                         participantsCount={booking.participantsCount}
                                         sportLabel={court.sport}
@@ -7717,7 +7953,7 @@ export default function AdminAgendaPlaygroundPage() {
                       <p className="mt-1 text-[14px] text-p-text-secondary">
                         <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
                         {' · '}
-                        {simplifiedEditDateLabel} {slotToTime(selectedStartSlot)}–{slotToTime(selectedEndSlot)} · {selectedCourt?.name || 'Cancha'}
+                        {simplifiedEditDateLabel} {selectedStartTimeLabel}–{selectedEndTimeLabel} · {selectedCourt?.name || 'Cancha'}
                       </p>
                     </div>
                     <button
@@ -7901,7 +8137,7 @@ export default function AdminAgendaPlaygroundPage() {
                       <p className="mt-1 text-[14px] text-p-text-secondary">
                         <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
                         {' · '}
-                        {simplifiedEditDateLabel} {slotToTime(selectedStartSlot)}–{slotToTime(selectedEndSlot)} · {selectedCourt?.name || 'Cancha'}
+                        {simplifiedEditDateLabel} {selectedStartTimeLabel}–{selectedEndTimeLabel} · {selectedCourt?.name || 'Cancha'}
                       </p>
                     </div>
                     <button

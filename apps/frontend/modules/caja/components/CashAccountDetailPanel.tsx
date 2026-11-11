@@ -51,6 +51,8 @@ type CashAccountDetailPanelProps = {
   onRefund: () => void;
   /** Cierra la cuenta (sin saldo). */
   onCloseAccount: () => void;
+  /** Abre "Emitir factura". Solo se pasa si el club factura. */
+  onInvoice?: () => void;
   /** Valida en el mostrador el precio socio pendiente de un jugador. */
   onValidateMember?: (item: CashDetailItem) => void;
   validatingItemId?: string | null;
@@ -105,6 +107,7 @@ export default function CashAccountDetailPanel({
   onPay,
   onRefund,
   onCloseAccount,
+  onInvoice,
   onValidateMember,
   validatingItemId,
 }: CashAccountDetailPanelProps) {
@@ -284,6 +287,15 @@ export default function CashAccountDetailPanel({
             className="text-[13px] font-semibold text-p-text-secondary hover:underline underline-offset-2"
           >
             Devolver un pago
+          </button>
+        )}
+        {onInvoice && hasPayments && total > EPSILON && (
+          <button
+            type="button"
+            onClick={onInvoice}
+            className="text-[13px] font-semibold text-p-text-secondary hover:underline underline-offset-2"
+          >
+            Emitir factura
           </button>
         )}
         {canClose && (

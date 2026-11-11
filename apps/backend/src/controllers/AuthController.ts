@@ -116,6 +116,10 @@ const normalizeOAuthReturnTo = (value: string | null | undefined, fallback = '/'
 
 type VerifyFailureReason = 'invalid_or_expired' | 'internal_error';
 
+// Mismo mensaje si no existe, si está desactivada o si la contraseña no coincide:
+// así no se puede averiguar qué DNI o email tiene cuenta.
+const INVALID_LOGIN_MESSAGE = 'El DNI, el email o la contraseña no son correctos.';
+
 export class AuthController {
     private authEmailService: AuthEmailService | null = null;
     private authSessionService = new AuthSessionService();
@@ -499,7 +503,7 @@ export class AuthController {
         try {
             const user = await this.findUserByLoginIdentifier(rawIdentifier);
             if (!user) {
-                return res.status(400).json({ error: "Credenciales inválidas" });
+                return res.status(400).json({ error: INVALID_LOGIN_MESSAGE });
             }
 
             if (user.accountStatus === 'PENDING_ACTIVATION') {
@@ -511,12 +515,12 @@ export class AuthController {
                 );
             }
             if (user.accountStatus === 'DISABLED') {
-                return res.status(400).json({ error: "Credenciales inválidas" });
+                return res.status(400).json({ error: INVALID_LOGIN_MESSAGE });
             }
 
             const isPasswordValid = await bcrypt.compare(password, user.password);
             if (!isPasswordValid) {
-                return res.status(400).json({ error: "Credenciales inválidas" });
+                return res.status(400).json({ error: INVALID_LOGIN_MESSAGE });
             }
 
             await prisma.user.update({
@@ -1565,6 +1569,129 @@ export class AuthController {
         } catch (error: any) {
             logger.error({ err: error, action: 'sessionLogout' }, 'Error cerrando sesión actual');
             return res.status(500).json({ error: 'No se pudo cerrar la sesión.' });
+        }
+    };
+
+    sessionLogoutOthers = async (req: Request, res: Response) => {
+        try {
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+            }
+            const currentSessionId = String((req as any)?.user?.sid || '').trim() || null;
+            if (!currentSessionId) {
+                return res.status(409).json({ error: 'No pudimos reconocer este dispositivo. Volvé a ingresar e intentá de nuevo.' });
+            }
+            const closed = await this.authSessionService.revokeOtherUserSessions(userId, currentSessionId);
+            return res.json({ closed });
+        } catch (error: any) {
+            logger.error({ err: error, action: 'sessionLogoutOthers' }, 'Error cerrando las otras sesiones');
+            return res.status(500).json({ error: 'No se pudieron cerrar las otras sesiones.' });
+        }
+    };
+
+    sessionRevokeOne = async (req: Request, res: Response) => {
+        try {
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+            }
+            const sessionId = String(req.params.sessionId || '').trim();
+            const currentSessionId = String((req as any)?.user?.sid || '').trim() || null;
+            if (!sessionId) return res.status(400).json({ error: 'Falta la sesión.' });
+            if (sessionId === currentSessionId) {
+                return res.status(400).json({ error: 'Para salir de este dispositivo usá "Cerrar sesión".' });
+            }
+            const ok = await this.authSessionService.revokeUserSessionFamily(userId, sessionId);
+            if (!ok) return res.status(404).json({ error: 'Esa sesión ya no existe.' });
+            return res.status(204).send();
+        } catch (error: any) {
+            logger.error({ err: error, action: 'sessionRevokeOne' }, 'Error cerrando una sesión');
+            return res.status(500).json({ error: 'No se pudo cerrar esa sesión.' });
+        }
+    };
+
+    /**
+     * Elimina la cuenta del jugador. Las reservas y pagos son registros del club, así que no se borran:
+     * se quitan los datos personales (nombre, email, DNI, teléfono), se desvincula de sus perfiles en clubes
+     * y la cuenta queda deshabilitada sin forma de volver a entrar.
+     */
+    accountDelete = async (req: Request, res: Response) => {
+        try {
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+            }
+            const confirmation = String(req.body?.confirmation || '').trim().toUpperCase();
+            if (confirmation !== 'ELIMINAR') {
+                return res.status(400).json({ error: 'Escribí ELIMINAR para confirmar.' });
+            }
+
+            const user = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { id: true, email: true, role: true, accountStatus: true }
+            });
+            if (!user || user.accountStatus === 'DISABLED') {
+                return sendAuthError(res, 401, 'AUTH_INVALID', 'No autorizado');
+            }
+            if (user.role === 'ADMIN' || isPiqueTeamUser(user)) {
+                return res.status(409).json({ error: 'Las cuentas del equipo de Pique no se eliminan desde acá.' });
+            }
+            const staffMemberships = await prisma.membership.count({
+                where: { userId, role: { in: ['OWNER', 'ADMIN', 'STAFF'] } }
+            });
+            if (staffMemberships > 0) {
+                return res.status(409).json({
+                    error: 'Administrás un club. Para eliminar tu cuenta, primero pasale la administración a otra persona.'
+                });
+            }
+            const now = new Date();
+            const upcomingBookings = await prisma.booking.count({
+                where: {
+                    status: { in: ['PENDING', 'CONFIRMED'] },
+                    startDateTime: { gt: now },
+                    OR: [{ userId }, { participants: { some: { userId } } }]
+                }
+            });
+            if (upcomingBookings > 0) {
+                return res.status(409).json({
+                    error: upcomingBookings === 1
+                        ? 'Tenés 1 reserva por jugar. Cancelala o esperá a jugarla antes de eliminar tu cuenta.'
+                        : `Tenés ${upcomingBookings} reservas por jugar. Cancelalas o esperá a jugarlas antes de eliminar tu cuenta.`
+                });
+            }
+
+            const unusablePassword = await bcrypt.hash(`deleted:${userId}:${Date.now()}:${Math.random()}`, 10);
+            await prisma.$transaction(async (tx) => {
+                await tx.userOAuthIdentity.deleteMany({ where: { userId } });
+                await tx.pushSubscription.deleteMany({ where: { userId } });
+                await tx.userNotificationPreference.deleteMany({ where: { userId } });
+                await tx.clubFavorite.deleteMany({ where: { userId } });
+                await tx.userVerificationCode.deleteMany({ where: { userId } });
+                await tx.membership.deleteMany({ where: { userId } });
+                // El club conserva su ficha de cliente (es su historial), pero ya no apunta a esta cuenta.
+                await tx.client.updateMany({ where: { userId }, data: { userId: null } });
+                await tx.user.update({
+                    where: { id: userId },
+                    data: {
+                        email: null,
+                        dni: null,
+                        firstName: 'Usuario',
+                        lastName: 'eliminado',
+                        phoneNumber: '',
+                        password: unusablePassword,
+                        emailVerifiedAt: null,
+                        accountStatus: 'DISABLED'
+                    }
+                });
+            });
+            await this.authSessionService.revokeAllUserSessions(userId);
+            this.clearSessionCookies(res);
+            logger.info({ action: 'accountDelete', userId }, 'Cuenta eliminada por el usuario');
+            return res.status(204).send();
+        } catch (error: any) {
+            logger.error({ err: error, action: 'accountDelete' }, 'Error eliminando la cuenta');
+            return res.status(500).json({ error: 'No se pudo eliminar la cuenta. Probá de nuevo.' });
         }
     };
 

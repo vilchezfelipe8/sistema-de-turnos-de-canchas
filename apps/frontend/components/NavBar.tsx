@@ -41,6 +41,8 @@ const countActiveBookings = (rows: any[]): number => {
   }).length;
 };
 
+const INVITE_BANNER_HEIGHT = 36;
+
 const NAV_CSS = `
   .p-player-nav {
     position:fixed;
@@ -56,6 +58,28 @@ const NAV_CSS = `
     transition:transform .38s cubic-bezier(.4,0,.2,1);
   }
   .p-player-nav.p-header-hidden { transform:translateY(-110%); }
+  .p-player-invite-banner {
+    height:${INVITE_BANNER_HEIGHT}px;
+    box-sizing:border-box;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 16px;
+    background:var(--accent-bg-soft);
+    border-top:1px solid var(--accent-border-subtle);
+  }
+  .p-player-invite-banner-link {
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    min-width:0;
+    max-width:100%;
+    font-size:13px;
+    font-weight:700;
+    color:var(--text-primary);
+    text-decoration:none;
+  }
+  .p-player-invite-banner-text { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .p-player-nav .p-header-inner {
     max-width:1360px;
     margin:0 auto;
@@ -264,6 +288,8 @@ export default function Navbar({
     return rows;
   }, [activeBookingsCount, adminClubSlug, isAdmin, pendingInvitationsCount]);
 
+  const showInvitationBanner = Boolean(user) && !clubApp && pendingInvitationsCount > 0 && router.pathname !== '/bookings';
+
   const handleContact = () => {
     setShowUserMenu(false);
     if (onContactClick) {
@@ -278,7 +304,7 @@ export default function Navbar({
   const handleLogout = () => {
     setShowLogoutModal(false);
     setShowUserMenu(false);
-    logout();
+    logout({ reason: 'manual' });
   };
 
   const handleHomeShortcut = async (sectionId: string) => {
@@ -487,7 +513,7 @@ export default function Navbar({
                       <button
                         type="button"
                         className="p-player-menu-item p-player-menu-danger"
-                        onClick={() => setShowLogoutModal(true)}
+                        onClick={() => { setShowUserMenu(false); setShowLogoutModal(true); }}
                       >
                         <span className="p-player-menu-item-main"><LogOut size={15} /> Cerrar sesión</span>
                       </button>
@@ -503,20 +529,23 @@ export default function Navbar({
             )}
           </div>
         </div>
+
+        {/* Va dentro del header fijo: afuera quedaba tapado por él y no se veía en ninguna página. */}
+        {showInvitationBanner && (
+          <div className="p-player-invite-banner">
+            <Link href="/bookings#invitaciones" className="p-player-invite-banner-link">
+              <Mail size={14} style={{ color: 'var(--positive-fg)', flexShrink: 0 }} />
+              <span className="p-player-invite-banner-text">
+                Tenés {pendingInvitationsCount} invitación{pendingInvitationsCount === 1 ? '' : 'es'} para jugar pendiente{pendingInvitationsCount === 1 ? '' : 's'}
+              </span>
+              <span style={{ color: 'var(--positive-fg)', flexShrink: 0 }}>Ver</span>
+            </Link>
+          </div>
+        )}
       </header>
 
-      {user && !clubApp && pendingInvitationsCount > 0 && router.pathname !== '/bookings' && (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 16px', background: 'var(--accent-bg-soft)', borderBottom: '1px solid var(--accent-border-subtle)' }}>
-          <Link
-            href="/bookings#invitaciones"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', textDecoration: 'none' }}
-          >
-            <Mail size={14} style={{ color: 'var(--positive-fg)' }} />
-            Tenés {pendingInvitationsCount} invitación{pendingInvitationsCount === 1 ? '' : 'es'} para jugar pendiente{pendingInvitationsCount === 1 ? '' : 's'}
-            <span style={{ color: 'var(--positive-fg)' }}>Ver</span>
-          </Link>
-        </div>
-      )}
+      {/* Reserva en el flujo el alto del aviso, para que no tape el comienzo de la página. */}
+      {showInvitationBanner && <div aria-hidden="true" style={{ height: INVITE_BANNER_HEIGHT }} />}
 
       <AppModal
         show={showLogoutModal}

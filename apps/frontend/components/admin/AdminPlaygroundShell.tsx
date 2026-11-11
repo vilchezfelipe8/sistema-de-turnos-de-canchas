@@ -476,16 +476,18 @@ export default function AdminPlaygroundShell({
                     <Calendar size={14} />
                     Mis reservas
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileMenuOpen(false);
-                      void router.push('/admin/ajustes');
-                    }}
-                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text-secondary transition hover:bg-p-surface-2"
-                  >
-                    Configuración
-                  </button>
+                  {hasAdminPrivileges && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileMenuOpen(false);
+                        void router.push('/admin/ajustes');
+                      }}
+                      className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text-secondary transition hover:bg-p-surface-2"
+                    >
+                      Configuración
+                    </button>
+                  )}
                   <div className="my-1 h-px bg-p-border" />
                   <button
                     type="button"

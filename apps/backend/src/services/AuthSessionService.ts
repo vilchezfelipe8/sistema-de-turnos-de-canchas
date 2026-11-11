@@ -282,13 +282,47 @@ export class AuthSessionService {
     });
   }
 
+  /**
+   * Cierra un acceso del usuario (el dispositivo entero: toda la familia del token).
+   * Devuelve false si la sesión no es de ese usuario.
+   */
+  async revokeUserSessionFamily(userId: number, sessionId: string) {
+    const session = await prisma.authSession.findFirst({
+      where: { id: sessionId, userId },
+      select: { familyId: true }
+    });
+    if (!session) return false;
+    await prisma.$transaction((tx) => this.revokeFamilyTx(tx, session.familyId, new Date()));
+    return true;
+  }
+
+  /** Cierra todos los accesos del usuario menos el de este dispositivo. */
+  async revokeOtherUserSessions(userId: number, currentSessionId: string | null) {
+    const current = currentSessionId
+      ? await prisma.authSession.findFirst({ where: { id: currentSessionId, userId }, select: { familyId: true } })
+      : null;
+    const now = new Date();
+    const result = await prisma.authSession.updateMany({
+      where: {
+        userId,
+        status: { in: [AuthSessionStatus.ACTIVE, AuthSessionStatus.ROTATED] },
+        ...(current ? { NOT: { familyId: current.familyId } } : {})
+      },
+      data: { status: AuthSessionStatus.REVOKED, revokedAt: now, lastSeenAt: now }
+    });
+    return result.count;
+  }
+
   async listUserSessions(userId: number, currentSessionId?: string | null) {
+    // Una fila por dispositivo: al renovar el token la fila vieja queda ROTATED (es el mismo acceso),
+    // así que solo se listan las ACTIVE que no vencieron.
+    const now = new Date();
     const sessions = await prisma.authSession.findMany({
       where: {
         userId,
-        status: {
-          in: [AuthSessionStatus.ACTIVE, AuthSessionStatus.ROTATED]
-        }
+        status: AuthSessionStatus.ACTIVE,
+        expiresAt: { gt: now },
+        absoluteExpiresAt: { gt: now }
       },
       orderBy: [
         { lastSeenAt: 'desc' },

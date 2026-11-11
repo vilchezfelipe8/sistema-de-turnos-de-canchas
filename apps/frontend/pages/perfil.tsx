@@ -16,13 +16,15 @@ import {
   getAccountSecurityOverview,
   getPendingLogoutRedirect,
   logout,
-  logoutAllSessions,
+  logoutOtherSessions,
+  revokeSession,
+  deleteMyAccount,
   type AccountSecurityOverview,
   type SessionSecuritySummary
 } from '../services/AuthService';
 import { useValidateAuth } from '../hooks/useValidateAuth';
 import { updateMyProfile } from '../services/AuthService';
-import { AlertTriangle, ArrowRight, Bell, Building2, CalendarDays, ChevronDown, Mail, Phone, IdCard, User, UserRound, Save, CheckCircle, Shield, LogOut, LockKeyhole, Monitor, Smartphone, Link as LinkIcon } from 'lucide-react';
+import { AlertTriangle, Bell, Building2, ChevronDown, Mail, Phone, IdCard, User, UserRound, Save, CheckCircle, Shield, LogOut, LockKeyhole, Monitor, Smartphone, Link as LinkIcon } from 'lucide-react';
 import { extractErrorMessage } from '../utils/uiError';
 import {
   buildCanonicalPhone,
@@ -62,6 +64,27 @@ const PAGE_CSS = `
   .pf-section-notice { margin:0 0 16px; }
   .pf-access-card { scroll-margin-top:80px; }
   .pf-security-grid { display:grid; grid-template-columns:1fr; gap:16px; }
+  .pf-columns { display:block; }
+  .pf-col > .pf-disclosure:first-child > .pf-disclosure-content > .pf-zone { margin-top:0; }
+  @media(min-width:1000px){
+    .pf-page.p-public-page { max-width:1180px; }
+    .pf-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:24px; align-items:start; }
+    .pf-col > .pf-disclosure + .pf-disclosure .pf-zone, .pf-col > .pf-card + .pf-disclosure .pf-zone { margin-top:24px; }
+  }
+  .pf-session-row-actions { margin-left:auto; flex:none; align-self:center; }
+  .pf-session-more { width:100%; margin-top:2px; }
+  .pf-session-confirm { display:grid; gap:10px; padding:14px; border:1px solid var(--danger-border); border-radius:14px; background:var(--error-bg); }
+  .pf-session-confirm p { margin:0; color:var(--text-primary); font-size:13px; line-height:1.5; }
+  .pf-session-confirm-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .pf-delete-account { display:grid; gap:10px; justify-items:start; margin-top:18px; padding-top:16px; border-top:1px solid var(--border-subtle); }
+  .pf-delete-account > .pf-session-confirm { justify-self:stretch; }
+  .pf-delete-account-head { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; color:var(--text-primary); }
+  .pf-delete-account-head svg { color:var(--danger-fg, var(--text-muted)); }
+  .pf-delete-account-copy { margin:0; color:var(--text-muted); font-size:13px; line-height:1.5; }
+  .pf-delete-account-label { font-size:13px; color:var(--text-secondary); }
+  .pf-delete-account-input { width:100%; max-width:260px; min-height:40px; padding:0 12px; border-radius:10px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); font:inherit; font-size:14px; letter-spacing:.04em; }
+  .pf-delete-account-error { margin:0; color:var(--danger-fg, var(--text-primary)); font-size:13px; }
+  .pf-saved { display:inline-flex; align-items:center; gap:6px; color:var(--positive-fg); font-size:13px; font-weight:700; }
   .pf-security-card { padding:20px; }
   .pf-section-heading { display:flex; align-items:center; gap:9px; margin:0 0 8px; color:var(--text-primary); font-size:15px; font-weight:800; }
   .pf-muted { color:var(--text-muted); font-size:13px; line-height:1.5; }
@@ -230,7 +253,14 @@ export default function PerfilPage() {
   const [disconnectingApple, setDisconnectingApple] = useState(false);
   const [disconnectingFacebook, setDisconnectingFacebook] = useState(false);
   const [connectingProvider, setConnectingProvider] = useState<'google' | 'apple' | 'facebook' | null>(null);
-  const [logoutAllLoading, setLogoutAllLoading] = useState(false);
+  const [logoutOthersLoading, setLogoutOthersLoading] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteAccountText, setDeleteAccountText] = useState('');
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState('');
+  const [logoutOthersConfirm, setLogoutOthersConfirm] = useState(false);
+  const [showAllSessions, setShowAllSessions] = useState(false);
+  const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
   const [claimingClubId, setClaimingClubId] = useState<number | null>(null);
   const [securityRefreshKey, setSecurityRefreshKey] = useState(0);
   const [openPanels, setOpenPanels] = useState<Record<ProfilePanel, boolean>>({
@@ -247,6 +277,8 @@ export default function PerfilPage() {
     phoneCountryIso2: DEFAULT_PHONE_COUNTRY_ISO2,
     phoneLocal: ''
   });
+  // Lo último guardado: "Guardar cambios" se activa solo si el formulario es distinto.
+  const [savedForm, setSavedForm] = useState(form);
 
   const togglePanel = (panel: ProfilePanel) => {
     setOpenPanels((current) => ({ ...current, [panel]: !current[panel] }));
@@ -262,14 +294,16 @@ export default function PerfilPage() {
   useEffect(() => {
     if (!user) return;
     const splitPhone = splitCanonicalPhone(String(user.phoneNumber || ''), DEFAULT_PHONE_COUNTRY_ISO2);
-    setForm({
+    const loaded = {
       firstName: String(user.firstName || ''),
       lastName: String(user.lastName || ''),
       email: String(user.email || ''),
       dni: String((user as any).dni || ''),
       phoneCountryIso2: normalizePhoneCountryIso2(splitPhone.countryIso2),
       phoneLocal: String(splitPhone.localNumber || '')
-    });
+    };
+    setForm(loaded);
+    setSavedForm(loaded);
   }, [user]);
 
   useEffect(() => {
@@ -413,7 +447,8 @@ export default function PerfilPage() {
         phoneNumberLocal: phoneLocal,
         dni: safeDni || undefined
       });
-      setFeedback({ section: 'profile', kind: 'success', message: 'Cambios guardados.' });
+      setSavedForm({ ...form, firstName, lastName, phoneLocal, dni: safeDni });
+      setFeedback({ section: 'profile', kind: 'success', message: 'Guardado' });
     } catch (err: unknown) {
       setFeedback({ section: 'profile', kind: 'error', message: extractErrorMessage(err, 'No se pudo actualizar el perfil.') });
     } finally {
@@ -505,15 +540,54 @@ export default function PerfilPage() {
     beginFacebookOAuthConnect('/perfil');
   };
 
-  const handleLogoutAll = async () => {
-    setFeedback(null);
-    setLogoutAllLoading(true);
+  const refreshSecurity = async () => {
+    const overview = await getAccountSecurityOverview();
+    setSecurity(overview);
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleteAccountError('');
+    setDeleteAccountLoading(true);
     try {
-      await logoutAllSessions();
-      logout({ reason: 'manual' });
+      await deleteMyAccount(deleteAccountText);
+      logout({ redirectTo: '/', reason: 'account_deleted' });
     } catch (err: unknown) {
-      setFeedback({ section: 'sessions', kind: 'error', message: extractErrorMessage(err, 'No se pudieron cerrar todas las sesiones.') });
-      setLogoutAllLoading(false);
+      setDeleteAccountError(extractErrorMessage(err, 'No se pudo eliminar la cuenta.'));
+      setDeleteAccountLoading(false);
+    }
+  };
+
+  const handleLogoutOthers = async () => {
+    setFeedback(null);
+    setLogoutOthersLoading(true);
+    try {
+      const closed = await logoutOtherSessions();
+      await refreshSecurity();
+      setLogoutOthersConfirm(false);
+      setShowAllSessions(false);
+      setFeedback({
+        section: 'sessions',
+        kind: 'success',
+        message: closed === 1 ? 'Cerramos 1 sesión. Este dispositivo sigue abierto.' : `Cerramos ${closed} sesiones. Este dispositivo sigue abierto.`
+      });
+    } catch (err: unknown) {
+      setFeedback({ section: 'sessions', kind: 'error', message: extractErrorMessage(err, 'No se pudieron cerrar las otras sesiones.') });
+    } finally {
+      setLogoutOthersLoading(false);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: string, label: string) => {
+    setFeedback(null);
+    setRevokingSessionId(sessionId);
+    try {
+      await revokeSession(sessionId);
+      await refreshSecurity();
+      setFeedback({ section: 'sessions', kind: 'success', message: `Cerramos la sesión de ${label}.` });
+    } catch (err: unknown) {
+      setFeedback({ section: 'sessions', kind: 'error', message: extractErrorMessage(err, 'No se pudo cerrar esa sesión.') });
+    } finally {
+      setRevokingSessionId(null);
     }
   };
 
@@ -532,6 +606,14 @@ export default function PerfilPage() {
     }
   };
 
+  const profileDirty = (Object.keys(form) as Array<keyof typeof form>).some((key) => String(form[key]).trim() !== String(savedForm[key]).trim());
+  const allSessions = security?.sessions || [];
+  const currentSession = allSessions.find((session) => session.isCurrent) || null;
+  const otherSessions = allSessions.filter((session) => !session.isCurrent);
+  const SESSIONS_PREVIEW = 2;
+  const visibleOtherSessions = showAllSessions ? otherSessions : otherSessions.slice(0, SESSIONS_PREVIEW);
+  const hiddenSessionCount = otherSessions.length - visibleOtherSessions.length;
+
   const accessProviders = [
     { key: 'facebook', name: 'Facebook', Icon: FacebookMark, identity: facebookIdentity, disconnecting: disconnectingFacebook, disconnect: handleDisconnectFacebook },
     { key: 'apple', name: 'Apple', Icon: AppleMark, identity: appleIdentity, disconnecting: disconnectingApple, disconnect: handleDisconnectApple },
@@ -547,7 +629,7 @@ export default function PerfilPage() {
         { label: 'Mi perfil' },
       ]}
     >
-      <div className="p-public-page-sm pf-page">
+      <div className="p-public-page pf-page">
 
         {/* ── PAGE HEADER ── */}
         <div className="pf-head">
@@ -557,11 +639,13 @@ export default function PerfilPage() {
 
         <FeedbackNotice feedback={feedback} section="page" />
 
+        <div className="pf-columns">
+        <div className="pf-col">
         {/* ── FORM CARD ── */}
         <div className="p-public-card pf-card">
           <form onSubmit={handleSubmit}>
             <h2 className="pf-card-title"><UserRound size={18} aria-hidden="true" /> Datos personales</h2>
-            <FeedbackNotice feedback={feedback} section="profile" />
+            {feedback?.section === 'profile' && feedback.kind === 'error' && <FeedbackNotice feedback={feedback} section="profile" />}
 
             <div className="pf-grid">
 
@@ -648,9 +732,12 @@ export default function PerfilPage() {
 
             {/* Submit */}
             <div className="pf-actions">
-              <button type="submit" disabled={saving} className="pf-save">
+              <button type="submit" disabled={saving || !profileDirty} className="pf-save">
                 <BusyLabel busy={saving}><Save size={15} />Guardar cambios</BusyLabel>
               </button>
+              {feedback?.section === 'profile' && feedback.kind === 'success' && !profileDirty && (
+                <span className="pf-saved" role="status"><CheckCircle size={15} aria-hidden="true" /> Guardado</span>
+              )}
             </div>
 
           </form>
@@ -674,7 +761,6 @@ export default function PerfilPage() {
           onToggle={() => togglePanel('clubs')}
         >
           <div className="pf-zone">
-            <div className="pf-zone-title" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 16 }}>Perfiles en clubes</div>
             <div className="p-public-card pf-security-card">
             <h2 className="pf-section-heading"><LinkIcon size={16} aria-hidden="true" /> Mis perfiles</h2>
             <p className="pf-muted" style={{ marginTop: 0, marginBottom: 18 }}>
@@ -752,6 +838,10 @@ export default function PerfilPage() {
             </div>
           </div>
         </ProfileDisclosure>
+        </div>
+
+        <div className="pf-col">
+
 
         <ProfileDisclosure
           id="pf-panel-security"
@@ -761,7 +851,6 @@ export default function PerfilPage() {
           onToggle={() => togglePanel('security')}
         >
         <div className="pf-zone">
-          <div className="pf-zone-title" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 16 }}>Seguridad</div>
           <div className="pf-security-grid">
             <ChangePasswordForm onPasswordChanged={() => setSecurityRefreshKey(value => value + 1)} />
             <div ref={accessCardRef} className="p-public-card pf-security-card pf-access-card">
@@ -827,70 +916,140 @@ export default function PerfilPage() {
               ) : (
                 <>
                   <div className="pf-session-list">
-                    {(security?.sessions || []).length > 0 ? (
-                      security!.sessions.map((session) => {
-                        const device = describeSessionDevice(session);
-                        const DeviceIcon = device.mobile ? Smartphone : Monitor;
-                        return (
-                          <div className={`pf-session-row${session.isCurrent ? ' pf-session-row-current' : ''}`} key={session.id}>
-                            <span className="pf-session-icon" aria-hidden="true"><DeviceIcon size={18} /></span>
-                            <div className="pf-session-content">
-                              <div className="pf-session-heading">
-                                <span className="pf-session-name">{device.label}</span>
-                                {session.isCurrent && <span className="pf-session-current">Este dispositivo</span>}
-                              </div>
-                              <p className="pf-session-detail">Última actividad: {formatDateTime(session.lastSeenAt)}</p>
-                              <p className="pf-session-detail">Sesión iniciada: {formatDateTime(session.createdAt)}</p>
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
+                    {allSessions.length === 0 && (
                       <p className="pf-muted" style={{ margin: 0 }}>No encontramos sesiones activas para mostrar.</p>
+                    )}
+                    {[...(currentSession ? [currentSession] : []), ...visibleOtherSessions].map((session) => {
+                      const device = describeSessionDevice(session);
+                      const DeviceIcon = device.mobile ? Smartphone : Monitor;
+                      return (
+                        <div className={`pf-session-row${session.isCurrent ? ' pf-session-row-current' : ''}`} key={session.id}>
+                          <span className="pf-session-icon" aria-hidden="true"><DeviceIcon size={18} /></span>
+                          <div className="pf-session-content">
+                            <div className="pf-session-heading">
+                              <span className="pf-session-name">{device.label}</span>
+                              {session.isCurrent && <span className="pf-session-current">Este dispositivo</span>}
+                            </div>
+                            <p className="pf-session-detail">Última actividad: {formatDateTime(session.lastSeenAt)}</p>
+                            <p className="pf-session-detail">Ingresó: {formatDateTime(session.createdAt)}</p>
+                          </div>
+                          {!session.isCurrent && (
+                            <div className="pf-session-row-actions">
+                              <button
+                                type="button"
+                                className="pf-secondary-btn"
+                                aria-label={`Cerrar la sesión de ${device.label} (ingresó ${formatDateTime(session.createdAt)})`}
+                                disabled={revokingSessionId !== null || logoutOthersLoading}
+                                onClick={() => handleRevokeSession(session.id, device.label)}
+                              >
+                                <BusyLabel busy={revokingSessionId === session.id} spinnerSize={14}>Cerrar</BusyLabel>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {hiddenSessionCount > 0 && (
+                      <button type="button" className="pf-secondary-btn pf-session-more" onClick={() => setShowAllSessions(true)}>
+                        {hiddenSessionCount === 1 ? 'Ver 1 sesión más' : `Ver ${hiddenSessionCount} sesiones más`}
+                      </button>
                     )}
                   </div>
 
-                  <div className="pf-session-footer">
-                    <button
-                      type="button"
-                      className="pf-secondary-btn pf-danger-btn"
-                      disabled={logoutAllLoading}
-                      onClick={handleLogoutAll}
-                    >
-                      <BusyLabel busy={logoutAllLoading} spinnerSize={14}><LogOut size={14} />Cerrar todas las sesiones</BusyLabel>
-                    </button>
-                  </div>
+                  {otherSessions.length > 0 && (
+                    <div className="pf-session-footer">
+                      {logoutOthersConfirm ? (
+                        <div className="pf-session-confirm" role="group" aria-label="Confirmar cierre de sesiones">
+                          <p>
+                            {otherSessions.length === 1
+                              ? 'Vas a cerrar 1 sesión en otro dispositivo.'
+                              : `Vas a cerrar ${otherSessions.length} sesiones en otros dispositivos.`}{' '}
+                            Este dispositivo sigue abierto.
+                          </p>
+                          <div className="pf-session-confirm-actions">
+                            <button type="button" className="pf-secondary-btn pf-danger-btn" disabled={logoutOthersLoading} onClick={handleLogoutOthers}>
+                              <BusyLabel busy={logoutOthersLoading} spinnerSize={14}><LogOut size={14} />Sí, cerrarlas</BusyLabel>
+                            </button>
+                            <button type="button" className="pf-secondary-btn" disabled={logoutOthersLoading} onClick={() => setLogoutOthersConfirm(false)}>
+                              No
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="pf-secondary-btn pf-danger-btn"
+                          disabled={revokingSessionId !== null}
+                          onClick={() => setLogoutOthersConfirm(true)}
+                        >
+                          <LogOut size={14} />Cerrar las otras sesiones
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>
           </div>
-        </div>
-        </ProfileDisclosure>
 
-        {/* ── RESERVAS ── */}
-        <ProfileDisclosure
-          id="pf-panel-bookings"
-          label="Mis reservas"
-          icon={<CalendarDays size={17} aria-hidden="true" />}
-          open={openPanels.bookings}
-          onToggle={() => togglePanel('bookings')}
-        >
-        <div className="pf-zone">
-          <div className="pf-zone-title" style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.03em', color: 'var(--text-muted)', marginBottom: 16 }}>Reservas</div>
-          <div className="p-public-card pf-zone-card pf-bookings-card">
-            <div className="pf-bookings-main">
-              <span className="pf-bookings-icon" aria-hidden="true"><CalendarDays size={18} /></span>
-              <div>
-                <h2 className="pf-bookings-title">Mis reservas</h2>
-                <p className="pf-bookings-copy">Consultá tus próximas reservas y el historial.</p>
-              </div>
+          <div className="pf-delete-account">
+            <div className="pf-delete-account-head">
+              <AlertTriangle size={15} aria-hidden="true" />
+              <span>Eliminar cuenta</span>
             </div>
-            <Link href="/bookings" className="pf-secondary-btn pf-bookings-link">
-              Ver reservas <ArrowRight size={15} aria-hidden="true" />
-            </Link>
+            {deleteAccountOpen ? (
+              <div className="pf-session-confirm" role="group" aria-label="Confirmar eliminación de la cuenta">
+                <p>
+                  Se borran tu nombre, email, DNI y teléfono, y no vas a poder volver a entrar con esta cuenta.
+                  Los clubes conservan el registro de los turnos que jugaste y pagaste. No se puede deshacer.
+                </p>
+                <label className="pf-delete-account-label" htmlFor="pf-delete-account-input">
+                  Escribí <b>ELIMINAR</b> para confirmar
+                </label>
+                <input
+                  id="pf-delete-account-input"
+                  className="pf-delete-account-input"
+                  value={deleteAccountText}
+                  onChange={(event) => { setDeleteAccountText(event.target.value); setDeleteAccountError(''); }}
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  disabled={deleteAccountLoading}
+                />
+                {deleteAccountError && <p className="pf-delete-account-error" role="alert">{deleteAccountError}</p>}
+                <div className="pf-session-confirm-actions">
+                  <button
+                    type="button"
+                    className="pf-secondary-btn pf-danger-btn"
+                    disabled={deleteAccountLoading || deleteAccountText.trim().toUpperCase() !== 'ELIMINAR'}
+                    onClick={handleDeleteAccount}
+                  >
+                    <BusyLabel busy={deleteAccountLoading} spinnerSize={14}>Eliminar mi cuenta</BusyLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="pf-secondary-btn"
+                    disabled={deleteAccountLoading}
+                    onClick={() => { setDeleteAccountOpen(false); setDeleteAccountText(''); setDeleteAccountError(''); }}
+                  >
+                    No
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="pf-delete-account-copy">Borra tus datos personales. Si tenés reservas por jugar, primero cancelalas o jugalas.</p>
+                <button type="button" className="pf-secondary-btn pf-danger-btn" onClick={() => setDeleteAccountOpen(true)}>
+                  Eliminar mi cuenta
+                </button>
+              </>
+            )}
           </div>
         </div>
         </ProfileDisclosure>
+
+        </div>
+        </div>
 
       </div>
     </DarkPageLayout>

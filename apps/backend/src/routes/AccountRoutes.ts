@@ -17,7 +17,6 @@ router.get('/:id/ledger', authMiddleware, setAdminClubFromUser, requireTenantRol
 router.post('/:id/items', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), accountController.addItem);
 router.post('/:id/payments', paymentLimiter, authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), accountController.registerPayment);
 router.post('/:id/close', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), accountController.close);
-// P2-B: Anular venta de mostrador — restaura stock, sin pago o con pagos revertidos
 router.post('/:id/void-pos', authMiddleware, setAdminClubFromUser, requireTenantRole(['ADMIN', 'STAFF']), accountController.voidPos);
 
 export default router;

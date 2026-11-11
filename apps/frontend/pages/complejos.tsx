@@ -11,15 +11,69 @@ import { useUserTheme } from '../contexts/UserThemeContext';
 import { PUBLIC_SPORT_OPTIONS as SPORTS, PUBLIC_SPORT_LABELS as SPORT_LABELS, getPublicClubLocations, matchesPublicClubFilters, normalizePublicSport, PublicSport } from '../utils/publicClubFilters';
 
 /* ── Geocoding (Nominatim, sin API key) ──────────────────────────── */
-const geocode = async (address: string): Promise<{ lat: number; lon: number } | null> => {
+type Coords = { lat: number; lon: number };
+const GEOCODE_CACHE_KEY = 'pique.geocode.v1';
+const GEOCODE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+// Nominatim pide como máximo una consulta por segundo: se hacen de a una.
+const GEOCODE_MIN_GAP_MS = 1100;
+const geocodeMemory = new Map<string, Coords | null>();
+let geocodeQueue: Promise<unknown> = Promise.resolve();
+let lastGeocodeAt = 0;
+
+const readGeocodeCache = (): Record<string, { lat: number; lon: number; at: number }> => {
+  try { return JSON.parse(window.localStorage.getItem(GEOCODE_CACHE_KEY) || '{}') || {}; } catch { return {}; }
+};
+const writeGeocodeCache = (address: string, coords: Coords) => {
+  try {
+    const cache = readGeocodeCache();
+    cache[address] = { ...coords, at: Date.now() };
+    window.localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(cache));
+  } catch { /* sin storage: queda en memoria */ }
+};
+
+const fetchGeocode = async (address: string): Promise<Coords | null> => {
+  const wait = lastGeocodeAt + GEOCODE_MIN_GAP_MS - Date.now();
+  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+  lastGeocodeAt = Date.now();
   try {
     const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
     const res = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+    if (!res.ok) return null;
     const data = await res.json();
     if (!data[0]) return null;
     return { lat: Number(data[0].lat), lon: Number(data[0].lon) };
   } catch { return null; }
 };
+
+const geocode = (address: string): Promise<Coords | null> => {
+  if (geocodeMemory.has(address)) return Promise.resolve(geocodeMemory.get(address) ?? null);
+  const cached = readGeocodeCache()[address];
+  if (cached && Date.now() - cached.at < GEOCODE_CACHE_TTL_MS) {
+    const coords = { lat: cached.lat, lon: cached.lon };
+    geocodeMemory.set(address, coords);
+    return Promise.resolve(coords);
+  }
+  const job = geocodeQueue.then(async () => {
+    if (geocodeMemory.has(address)) return geocodeMemory.get(address) ?? null;
+    const coords = await fetchGeocode(address);
+    geocodeMemory.set(address, coords);
+    if (coords) writeGeocodeCache(address, coords);
+    return coords;
+  });
+  geocodeQueue = job.catch(() => null);
+  return job;
+};
+
+// Si la calle no se encuentra, el pin cae en la ciudad del club.
+const geocodeClub = async (club: Club): Promise<Coords | null> => {
+  const area = [club.city, club.province, club.country?.trim() || 'Argentina'].filter(Boolean);
+  return (club.addressLine?.trim() ? await geocode([club.addressLine.trim(), ...area].join(', ')) : null)
+    ?? await geocode(area.join(', '));
+};
+
+const escapeHtml = (value: string) => value
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 /* ── CSS ─────────────────────────────────────────────────────────── */
 const PAGE_CSS = `
@@ -336,6 +390,8 @@ export default function ComplejosPage() {
   const mapDivRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<any>(null);
   const mapTileLayerRef = useRef<any>(null);
+  const mapMarkersRef = useRef<any>(null);
+  const [mapCreated, setMapCreated] = useState(false);
 
   const [clubs, setClubs] = useState<Club[]>([]);
   const [loading, setLoading] = useState(true);
@@ -582,30 +638,8 @@ export default function ComplejosPage() {
     L.control.attribution({ prefix: '© OpenStreetMap · CartoDB' }).addTo(map);
     leafletMapRef.current = map;
 
-    // Pique marker icon
-    const markerIcon = (name: string) => L.divIcon({
-      className: '',
-      html: `<div style="width:32px;height:32px;border-radius:50% 50% 50% 0;background:var(--brand);border:2px solid var(--brand-on);transform:rotate(-45deg);box-shadow:var(--shadow-md);display:flex;align-items:center;justify-content:center">
-        <div style="transform:rotate(45deg);font-size:14px">📍</div>
-      </div>
-      <div style="position:absolute;top:36px;left:50%;transform:translateX(-50%);background:var(--overlay);color:var(--text-primary);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap;font-family:Geist,system-ui,sans-serif;border:1px solid var(--border)">${name}</div>`,
-      iconSize: [32, 32],
-      iconAnchor: [16, 32],
-      popupAnchor: [0, -36],
-    });
-
-    // Geocode each club and add marker
-    clubs.forEach(async (club) => {
-      const addr = [club.addressLine, club.city, club.province, 'Argentina'].filter(Boolean).join(', ');
-      const coords = await geocode(addr);
-      if (!coords || !leafletMapRef.current) return;
-      const marker = L.marker([coords.lat, coords.lon], { icon: markerIcon(club.name) }).addTo(map);
-      marker.bindPopup(`<div style="font-family:Geist,system-ui,sans-serif;min-width:160px">
-        <div style="font-weight:800;font-size:13px;margin-bottom:4px">${club.name}</div>
-        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${formatAddr(club)}</div>
-        <a href="/club/${club.slug}" style="display:inline-block;padding:5px 12px;border-radius:8px;background:var(--brand);color:var(--brand-on);font-size:11px;font-weight:800;text-decoration:none">Ver complejo →</a>
-      </div>`, { maxWidth: 220 });
-    });
+    mapMarkersRef.current = L.layerGroup().addTo(map);
+    setMapCreated(true);
   }, [mapReady, clubs, isLight]);
 
   useEffect(() => {
@@ -631,6 +665,51 @@ export default function ComplejosPage() {
     () => clubs.filter(club => matchesPublicClubFilters(club, { search, zone, sport })),
     [clubs, search, zone, sport],
   );
+
+  // El mapa muestra los mismos complejos que la lista y se encuadra en ellos.
+  useEffect(() => {
+    const L = typeof window !== 'undefined' ? (window as any).L : null;
+    const map = leafletMapRef.current;
+    const layer = mapMarkersRef.current;
+    if (!mapCreated || !L || !map || !layer) return;
+    let cancelled = false;
+    layer.clearLayers();
+
+    const markerIcon = (name: string) => L.divIcon({
+      className: '',
+      html: `<div style="width:32px;height:32px;border-radius:50% 50% 50% 0;background:var(--brand);border:2px solid var(--brand-on);transform:rotate(-45deg);box-shadow:var(--shadow-md);display:flex;align-items:center;justify-content:center">
+        <div style="transform:rotate(45deg);font-size:14px">📍</div>
+      </div>
+      <div style="position:absolute;top:36px;left:50%;transform:translateX(-50%);background:var(--overlay);color:var(--text-primary);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap;font-family:Geist,system-ui,sans-serif;border:1px solid var(--border)">${escapeHtml(name)}</div>`,
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
+      popupAnchor: [0, -36],
+    });
+
+    const points: Array<[number, number]> = [];
+    const fit = () => {
+      if (cancelled || points.length === 0) return;
+      if (points.length === 1) map.setView(points[0], 14);
+      else map.fitBounds(points, { padding: [48, 48], maxZoom: 14 });
+    };
+
+    void (async () => {
+      for (const club of filtered) {
+        const coords = await geocodeClub(club);
+        if (cancelled) return;
+        if (!coords) continue;
+        points.push([coords.lat, coords.lon]);
+        const marker = L.marker([coords.lat, coords.lon], { icon: markerIcon(club.name) }).addTo(layer);
+        marker.bindPopup(`<div style="font-family:Geist,system-ui,sans-serif;min-width:160px">
+        <div style="font-weight:800;font-size:13px;margin-bottom:4px">${escapeHtml(club.name)}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${escapeHtml(formatAddr(club))}</div>
+        <a href="/club/${encodeURIComponent(club.slug)}" style="display:inline-block;padding:5px 12px;border-radius:8px;background:var(--brand);color:var(--brand-on);font-size:11px;font-weight:800;text-decoration:none">Ver complejo →</a>
+      </div>`, { maxWidth: 220 });
+        fit();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [mapCreated, filtered]);
 
   // El club abre con el deporte filtrado y la fecha del buscador ya elegidos.
   const clubHref = (slug: string) => {

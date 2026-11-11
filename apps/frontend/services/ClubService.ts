@@ -50,6 +50,8 @@ export interface Club {
   publicSports?: string[];
   openingDays?: number[] | null;
   closureDates?: string[] | null;
+  /** Horario general orientativo (apertura más temprana y cierre más tardío). */
+  openingHours?: { openTime: string; closeTime: string } | null;
   clubOperationalStatus?: ClubOperationalStatus;
   temporaryClosureStartDate?: string | null;
   temporaryClosureEndDate?: string | null;

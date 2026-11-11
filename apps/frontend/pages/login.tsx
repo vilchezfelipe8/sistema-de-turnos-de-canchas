@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { beginAppleOAuthLogin, beginFacebookOAuthLogin, beginGoogleOAuthLogin, register, verifyMagicLink } from '../services/AuthService';
 import { normalizeDniInput, usePlayerSignIn } from '../hooks/usePlayerSignIn';
 import { ClubService } from '../services/ClubService';
-import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Moon, Sun, ArrowLeft, KeyRound } from 'lucide-react';
+import { Mail, Lock, User, Phone, UserPlus, LogIn, AlertCircle, Loader2, IdCard, CheckCircle, Eye, EyeOff, Moon, Sun, ArrowLeft, KeyRound, CalendarCheck } from 'lucide-react';
 import { AppleMark, FacebookMark, GoogleMark } from '../components/AuthProviderMarks';
 import { getActiveClubSlug, hasOperatorAccess, normalizeSessionUser } from '../utils/session';
 import { buildCanonicalPhone, DEFAULT_PHONE_COUNTRY_ISO2, normalizePhoneCountryIso2, PHONE_COUNTRY_OPTIONS, resolveCallingCodeByIso2 } from '../utils/phone';
@@ -39,9 +39,10 @@ const LOGIN_CSS = `
   .lg-notice { display:flex; align-items:flex-start; gap:10px; padding:12px 16px; border-radius:12px; font-size:13px; font-weight:600; line-height:1.5; }
   .lg-err { background:var(--error-bg); border:1px solid var(--danger-border); color:var(--error-fg); }
   .lg-ok { background:var(--positive-bg); border:1px solid var(--accent-border); color:var(--positive-fg); }
-  .lg-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .lg-intent { background:var(--surface-2, var(--positive-bg)); border:1px solid var(--border-subtle); color:var(--text-primary); font-weight:600; }
+  .lg-grid2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px 12px; }
   .lg-full { grid-column:1 / -1; }
-  .lg-field { display:flex; flex-direction:column; gap:5px; }
+  .lg-field { display:flex; flex-direction:column; gap:5px; min-width:0; }
   .lg-label { font-size:10px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); }
   .lg-input-wrap { position:relative; display:flex; align-items:center; }
   .lg-input-icon { position:absolute; left:13px; color:var(--text-muted); display:flex; pointer-events:none; }
@@ -55,7 +56,7 @@ const LOGIN_CSS = `
   .lg-phone-wrap:focus-within { border-color:var(--accent-border-strong); box-shadow:0 0 0 3px var(--accent-bg-soft); }
   .lg-phone-prefix { display:flex; align-items:center; gap:8px; padding:0 12px; background:var(--surface-2); border-right:1px solid var(--border-subtle); flex-shrink:0; }
   .lg-phone-select { background:transparent; border:none; color:var(--text-secondary); font-family:${FONT}; font-size:13px; font-weight:700; outline:none; }
-  .lg-phone-input { flex:1; padding:10px 14px; background:transparent; border:none; color:var(--text-primary); font-family:${FONT}; font-size:14px; font-weight:600; outline:none; }
+  .lg-phone-input { flex:1; min-width:0; padding:10px 14px; background:transparent; border:none; color:var(--text-primary); font-family:${FONT}; font-size:14px; font-weight:600; outline:none; }
   .lg-phone-input::placeholder { color:var(--text-muted); font-weight:400; }
   .lg-divider { display:flex; align-items:center; gap:12px; }
   .lg-divider-line { flex:1; height:1px; background:var(--border-subtle); }
@@ -84,6 +85,7 @@ const LOGIN_CSS = `
   .lg-label-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .lg-inline-link { background:none; border:none; padding:0; font-family:${FONT}; font-size:11px; font-weight:700; color:var(--accent-fg); cursor:pointer; }
   .lg-inline-link:hover { text-decoration:underline; text-underline-offset:3px; }
+  .lg-inline-link-error { font-size:13px; color:inherit; text-decoration:underline; text-underline-offset:3px; }
   .lg-help-option { display:flex; align-items:center; gap:12px; width:100%; padding:13px; border-radius:14px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-family:${FONT}; text-align:left; cursor:pointer; transition:border-color .15s, background .15s; }
   .lg-help-option:hover:not(:disabled) { background:var(--surface-3); border-color:var(--border-strong); }
   .lg-help-option:focus-visible { outline:2px solid var(--positive-fg); outline-offset:3px; }
@@ -121,9 +123,29 @@ const LOGIN_CSS = `
     .lg-inline-link { padding:8px 0 8px 12px; margin:-8px 0; }
     .lg-toggle-btn { padding:8px 6px; }
   }
-  @media(max-width:480px) { .lg-root { padding:60px 16px 16px; } .lg-screen-nav { top:18px; left:16px; } .lg-grid2 { grid-template-columns:1fr; } .lg-header { padding:22px 24px 18px; } .lg-brand-link { margin-bottom:12px; } .lg-body { padding:18px 24px 22px; gap:12px; } .lg-form { gap:10px; } }
+  @media(max-width:480px) { .lg-root { padding:60px 16px 16px; } .lg-screen-nav { top:18px; left:16px; } .lg-grid2 { grid-template-columns:minmax(0,1fr); } .lg-header { padding:22px 24px 18px; } .lg-brand-link { margin-bottom:12px; } .lg-body { padding:18px 24px 22px; gap:12px; } .lg-form { gap:10px; } }
   @media(max-height:820px) and (min-width:481px) { .lg-root { padding-top:48px; padding-bottom:16px; } .lg-screen-nav { top:16px; } .lg-header { padding:20px 24px 18px; } .lg-brand-link { margin-bottom:12px; } .lg-title { font-size:20px; } .lg-body { padding:18px 24px 22px; gap:12px; } .lg-form { gap:10px; } .lg-grid2 { gap:8px 10px; } .lg-field { gap:4px; } .lg-input { padding-top:9px; padding-bottom:9px; } .lg-phone-input { padding-top:9px; padding-bottom:9px; } .lg-toggle { padding-top:12px; } }
 `;
+
+const INTENT_WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+// "/club/las-tejas?date=2026-11-11&time=11:00&continue=1" → { slug, date, time }
+function parseBookingIntent(returnTo: string | null): { slug: string; dateLabel: string; time: string } | null {
+  if (!returnTo) return null;
+  try {
+    const url = new URL(returnTo, 'http://local');
+    const match = url.pathname.match(/^\/club\/([^/]+)\/?$/);
+    if (!match || url.searchParams.get('continue') !== '1') return null;
+    const date = url.searchParams.get('date') || '';
+    const time = url.searchParams.get('time') || '';
+    const dateMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!dateMatch || !/^\d{2}:\d{2}$/.test(time)) return null;
+    const day = new Date(Number(dateMatch[1]), Number(dateMatch[2]) - 1, Number(dateMatch[3]));
+    return { slug: decodeURIComponent(match[1]), dateLabel: `el ${INTENT_WEEKDAYS[day.getDay()]} ${day.getDate()}`, time };
+  } catch {
+    return null;
+  }
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -135,6 +157,17 @@ export default function LoginPage() {
     !router.query.from.startsWith('//')
       ? router.query.from
       : null;
+  // Si viene de "Continuar" en la reserva, contamos para qué tiene que ingresar.
+  const bookingIntent = parseBookingIntent(returnTo);
+  const [bookingIntentClubName, setBookingIntentClubName] = useState('');
+  useEffect(() => {
+    if (!bookingIntent?.slug) return;
+    let cancelled = false;
+    ClubService.getClubBySlug(bookingIntent.slug)
+      .then((club) => { if (!cancelled) setBookingIntentClubName(String(club?.name || '')); })
+      .catch(() => { /* el aviso funciona igual sin el nombre */ });
+    return () => { cancelled = true; };
+  }, [bookingIntent?.slug]);
   const openRegisterMode =
     router.query.mode === 'register' ||
     router.query.view === 'register' ||
@@ -461,11 +494,35 @@ export default function LoginPage() {
           {/* Body */}
           <div className="lg-body">
 
+            {bookingIntent && !recoveryMode && (
+              <div className="lg-notice lg-intent">
+                <CalendarCheck size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>
+                  {isLogin ? 'Ingresá' : 'Creá tu cuenta'} para reservar {bookingIntent.dateLabel} a las {bookingIntent.time}
+                  {bookingIntentClubName ? ` en ${bookingIntentClubName}` : ''}. Después volvés a tu turno.
+                </span>
+              </div>
+            )}
+
             {/* Error */}
             {error && (
-              <div className="lg-notice lg-err">
+              <div className="lg-notice lg-err" role="alert">
                 <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-                <span>{error}</span>
+                <span>
+                  {error}
+                  {isLogin && !recoveryMode && !loginHelpOpen && (
+                    <>
+                      {' '}
+                      <button
+                        type="button"
+                        className="lg-inline-link lg-inline-link-error"
+                        onClick={() => { setError(''); setSuccessMessage(''); setLoginHelpOpen(true); }}
+                      >
+                        ¿La olvidaste?
+                      </button>
+                    </>
+                  )}
+                </span>
               </div>
             )}
 
@@ -480,13 +537,14 @@ export default function LoginPage() {
             {recoveryMode ? (
               <form onSubmit={handleRecoveryConfirm} className="lg-form">
                 <div className="lg-field">
-                  <label className="lg-label">{recoveryMode === 'activate' ? 'DNI' : 'DNI o email'}</label>
+                  <label className="lg-label" htmlFor="lg-recovery-identifier">{recoveryMode === 'activate' ? 'DNI' : 'DNI o email'}</label>
                   <div className="lg-input-wrap">
                     <span className="lg-input-icon">{recoveryMode === 'activate' ? <IdCard size={14} /> : <User size={14} />}</span>
                     <input
                       type="text"
                       inputMode={recoveryMode === 'activate' ? 'numeric' : 'text'}
                       required
+                      id="lg-recovery-identifier"
                       value={recoveryIdentifier}
                       disabled={recoveryStep === 'confirm'}
                       onChange={e => setRecoveryIdentifier(recoveryMode === 'activate' ? normalizeDniInput(e.target.value) : e.target.value)}
@@ -508,7 +566,7 @@ export default function LoginPage() {
                 ) : (
                   <>
                     <div className="lg-field">
-                      <label className="lg-label">Código</label>
+                      <label className="lg-label" htmlFor="lg-recovery-code">Código</label>
                       <div className="lg-input-wrap">
                         <span className="lg-input-icon"><Lock size={14} /></span>
                         <input
@@ -517,6 +575,7 @@ export default function LoginPage() {
                           autoComplete="one-time-code"
                           required
                           maxLength={6}
+                          id="lg-recovery-code"
                           value={recoveryCode}
                           onChange={e => setRecoveryCode(e.target.value.replace(/[^\d]/g, ''))}
                           className="lg-input"
@@ -525,13 +584,14 @@ export default function LoginPage() {
                       </div>
                     </div>
                     <div className="lg-field">
-                      <label className="lg-label">{recoveryMode === 'activate' ? 'Elegí tu contraseña' : 'Nueva contraseña'}</label>
+                      <label className="lg-label" htmlFor="lg-recovery-password">{recoveryMode === 'activate' ? 'Elegí tu contraseña' : 'Nueva contraseña'}</label>
                       <div className="lg-input-wrap">
                         <span className="lg-input-icon"><Lock size={14} /></span>
                         <input
                           type="password"
                           required
                           minLength={6}
+                          id="lg-recovery-password"
                           value={recoveryPassword}
                           onChange={e => setRecoveryPassword(e.target.value)}
                           className="lg-input"
@@ -557,10 +617,10 @@ export default function LoginPage() {
             ) : loginHelpOpen && isLogin ? (
               <div className="lg-form">
                 <div className="lg-field">
-                  <label className="lg-label">DNI o email</label>
+                  <label className="lg-label" htmlFor="lg-help-identifier">DNI o email</label>
                   <div className="lg-input-wrap">
                     <span className="lg-input-icon"><User size={14} /></span>
-                    <input type="text" value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
+                    <input id="lg-help-identifier" type="text" value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
                   </div>
                 </div>
                 <button
@@ -608,26 +668,26 @@ export default function LoginPage() {
                 <div className="lg-grid2">
                   {/* Nombre */}
                   <div className="lg-field">
-                    <label className="lg-label">Nombre</label>
+                    <label className="lg-label" htmlFor="lg-first-name">Nombre</label>
                     <div className="lg-input-wrap">
                       <span className="lg-input-icon"><User size={14} /></span>
-                      <input type="text" required value={firstName} onChange={e => setFirstName(e.target.value)} className="lg-input" placeholder="Ej: Juan" />
+                      <input id="lg-first-name" type="text" required value={firstName} onChange={e => setFirstName(e.target.value)} className="lg-input" placeholder="Ej: Juan" />
                     </div>
                   </div>
                   {/* Apellido */}
                   <div className="lg-field">
-                    <label className="lg-label">Apellido</label>
+                    <label className="lg-label" htmlFor="lg-last-name">Apellido</label>
                     <div className="lg-input-wrap">
                       <span className="lg-input-icon"><User size={14} /></span>
-                      <input type="text" required value={lastName} onChange={e => setLastName(e.target.value)} className="lg-input" placeholder="Ej: Pérez" />
+                      <input id="lg-last-name" type="text" required value={lastName} onChange={e => setLastName(e.target.value)} className="lg-input" placeholder="Ej: Pérez" />
                     </div>
                   </div>
                   {/* DNI */}
                   <div className="lg-field lg-full">
-                    <label className="lg-label">DNI <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>(opcional)</span></label>
+                    <label className="lg-label" htmlFor="lg-dni">DNI <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>(opcional)</span></label>
                     <div className="lg-input-wrap">
                       <span className="lg-input-icon"><IdCard size={14} /></span>
-                      <input type="text" inputMode="numeric" value={dni} onChange={e => setDni(normalizeDniInput(e.target.value))} className="lg-input" placeholder="Ej: 35123456" />
+                      <input id="lg-dni" type="text" inputMode="numeric" value={dni} onChange={e => setDni(normalizeDniInput(e.target.value))} className="lg-input" placeholder="Ej: 35123456" />
                     </div>
                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                       Para ingresar con tu DNI y que el club te identifique más rápido. No se muestra a otros jugadores.
@@ -635,7 +695,7 @@ export default function LoginPage() {
                   </div>
                   {/* Teléfono */}
                   <div className="lg-field lg-full">
-                    <label className="lg-label">Teléfono</label>
+                    <label className="lg-label" htmlFor="lg-phone">Teléfono</label>
                     <div className="lg-phone-wrap">
                       <div className="lg-phone-prefix">
                         <Phone size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
@@ -643,6 +703,7 @@ export default function LoginPage() {
                           value={phoneCountryIso2}
                           onChange={e => setPhoneCountryIso2(normalizePhoneCountryIso2(e.target.value))}
                           className="lg-phone-select"
+                          aria-label="Código de país"
                         >
                           {PHONE_COUNTRY_OPTIONS.map(opt => (
                             <option key={opt.iso2} value={opt.iso2}>{opt.callingCode} {opt.iso2}</option>
@@ -650,6 +711,7 @@ export default function LoginPage() {
                         </select>
                       </div>
                       <input
+                        id="lg-phone"
                         type="tel"
                         required
                         maxLength={20}
@@ -666,18 +728,18 @@ export default function LoginPage() {
               {/* Login: DNI o email. Registro: email */}
               {isLogin ? (
                 <div className="lg-field">
-                  <label className="lg-label">DNI o email</label>
+                  <label className="lg-label" htmlFor="lg-identifier">DNI o email</label>
                   <div className="lg-input-wrap">
                     <span className="lg-input-icon"><User size={14} /></span>
-                    <input type="text" required value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
+                    <input id="lg-identifier" type="text" required value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
                   </div>
                 </div>
               ) : (
                 <div className="lg-field">
-                  <label className="lg-label">Correo electrónico</label>
+                  <label className="lg-label" htmlFor="lg-email">Correo electrónico</label>
                   <div className="lg-input-wrap">
                     <span className="lg-input-icon"><Mail size={14} /></span>
-                    <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="lg-input" placeholder="tu@email.com" autoComplete="email" />
+                    <input id="lg-email" type="email" required value={email} onChange={e => setEmail(e.target.value)} className="lg-input" placeholder="tu@email.com" autoComplete="email" />
                   </div>
                 </div>
               )}
@@ -685,7 +747,7 @@ export default function LoginPage() {
               {/* Password */}
               <div className="lg-field">
                 <div className="lg-label-row">
-                  <label className="lg-label">Contraseña</label>
+                  <label className="lg-label" htmlFor="lg-password">Contraseña</label>
                   {isLogin && (
                     <button
                       type="button"
@@ -699,24 +761,23 @@ export default function LoginPage() {
                 <div className="lg-input-wrap">
                   <span className="lg-input-icon"><Lock size={14} /></span>
                   <input
+                    id="lg-password"
                     type={showPassword ? 'text' : 'password'}
                     required={isLogin}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     className="lg-input"
-                    placeholder="••••••••"
+                    placeholder={isLogin ? 'Tu contraseña' : 'Mínimo 6 caracteres'}
                     autoComplete={isLogin ? 'current-password' : 'new-password'}
                     style={{ paddingRight: 42 }}
                   />
+                  {/* Un toque muestra, otro oculta (antes había que mantenerlo apretado, incómodo en el celular). */}
                   <button
                     type="button"
                     className="lg-eye-btn"
-                    aria-label="Ver contraseña"
-                    onMouseDown={() => setShowPassword(true)}
-                    onMouseUp={() => setShowPassword(false)}
-                    onMouseLeave={() => setShowPassword(false)}
-                    onTouchStart={() => setShowPassword(true)}
-                    onTouchEnd={() => setShowPassword(false)}
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((value) => !value)}
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -741,6 +802,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={handleGoogleLogin}
+                    aria-label="Continuar con Google"
                     disabled={loading || magicLoading || Boolean(oauthLoading)}
                     className="lg-btn lg-btn-ghost lg-btn-loading"
                   >
@@ -758,6 +820,7 @@ export default function LoginPage() {
                     <button
                       type="button"
                       onClick={handleAppleLogin}
+                      aria-label="Continuar con Apple"
                       disabled={loading || magicLoading || Boolean(oauthLoading)}
                       className="lg-btn lg-btn-ghost lg-btn-loading"
                     >
@@ -774,6 +837,7 @@ export default function LoginPage() {
                     <button
                       type="button"
                       onClick={handleFacebookLogin}
+                      aria-label="Continuar con Facebook"
                       disabled={loading || magicLoading || Boolean(oauthLoading)}
                       className="lg-btn lg-btn-ghost lg-btn-loading"
                     >

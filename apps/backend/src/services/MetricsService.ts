@@ -32,6 +32,20 @@ class MetricsService {
     registers: [this.registry]
   });
 
+  private readonly arcaVouchersAuthorized = new client.Counter({
+    name: 'arca_voucher_authorized_total',
+    help: 'Comprobantes fiscales procesados por ARCA, por resultado',
+    labelNames: ['status'] as const,
+    registers: [this.registry]
+  });
+
+  private readonly arcaWsaaRefreshes = new client.Counter({
+    name: 'arca_wsaa_refresh_total',
+    help: 'Refrescos de token WSAA, por resultado',
+    labelNames: ['result'] as const,
+    registers: [this.registry]
+  });
+
   constructor() {
     this.registry.setDefaultLabels({
       service: 'backend'
@@ -75,6 +89,14 @@ class MetricsService {
 
   recordSchedulerRun(job: string, result: 'success' | 'error' | 'skipped') {
     this.schedulerRuns.inc({ job, result });
+  }
+
+  recordArcaVoucher(status: string) {
+    this.arcaVouchersAuthorized.inc({ status });
+  }
+
+  recordWsaaRefresh(result: 'success' | 'error') {
+    this.arcaWsaaRefreshes.inc({ result });
   }
 }
 

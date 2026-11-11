@@ -18,6 +18,12 @@ export type Booking = {
   title: string;
   state: 'pending' | 'confirmed' | 'completed' | 'blocked' | 'class';
   paymentState: 'paid' | 'partial' | 'unpaid';
+  /**
+   * Horario real (HH:MM). startSlot/endSlot se recortan al rango de la grilla,
+   * así que para mostrar el horario se usan estos (ej: 22:00–23:30 con la grilla hasta 23:00).
+   */
+  startTimeLabel?: string;
+  endTimeLabel?: string;
   /** Solo para clases de Academia que ocupan la cancha. */
   classInfo?: {
     classSessionId: string;

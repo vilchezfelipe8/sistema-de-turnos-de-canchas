@@ -781,6 +781,29 @@ export class BookingController {
         }
     }
 
+    // POST /:slug/admin/bookings/:id/resolve-past  { outcome: 'PLAYED' | 'NOT_PLAYED' }
+    resolvePastPendingBooking = async (req: Request, res: Response) => {
+        try {
+            const bookingId = Number(req.params.id);
+            if (!Number.isInteger(bookingId) || bookingId <= 0) {
+                return res.status(400).json({ error: 'bookingId inválido' });
+            }
+            const outcome = String(req.body?.outcome || '');
+            if (outcome !== 'PLAYED' && outcome !== 'NOT_PLAYED') {
+                return res.status(400).json({ error: 'Indicá si el turno se jugó o no.' });
+            }
+            const actorUserId = Number((req as any).user?.userId);
+            const clubId = Number((req as any).clubId);
+            if (!Number.isInteger(clubId) || clubId <= 0) {
+                return res.status(400).json({ error: 'Club inválido' });
+            }
+            const booking = await this.bookingService.resolvePastPendingBooking({ bookingId, clubId, actorUserId, outcome });
+            return res.json({ message: outcome === 'PLAYED' ? 'Turno marcado como jugado' : 'Turno marcado como no jugado', booking });
+        } catch (error: any) {
+            return sendAppError(res, error, 'No se pudo resolver la reserva');
+        }
+    }
+
     getHistory = async (req: Request, res: Response) => {
         try {
             const userId = Number(req.params.userId);

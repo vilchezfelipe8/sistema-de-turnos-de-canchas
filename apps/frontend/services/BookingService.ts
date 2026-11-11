@@ -128,8 +128,14 @@ export type PlayerBookingDto = {
   status: 'PENDING' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED';
   myRole: 'OWNER' | 'PARTICIPANT';
   paymentSummary: {
-    status: 'NOT_REQUIRED' | 'PENDING' | 'PARTIAL' | 'PAID';
+    // AWAITING_CONFIRMATION: pendiente sin cuenta todavía. NOT_CONFIRMED: pasó y el club nunca la confirmó.
+    status: 'NOT_REQUIRED' | 'PENDING' | 'PARTIAL' | 'PAID' | 'AWAITING_CONFIRMATION' | 'NOT_CONFIRMED';
     label: string;
+    source?: 'ACCOUNT' | 'ESTIMATE' | 'NONE';
+    totalAmount?: number;
+    paidAmount?: number;
+    remainingAmount?: number;
+    myShareAmount?: number | null;
   };
   capabilities: {
     canView: true;
