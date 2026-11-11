@@ -34,6 +34,31 @@ export type BookingListResult = {
   timeZone: string;
 };
 
+export type FixedBookingListItem = {
+  id: number;
+  dayOfWeek: number; // 0 = domingo
+  startTimeMinutes: number;
+  endTimeMinutes: number;
+  startDate: string;
+  client: { id: string; name: string; phone: string | null };
+  court: { id: number; name: string };
+  activity: { id: number; name: string };
+  nextBooking: { id: number; startDateTime: string } | null;
+  upcomingCount: number;
+  upcomingPaidAmount: number;
+};
+
+export const listAdminFixedBookings = async (
+  slug: string,
+  params: { q?: string } = {}
+): Promise<{ items: FixedBookingListItem[]; timeZone: string }> => {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  const res = await fetchWithAuth(`${getApiUrl()}/api/clubs/${slug}/admin/bookings/fixed-list?${qs}`);
+  if (!res.ok) await throwApiErrorFromResponse(res, 'No se pudieron cargar los turnos fijos');
+  return res.json();
+};
+
 export const listAdminBookings = async (
   slug: string,
   params: { view?: BookingListView; q?: string; date?: string; page?: number } = {}

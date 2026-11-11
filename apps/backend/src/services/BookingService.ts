@@ -9514,6 +9514,13 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         });
 
         if (candidates.length === 0) {
+            // Sin turnos por delante: igual se da de baja la serie.
+            if (!previewOnly && scope === 'ALL_OCCURRENCES' && fixedBooking.status === 'ACTIVE') {
+                await prisma.fixedBooking.update({
+                    where: { id: input.fixedBookingId },
+                    data: { status: 'CANCELLED' }
+                });
+            }
             return {
                 preview: previewOnly,
                 scope,

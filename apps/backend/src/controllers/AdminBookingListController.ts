@@ -171,4 +171,80 @@ export class AdminBookingListController {
       return sendAppError(res, error, 'No se pudieron cargar las reservas');
     }
   };
+
+  // GET /:slug/admin/bookings/fixed-list?q=
+  // Turnos fijos activos, con el próximo turno y cuántos quedan reservados.
+  listFixed = async (req: Request, res: Response) => {
+    try {
+      const clubId = Number((req as any).clubId);
+      const parsed = z.object({ q: z.string().trim().max(100).optional() }).safeParse(req.query);
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error));
+      const { q } = parsed.data;
+
+      const settings = await prisma.clubSettings.findUnique({ where: { clubId }, select: { timeZone: true } });
+      const timeZone = settings?.timeZone || 'America/Argentina/Buenos_Aires';
+      const now = new Date();
+
+      const where: Prisma.FixedBookingWhereInput = { clubId, status: 'ACTIVE' };
+      if (q) {
+        const digits = q.replace(/\D/g, '');
+        where.OR = [
+          { client: { name: { contains: q, mode: 'insensitive' } } },
+          ...(digits.length >= 3 ? [{ client: { phone: { contains: digits } } }] : [])
+        ];
+      }
+
+      const rows = await prisma.fixedBooking.findMany({
+        where,
+        orderBy: [{ dayOfWeek: 'asc' }, { startTimeMinutes: 'asc' }, { id: 'asc' }],
+        select: {
+          id: true,
+          dayOfWeek: true,
+          startTimeMinutes: true,
+          endTimeMinutes: true,
+          startDate: true,
+          client: { select: { id: true, name: true, phone: true } },
+          court: { select: { id: true, name: true } },
+          activity: { select: { id: true, name: true } },
+          bookings: {
+            where: { status: { in: ['PENDING', 'CONFIRMED'] }, startDateTime: { gte: now } },
+            orderBy: { startDateTime: 'asc' },
+            select: { id: true, startDateTime: true }
+          }
+        }
+      });
+
+      // Cuánto ya se pagó de los turnos que quedan (si hay, se cancela desde el calendario).
+      const upcomingIds = rows.flatMap((r) => r.bookings.map((b) => String(b.id)));
+      const accounts = upcomingIds.length
+        ? await prisma.account.findMany({
+            where: { clubId, sourceType: 'BOOKING', sourceId: { in: upcomingIds } },
+            select: { sourceId: true, paidAmount: true }
+          })
+        : [];
+      const paidByBooking = new Map(accounts.map((a) => [a.sourceId, Number(a.paidAmount)]));
+
+      const items = rows.map((r) => {
+        const next = r.bookings[0] ?? null;
+        const upcomingPaidAmount = r.bookings.reduce((sum, b) => sum + (paidByBooking.get(String(b.id)) ?? 0), 0);
+        return {
+          id: r.id,
+          dayOfWeek: r.dayOfWeek,
+          startTimeMinutes: r.startTimeMinutes,
+          endTimeMinutes: r.endTimeMinutes,
+          startDate: r.startDate.toISOString(),
+          client: r.client,
+          court: r.court,
+          activity: r.activity,
+          nextBooking: next ? { id: next.id, startDateTime: next.startDateTime.toISOString() } : null,
+          upcomingCount: r.bookings.length,
+          upcomingPaidAmount: Math.round(upcomingPaidAmount * 100) / 100
+        };
+      });
+
+      return res.json({ items, timeZone });
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudieron cargar los turnos fijos');
+    }
+  };
 }

@@ -10,6 +10,8 @@ import { showAdminToast } from '../../utils/adminToast';
 import { ClubAdminService } from '../../services/ClubAdminService';
 import {
   listAdminBookings,
+  listAdminFixedBookings,
+  type FixedBookingListItem,
   type BookingListItem,
   type BookingListResult,
   type BookingListView,
@@ -17,17 +19,29 @@ import {
 
 // Reservas: todas las reservas de varios días, para buscar sin saber la fecha.
 
-const VIEWS: Array<{ value: BookingListView; label: string; countKey: keyof BookingListResult['counts']; empty: string }> = [
+// 'FIXED' es la pestaña de turnos fijos (no es una vista de reservas sueltas).
+type PageView = BookingListView | 'FIXED';
+
+const VIEWS: Array<{ value: PageView; label: string; countKey?: keyof BookingListResult['counts']; empty: string }> = [
   { value: 'UPCOMING', label: 'Próximas', countKey: 'upcoming', empty: 'No hay reservas próximas' },
   { value: 'PENDING', label: 'Sin confirmar', countKey: 'pending', empty: 'No hay reservas sin confirmar' },
+  { value: 'FIXED', label: 'Turnos fijos', empty: 'No hay turnos fijos' },
   { value: 'CANCELLED', label: 'Canceladas', countKey: 'cancelled', empty: 'No hay reservas canceladas' },
   { value: 'PAST', label: 'Pasadas', countKey: 'past', empty: 'No hay reservas pasadas' },
 ];
 
-const parseView = (value: unknown): BookingListView => {
+const parseView = (value: unknown): PageView => {
   const raw = String(value || '').toUpperCase();
+  if (raw === 'FIJOS') return 'FIXED';
   return raw === 'PENDING' || raw === 'CANCELLED' || raw === 'PAST' ? raw : 'UPCOMING';
 };
+
+const WEEKDAYS = ['Domingos', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábados'];
+// Orden de la semana empezando el lunes.
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+const formatMinutes = (minutes: number) =>
+  `${String(Math.floor(minutes / 60) % 24).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -221,6 +235,174 @@ function BookingRow({
   );
 }
 
+// ---------- turnos fijos ----------
+
+function FixedBookingRow({
+  fixed,
+  timeZone,
+  busy,
+  onCancel,
+}: {
+  fixed: FixedBookingListItem;
+  timeZone: string;
+  busy: boolean;
+  onCancel: (fixed: FixedBookingListItem) => Promise<boolean>;
+}) {
+  const [askCancel, setAskCancel] = useState(false);
+  const next = fixed.nextBooking;
+  const nextHref = next ? `/admin/agenda?fecha=${dayKey(next.startDateTime, timeZone)}&reserva=${next.id}` : null;
+  const hasPayments = fixed.upcomingPaidAmount > 0.009;
+  const left =
+    fixed.upcomingCount === 0
+      ? 'No tiene turnos por delante'
+      : fixed.upcomingCount === 1
+        ? 'Queda 1 turno reservado'
+        : `Quedan ${fixed.upcomingCount} turnos reservados`;
+
+  const body = (
+    <div className="flex min-w-0 gap-3">
+      <div className="w-[52px] shrink-0 pt-0.5">
+        <p className="text-[14px] font-semibold tabular-nums text-p-text">{formatMinutes(fixed.startTimeMinutes)}</p>
+        <p className="text-[11px] tabular-nums text-p-text-muted">{formatMinutes(fixed.endTimeMinutes)}</p>
+      </div>
+      <div className="min-w-0">
+        <p className="truncate text-[14px] font-semibold text-p-text">{fixed.client.name}</p>
+        <p className="truncate text-[12px] text-p-text-muted">
+          {fixed.court.name} · {fixed.activity.name}
+          {fixed.client.phone ? ` · ${fixed.client.phone}` : ''}
+        </p>
+        <p className="mt-1 text-[12px] text-p-text-secondary">
+          {next ? `Próximo: ${formatDayShort(next.startDateTime, timeZone)} · ` : ''}
+          {left}
+        </p>
+      </div>
+    </div>
+  );
+
+  return (
+    <li>
+      {nextHref ? (
+        <Link
+          href={nextHref}
+          className="block px-4 py-3 transition hover:bg-p-surface-2 focus-visible:bg-p-surface-2 focus-visible:outline-none"
+          title="Abrir el próximo turno en el calendario"
+        >
+          {body}
+        </Link>
+      ) : (
+        <div className="px-4 py-3">{body}</div>
+      )}
+      <div className="px-4 pb-3">
+        {askCancel ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-p-surface-2 px-3 py-2">
+            <p className="mr-auto text-[12px] text-p-text">
+              ¿Cancelar el turno fijo de {fixed.client.name}?{' '}
+              {fixed.upcomingCount > 0
+                ? `Se cancelan ${fixed.upcomingCount === 1 ? 'el turno que queda' : `los ${fixed.upcomingCount} turnos que quedan`} y no se reserva más.`
+                : 'No se reserva más.'}
+            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setAskCancel(false)}
+              className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+            >
+              No
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                const ok = await onCancel(fixed);
+                if (!ok) setAskCancel(false);
+              }}
+              className="h-8 rounded-lg bg-[var(--error-fg)] px-3 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {busy ? 'Cancelando…' : 'Sí, cancelar'}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-2 pl-[64px]">
+            {hasPayments && nextHref ? (
+              <Link
+                href={nextHref}
+                className="inline-flex h-8 items-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2"
+                title="Algún turno ya tiene pagos: cancelalo desde el calendario para decidir la devolución"
+              >
+                Cancelar en el calendario
+              </Link>
+            ) : (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setAskCancel(true)}
+                className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+              >
+                Cancelar turno fijo
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function FixedBookingList({
+  items,
+  timeZone,
+  loading,
+  searching,
+  busyId,
+  onCancel,
+  onClearSearch,
+}: {
+  items: FixedBookingListItem[];
+  timeZone: string;
+  loading: boolean;
+  searching: boolean;
+  busyId: number | null;
+  onCancel: (fixed: FixedBookingListItem) => Promise<boolean>;
+  onClearSearch: () => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-p-border bg-p-surface px-4 py-10 text-center">
+        <p className="text-[14px] font-semibold text-p-text">
+          {searching ? 'No encontramos turnos fijos con esa búsqueda' : 'No hay turnos fijos'}
+        </p>
+        {searching ? (
+          <button type="button" onClick={onClearSearch} className="mt-2 text-[13px] font-semibold text-p-text-secondary hover:underline">
+            Limpiar búsqueda
+          </button>
+        ) : (
+          <p className="mt-1 text-[13px] text-p-text-muted">Se crean desde el calendario, al hacer una reserva que se repite cada semana.</p>
+        )}
+      </div>
+    );
+  }
+
+  const groups = WEEK_ORDER.map((day) => ({ day, items: items.filter((f) => f.dayOfWeek === day) })).filter((g) => g.items.length > 0);
+
+  return (
+    <div className={`flex flex-col gap-4 transition-opacity ${loading ? 'opacity-60' : ''}`}>
+      {groups.map((group) => (
+        <div key={group.day}>
+          <p className="mb-1.5 px-1 text-[12px] font-semibold text-p-text-secondary">
+            {WEEKDAYS[group.day]}
+            <span className="ml-1.5 font-normal text-p-text-muted">· {group.items.length}</span>
+          </p>
+          <ul className="divide-y divide-p-border overflow-hidden rounded-xl border border-p-border bg-p-surface">
+            {group.items.map((fixed) => (
+              <FixedBookingRow key={fixed.id} fixed={fixed} timeZone={timeZone} busy={busyId === fixed.id} onCancel={onCancel} />
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ---------- contenido ----------
 
 function BookingsContent({ slug }: { slug: string }) {
@@ -232,14 +414,16 @@ function BookingsContent({ slug }: { slug: string }) {
   const [searchDraft, setSearchDraft] = useState(queryText);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<BookingListResult | null>(null);
+  const [fixedItems, setFixedItems] = useState<FixedBookingListItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const setQuery = useCallback(
-    (next: { ver?: BookingListView; dia?: string; buscar?: string }) => {
+    (next: { ver?: PageView; dia?: string; buscar?: string }) => {
       const merged = { ver: view, dia: dateFilter, buscar: queryText, ...next };
       const query: Record<string, string> = {};
-      if (merged.ver && merged.ver !== 'UPCOMING') query.ver = merged.ver.toLowerCase();
+      if (merged.ver === 'FIXED') query.ver = 'fijos';
+      else if (merged.ver && merged.ver !== 'UPCOMING') query.ver = merged.ver.toLowerCase();
       if (merged.dia) query.dia = merged.dia;
       if (merged.buscar) query.buscar = merged.buscar;
       setPage(1);
@@ -260,7 +444,15 @@ function BookingsContent({ slug }: { slug: string }) {
     setLoading(true);
     setError('');
     try {
-      setResult(await listAdminBookings(slug, { view, q: queryText || undefined, date: dateFilter || undefined, page }));
+      // En turnos fijos igual se piden las reservas, para los conteos de las otras pestañas.
+      const [bookings, fixed] = await Promise.all([
+        view === 'FIXED'
+          ? listAdminBookings(slug, { view: 'UPCOMING', q: queryText || undefined })
+          : listAdminBookings(slug, { view, q: queryText || undefined, date: dateFilter || undefined, page }),
+        listAdminFixedBookings(slug, { q: queryText || undefined }),
+      ]);
+      setResult(bookings);
+      setFixedItems(fixed.items);
     } catch (err) {
       reportUiError({ area: 'AdminBookingsPage', action: 'load' }, err);
       setError(extractErrorMessage(err, 'No se pudieron cargar las reservas.'));
@@ -297,6 +489,43 @@ function BookingsContent({ slug }: { slug: string }) {
         return false;
       } finally {
         setBusyId(null);
+      }
+    },
+    [slug, load]
+  );
+
+  const [busyFixedId, setBusyFixedId] = useState<number | null>(null);
+  const cancelFixed = useCallback(
+    async (fixed: FixedBookingListItem) => {
+      setBusyFixedId(fixed.id);
+      try {
+        const result = (await ClubAdminService.cancelFixedBooking(slug, fixed.id, { scope: 'ALL_OCCURRENCES' })) as {
+          cancelledCount?: number;
+          skippedCount?: number;
+          skipped?: Array<{ reason?: string }>;
+        };
+        const cancelledCount = Number(result?.cancelledCount || 0);
+        const skippedCount = Number(result?.skippedCount || 0);
+        const firstReason = result?.skipped?.[0]?.reason;
+        // El backend responde 200 aunque no haya podido cancelar algún turno: avisarlo.
+        if (skippedCount > 0 && cancelledCount === 0) {
+          showAdminToast(`No se pudo cancelar el turno fijo.${firstReason ? ` ${firstReason}` : ''}`, 'error');
+        } else if (skippedCount > 0) {
+          showAdminToast(
+            `Se cancelaron ${cancelledCount} turnos, pero ${skippedCount === 1 ? '1 no se pudo cancelar' : `${skippedCount} no se pudieron cancelar`}. Revisalos en el calendario.`,
+            'warning'
+          );
+        } else {
+          showAdminToast(`Turno fijo de ${fixed.client.name} cancelado.`);
+        }
+        await load();
+        return skippedCount === 0 || cancelledCount > 0;
+      } catch (err) {
+        reportUiError({ area: 'AdminBookingsPage', action: 'cancelFixed' }, err);
+        showAdminToast(extractErrorMessage(err, 'No se pudo cancelar el turno fijo.'), 'error');
+        return false;
+      } finally {
+        setBusyFixedId(null);
       }
     },
     [slug, load]
@@ -346,7 +575,7 @@ function BookingsContent({ slug }: { slug: string }) {
               className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
             />
           </label>
-          <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-2 ${view === 'FIXED' ? 'hidden' : ''}`}>
             <input
               type="date"
               value={dateFilter}
@@ -370,7 +599,13 @@ function BookingsContent({ slug }: { slug: string }) {
         <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
           <div className="flex w-max gap-1.5">
             {VIEWS.map((option) => {
-              const count = result ? result.counts[option.countKey] : null;
+              const count = option.countKey
+                ? result
+                  ? result.counts[option.countKey]
+                  : null
+                : fixedItems
+                  ? fixedItems.length
+                  : null;
               const selected = view === option.value;
               const alert = option.value === 'PENDING' && (count ?? 0) > 0;
               return (
@@ -378,7 +613,7 @@ function BookingsContent({ slug }: { slug: string }) {
                   key={option.value}
                   type="button"
                   aria-pressed={selected}
-                  onClick={() => setQuery({ ver: option.value })}
+                  onClick={() => setQuery(option.value === 'FIXED' ? { ver: option.value, dia: '' } : { ver: option.value })}
                   className={`h-8 whitespace-nowrap rounded-full border px-3 text-[12px] font-semibold transition ${
                     selected ? 'border-ink-900 bg-ink-900 text-ink-50' : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
                   }`}
@@ -402,7 +637,24 @@ function BookingsContent({ slug }: { slug: string }) {
           </AdminFeedbackBanner>
         )}
 
-        {loading && !result ? (
+        {view === 'FIXED' ? (
+          fixedItems === null ? (
+            <p className="py-10 text-center text-[13px] text-p-text-muted">Cargando…</p>
+          ) : (
+            <FixedBookingList
+              items={fixedItems}
+              timeZone={timeZone}
+              loading={loading}
+              searching={Boolean(queryText)}
+              busyId={busyFixedId}
+              onCancel={cancelFixed}
+              onClearSearch={() => {
+                setSearchDraft('');
+                setQuery({ buscar: '' });
+              }}
+            />
+          )
+        ) : loading && !result ? (
           <p className="py-10 text-center text-[13px] text-p-text-muted">Cargando…</p>
         ) : items.length === 0 ? (
           <div className="rounded-xl border border-p-border bg-p-surface px-4 py-10 text-center">
@@ -451,7 +703,7 @@ function BookingsContent({ slug }: { slug: string }) {
           </div>
         )}
 
-        {result && result.pages > 1 && (
+        {result && view !== 'FIXED' && result.pages > 1 && (
           <div className="flex items-center justify-between text-[12px]">
             <button
               type="button"

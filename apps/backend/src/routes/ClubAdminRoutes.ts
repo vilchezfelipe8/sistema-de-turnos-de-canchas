@@ -397,6 +397,12 @@ router.get('/:slug/admin/bookings',
     requireTenantRole(['ADMIN', 'STAFF']),
     adminBookingListController.list
 );
+router.get('/:slug/admin/bookings/fixed-list',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    adminBookingListController.listFixed
+);
 
 // Crear reserva fija
 router.post('/:slug/admin/bookings/fixed',
