@@ -5,6 +5,7 @@ import { OUTBOX_TYPES } from './OutboxService';
 import { WhatsappDeliveryService } from './WhatsappDeliveryService';
 import { NotificationService } from './NotificationService';
 import { metricsService } from './MetricsService';
+import { ArcaWorkerHandler, ArcaRetryError } from './ArcaWorkerHandler';
 import { WhatsappSendV2Dispatcher } from './WhatsappSendV2Dispatcher';
 import { pushNotificationService, type PushOutboxPayload } from './PushNotificationService';
 
@@ -20,6 +21,7 @@ type DispatchOutcome = {
 export class OutboxWorker {
   private readonly whatsappDelivery = new WhatsappDeliveryService();
   private readonly notificationService = new NotificationService();
+  private readonly arcaHandler = new ArcaWorkerHandler();
   private readonly whatsappSendV2Dispatcher = new WhatsappSendV2Dispatcher();
   private readonly workerId =
     process.env.OUTBOX_WORKER_ID ||
@@ -54,7 +56,10 @@ export class OutboxWorker {
         metricsService.recordOutbox(message.type, 'sent');
       } catch (error: any) {
         const attempts = message.attempts + 1;
-        const delayMs = Math.min(60_000, attempts * 5_000);
+        const delayMs =
+          error instanceof ArcaRetryError
+            ? error.delayMs
+            : Math.min(60_000, attempts * 5_000);
 
         await prisma.outboxMessage.update({
           where: { id: message.id },
@@ -178,6 +183,20 @@ export class OutboxWorker {
         message.attempts
       );
       return { outboxLastError: result.skipped ? `PUSH_SKIPPED: ${result.skipped}` : null };
+    }
+
+    if (
+      message.type === OUTBOX_TYPES.ARCA_INVOICE_REQUESTED ||
+      message.type === OUTBOX_TYPES.ARCA_CREDIT_NOTE_REQUESTED ||
+      message.type === OUTBOX_TYPES.ARCA_VOUCHER_RETRY_REQUESTED ||
+      message.type === OUTBOX_TYPES.ARCA_AUTH_REFRESH_REQUESTED ||
+      message.type === OUTBOX_TYPES.ARCA_VOUCHER_RENDER_REQUESTED ||
+      message.type === OUTBOX_TYPES.FISCAL_INCIDENT_CREATED
+    ) {
+      if (!featureFlags.ENABLE_ARCA_WORKER) {
+        return;
+      }
+      return this.arcaHandler.handle(message);
     }
 
     throw new Error(`Tipo de outbox no soportado: ${message.type}`);

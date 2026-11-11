@@ -7,6 +7,7 @@ import { acquireDistributedLock } from './utils/distributedLock';
 import { featureFlags } from './config/featureFlags';
 import { PendingBookingAutoCancelService } from './services/PendingBookingAutoCancelService';
 import { BookingReminderService } from './services/BookingReminderService';
+import { FiscalCertExpiryChecker } from './services/FiscalCertExpiryChecker';
 import { BookingService } from './services/BookingService';
 import { BookingRepository } from './repositories/BookingRepository';
 import { CourtRepository } from './repositories/CourtRepository';
@@ -24,6 +25,7 @@ const PENDING_BOOKINGS_AUTOCANCEL_LOCK_TTL_MS = Number(process.env.PENDING_BOOKI
 // Recordatorios push antes del turno.
 const BOOKING_REMINDERS_INTERVAL_MS = Number(process.env.BOOKING_REMINDERS_INTERVAL_MS) || 5 * 60_000;
 const BOOKING_REMINDERS_LOCK_TTL_MS = Number(process.env.BOOKING_REMINDERS_LOCK_TTL_MS) || 4 * 60_000;
+const CERT_EXPIRY_CHECK_INTERVAL_MS = Number(process.env.CERT_EXPIRY_CHECK_INTERVAL_MS) || 3_600_000; // 1 hora
 const PROCESS_ROLE = String(process.env.PROCESS_ROLE || 'all').toLowerCase();
 const RUN_BOOKING_COMPLETION_JOB = process.env.RUN_BOOKING_COMPLETION_JOB;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -200,9 +202,22 @@ const startWorker = () => {
   console.log('🧰 Worker de outbox iniciado');
 };
 
+const fiscalCertExpiryChecker = new FiscalCertExpiryChecker();
+
+const checkFiscalCertExpiry = async () => {
+  try {
+    await fiscalCertExpiryChecker.run();
+    metricsService.recordSchedulerRun('fiscal_cert_expiry_check', 'success');
+  } catch (error) {
+    console.error('❌ Error chequeando vencimiento de certificados fiscales:', error);
+    metricsService.recordSchedulerRun('fiscal_cert_expiry_check', 'error');
+  }
+};
+
 const startScheduler = async () => {
   await completePastBookings();
   await processPendingBookingPolicies();
+  await checkFiscalCertExpiry();
 
   setInterval(async () => {
     await completePastBookings();
@@ -216,6 +231,10 @@ const startScheduler = async () => {
   setInterval(async () => {
     await processBookingReminders();
   }, BOOKING_REMINDERS_INTERVAL_MS);
+
+  setInterval(async () => {
+    await checkFiscalCertExpiry();
+  }, CERT_EXPIRY_CHECK_INTERVAL_MS);
 
   console.log('⏰ Scheduler de reservas iniciado');
 };

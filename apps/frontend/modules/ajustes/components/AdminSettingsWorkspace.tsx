@@ -12,6 +12,7 @@ import {
   SettingsCashSection,
   SettingsClubIdentitySection,
   SettingsExceptionsSection,
+  SettingsFiscalSection,
   SettingsIntegrationsWorkspaceSection,
   SettingsMembersSection,
   SettingsPricingSection,
@@ -35,6 +36,7 @@ export type SettingsWorkspaceTab =
   | 'notificaciones'
   | 'excepciones'
   | 'auditoria'
+  | 'facturacion'
   | 'resenas';
 
 const comingSoonLabelByTab: Record<Extract<SettingsWorkspaceTab, 'notificaciones' | 'actividades'>, string> = {
@@ -76,6 +78,7 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
   if (tab === 'caja') return <SettingsCashSection />;
   if (tab === 'excepciones') return <SettingsExceptionsSection />;
   if (tab === 'auditoria') return <SettingsAuditSection />;
+  if (tab === 'facturacion') return <SettingsFiscalSection />;
   if (tab === 'resenas') return <SettingsReviewsSection />;
 
   return (

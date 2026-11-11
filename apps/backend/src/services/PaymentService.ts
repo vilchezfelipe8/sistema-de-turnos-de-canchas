@@ -18,6 +18,7 @@ import {
   type DiscountablePaymentMethod,
   type PaymentDiscountKey
 } from './PaymentMethodDiscountService';
+import { FiscalTriggerService } from './FiscalTriggerService';
 
 const EPSILON = 0.009;
 
@@ -74,6 +75,7 @@ export class PaymentService {
   private readonly accountService = new AccountService();
   private readonly bookingHistoryService = new BookingHistoryService();
   private readonly paymentMethodDiscountService = new PaymentMethodDiscountService();
+  private readonly fiscalTriggerService = new FiscalTriggerService();
 
   private roundMoney(value: number) {
     return Number((Number(value || 0)).toFixed(2));
@@ -690,6 +692,14 @@ export class PaymentService {
       }
 
       metricsService.recordPayment(source, input.method);
+
+      // Fiscal trigger — non-blocking: payment must never fail due to fiscal issues
+      await this.fiscalTriggerService.triggerForPayment(tx, {
+        clubId: account.clubId,
+        paymentId: payment.id,
+        accountId: account.id,
+        paymentAmount: input.amount
+      });
 
       const createdPayment = await tx.payment.findUnique({
         where: { id: payment.id },
