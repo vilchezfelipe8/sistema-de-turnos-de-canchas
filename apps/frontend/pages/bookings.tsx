@@ -104,6 +104,13 @@ const PAGE_CSS = `
   .bk-card-club { font-size:15px; font-weight:800; color:var(--text-primary); line-height:1.2; margin-bottom:4px; }
   .bk-card-meta { display:flex; align-items:center; gap:8px; font-size:11px; color:var(--text-muted); font-weight:600; flex-wrap:wrap; }
   .bk-card-chip { padding:2px 8px; background:var(--surface-2); border-radius:6px; font-size:10px; color:var(--text-muted); font-weight:600; white-space:nowrap; }
+  .bk-card-pay { display:inline-flex; }
+  .bk-pay-banner { display:flex; align-items:center; gap:8px; margin-bottom:12px; padding:10px 12px; border-radius:12px; font-size:13px; font-weight:600; line-height:1.45; border:1px solid var(--border-subtle); background:var(--surface-2); color:var(--text-secondary); }
+  .bk-pay-banner.is-success { background:var(--positive-bg); border-color:var(--accent-border-subtle); color:var(--accent-fg); }
+  .bk-pay-banner.is-error { background:var(--error-bg); border-color:var(--error-bg); color:var(--error-fg); }
+  .bk-pay-banner-close { flex:none; width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; padding:0; border:0; border-radius:8px; background:transparent; color:inherit; opacity:.7; cursor:pointer; }
+  .bk-pay-banner-close:hover { opacity:1; background:var(--surface-3); }
+  @media(max-width:620px){ .bk-card-pay { flex-basis:100%; } }
   .bk-card-arrow { color:var(--text-muted); flex-shrink:0; transition:color .2s, transform .2s; }
   /* Detail panel */
   .bk-detail { background:var(--surface-1); border:1px solid var(--border); border-radius:24px; padding:24px; position:sticky; top:80px; max-height:calc(100vh - 96px); overflow-y:auto; }
@@ -327,7 +334,9 @@ export default function MyBookingsPage() {
   // Cambia después de invitar para vaciar el buscador.
   const [inviteSearchKey, setInviteSearchKey] = useState(0);
   const [participantActionId, setParticipantActionId] = useState<string | null>(null);
-  const [paymentBanner, setPaymentBanner] = useState<{ tone: 'success' | 'info' | 'error'; message: string } | null>(null);
+  const [paymentBanner, setPaymentBanner] = useState<{ tone: 'success' | 'info' | 'error'; message: string; bookingId: string | null } | null>(null);
+  // Al volver de Mercado Pago, la reserva pagada abre su "Estado de pago".
+  const expandPaymentForBookingRef = useRef<string | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
@@ -506,7 +515,9 @@ export default function MyBookingsPage() {
     }
 
     setParticipantsExpanded(false);
-    setPaymentExpanded(false);
+    const expandPayment = expandPaymentForBookingRef.current === String(selectedBooking.id);
+    if (expandPayment) expandPaymentForBookingRef.current = null;
+    setPaymentExpanded(expandPayment);
 
     let cancelled = false;
     setParticipantsLoading(true);
@@ -559,29 +570,29 @@ export default function MyBookingsPage() {
   }, [selectedBooking]);
 
   useEffect(() => {
+    if (!router.isReady) return;
     const checkoutStatus = String(router.query.checkoutStatus || '').trim().toLowerCase();
     if (!checkoutStatus) return;
+    const bookingId = typeof router.query.booking === 'string' ? router.query.booking : null;
+    // Mercado Pago agrega collection_status: "null" si la persona volvió sin pagar, "rejected" si se rechazó.
+    const mpStatus = String(router.query.collection_status || router.query.status || '').trim().toLowerCase();
 
     if (checkoutStatus === 'success') {
-      setPaymentBanner({
-        tone: 'success',
-        message: 'Mercado Pago recibió tu pago. Estamos validándolo con el club.'
-      });
+      setPaymentBanner({ tone: 'success', message: 'Mercado Pago recibió tu pago. Lo vas a ver acá en unos segundos.', bookingId });
     } else if (checkoutStatus === 'pending') {
-      setPaymentBanner({
-        tone: 'info',
-        message: 'Tu pago quedó pendiente de confirmación en Mercado Pago.'
-      });
+      setPaymentBanner({ tone: 'info', message: 'Tu pago quedó pendiente de confirmación en Mercado Pago.', bookingId });
     } else if (checkoutStatus === 'failure') {
-      setPaymentBanner({
-        tone: 'error',
-        message: 'No se pudo completar el pago online. Revisá el estado de pago o contactá al club.'
-      });
+      setPaymentBanner(mpStatus === 'rejected'
+        ? { tone: 'error', message: 'Mercado Pago rechazó el pago. Probá con otro medio o pagá en el club.', bookingId }
+        : { tone: 'info', message: 'No completaste el pago. Tu reserva sigue igual y podés pagar cuando quieras.', bookingId });
     }
+    if (bookingId) expandPaymentForBookingRef.current = bookingId;
 
+    // Se quitan los datos de la vuelta; "booking" queda para abrir la reserva cuando cargue.
     const nextQuery = { ...router.query } as Record<string, unknown>;
-    delete nextQuery.checkoutStatus;
-    void router.replace({ pathname: router.pathname, query: nextQuery as any }, undefined, { shallow: true });
+    ['checkoutStatus', 'collection_id', 'collection_status', 'payment_id', 'status', 'external_reference', 'payment_type',
+      'merchant_order_id', 'preference_id', 'site_id', 'processing_mode', 'merchant_account_id'].forEach((key) => { delete nextQuery[key]; });
+    void router.replace({ pathname: router.pathname, query: nextQuery as any }, undefined, { shallow: true, scroll: false });
   }, [router]);
 
   useEffect(() => {
@@ -1151,7 +1162,7 @@ export default function MyBookingsPage() {
       case 'PAID':
         return { background: 'var(--positive-bg)', border: 'var(--accent-border-subtle)', color: 'var(--accent-fg)' };
       case 'PARTIAL':
-        return { background: 'var(--surface-2)', border: 'var(--accent-border-subtle)', color: 'var(--text-secondary)' };
+        return { background: 'var(--warn-bg)', border: 'var(--warn-bg)', color: 'var(--warn-fg)' };
       case 'PENDING':
         return { background: 'var(--warn-bg)', border: 'var(--warn-bg)', color: 'var(--warn-fg)' };
       case 'NOT_REQUIRED':
@@ -1327,7 +1338,7 @@ export default function MyBookingsPage() {
               </div>
             </div>
             <div className="bk-list-body" ref={listBodyRef}>
-              {paymentBanner && (
+              {paymentBanner && !paymentBanner.bookingId && (
                 <div
                   style={{
                     padding: '12px 16px',
@@ -1355,7 +1366,10 @@ export default function MyBookingsPage() {
                   }}
                 >
                   <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
-                  {paymentBanner.message}
+                  <span style={{ flex: 1 }}>{paymentBanner.message}</span>
+                  <button type="button" className="bk-pay-banner-close" aria-label="Cerrar aviso" onClick={() => setPaymentBanner(null)}>
+                    <X size={14} />
+                  </button>
                 </div>
               )}
               {loading ? (
@@ -1415,6 +1429,7 @@ export default function MyBookingsPage() {
                           </span>
                           {booking.court?.name && <span style={{ color: 'var(--text-muted)' }}>{booking.court.name}</span>}
                           {booking.paymentSummary.status !== 'NOT_REQUIRED' && paymentStatusLabel(booking) && (
+                            <span className="bk-card-pay">
                             <span
                               className="bk-card-chip"
                               style={{
@@ -1424,6 +1439,7 @@ export default function MyBookingsPage() {
                               }}
                             >
                               {paymentStatusLabel(booking)}
+                            </span>
                             </span>
                           )}
                         </div>
@@ -1594,6 +1610,15 @@ export default function MyBookingsPage() {
                   <span className="bk-compact-status-copy">Consultá el estado con el club</span>
                 </div>
               ) : (
+              <>
+              {paymentBanner && paymentBanner.bookingId === String(selectedBooking.id) && (
+                <div className={`bk-pay-banner is-${paymentBanner.tone}`} role="status">
+                  <span style={{ flex: 1 }}>{paymentBanner.message}</span>
+                  <button type="button" className="bk-pay-banner-close" aria-label="Cerrar aviso" onClick={() => setPaymentBanner(null)}>
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
               <div className={`bk-collapsible${paymentExpanded ? ' bk-collapsible-open' : ''}`} style={{ marginBottom: 18 }}>
                 <button
                   type="button"
@@ -1802,6 +1827,7 @@ export default function MyBookingsPage() {
                   </div>
                 )}
               </div>
+              </>
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
