@@ -6690,9 +6690,16 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             status: participant.status,
             role: String(participant.role || '') === 'ORGANIZER' ? 'ORGANIZER' : 'PARTICIPANT',
             isMe: Number(participant.userId || 0) === Number(userId),
-            invitedEmail: isOwner ? (participant.invitedEmail ?? participant.email ?? null) : null,
+            invitedEmail: isOwner ? this.ownerVisibleInvitedEmail(participant) : null,
             canManage: isOwner && participant.status !== 'REMOVED' && String(participant.role || '') !== 'ORGANIZER'
         }));
+    }
+
+    // El dueño ve el email solo si lo escribió él (invitación por email). Si invitó a una cuenta
+    // por DNI o desde la búsqueda, el email es dato privado del otro jugador y no se muestra.
+    private ownerVisibleInvitedEmail(participant: { invitedUserId?: number | null; invitedEmail?: string | null; email?: string | null }): string | null {
+        if (participant.invitedUserId) return null;
+        return participant.invitedEmail ?? participant.email ?? null;
     }
 
     async getAdminBookingParticipants(bookingId: number, clubId: number): Promise<AdminBookingParticipantDto[]> {
@@ -7419,7 +7426,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             status: created.status,
             role: 'PARTICIPANT',
             isMe: false,
-            invitedEmail: created.invitedEmail ?? null,
+            invitedEmail: this.ownerVisibleInvitedEmail(created),
             canManage: true
         };
     }
