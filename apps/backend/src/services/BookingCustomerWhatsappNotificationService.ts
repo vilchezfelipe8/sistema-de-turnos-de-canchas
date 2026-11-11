@@ -41,6 +41,7 @@ type BookingCancelledInput = {
   startDateTime: Date;
   timeZone: string;
   reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED';
+  cancelledBy?: 'CLIENT' | 'CLUB' | 'SYSTEM';
 };
 
 type BookingPendingWarningInput = {
@@ -190,7 +191,7 @@ export class BookingCustomerWhatsappNotificationService {
 
     const { date, time } = this.formatBookingDateTime(input.startDateTime, input.timeZone);
     const clubWhatsappUrl = this.buildClubWhatsappUrl(input.clubPhone);
-    const cancelReasonLabel = this.buildCancelReasonLabel(input.reason);
+    const cancelReasonLabel = this.buildCancelReasonLabel(input.reason, input.cancelledBy);
 
     try {
       if (!this.flags.ENABLE_WHATSAPP_CUSTOMER_EVENTS_V2) {
@@ -351,15 +352,24 @@ export class BookingCustomerWhatsappNotificationService {
     return cleanClubPhone ? `https://wa.me/${cleanClubPhone}` : 'No disponible';
   }
 
-  private buildCancelReasonLabel(reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED') {
+  private buildCancelReasonLabel(
+    reason?: 'MANUAL' | 'AUTO_CANCEL_UNCONFIRMED' | 'ONLINE_DEPOSIT_EXPIRED',
+    cancelledBy?: 'CLIENT' | 'CLUB' | 'SYSTEM'
+  ) {
     if (reason === 'ONLINE_DEPOSIT_EXPIRED') {
-      return 'sena no pagada a tiempo';
+      return 'seña no pagada a tiempo';
     }
     if (reason === 'AUTO_CANCEL_UNCONFIRMED') {
-      return 'falta de confirmacion';
+      return 'falta de confirmación';
     }
 
-    return 'cancelacion solicitada';
+    if (cancelledBy === 'CLUB') {
+      return 'cancelada por el club';
+    }
+    if (cancelledBy === 'CLIENT') {
+      return 'cancelada por el cliente';
+    }
+    return 'cancelación solicitada';
   }
 
   private buildCreatedLegacyMessage(
@@ -390,8 +400,12 @@ Para confirmar tu asistencia, coordinar el pago de la seña o por cualquier cons
     return `
 ❌ *Reserva Cancelada en ${input.clubName}* ❌
 
-Hola *${input.clientName}*, te confirmamos que tu turno ha sido anulado${
-      isAutoCancel ? ' automáticamente por falta de confirmación' : ' a través del sistema'
+Hola *${input.clientName}*, ${
+      isAutoCancel
+        ? 'tu turno fue cancelado automáticamente por falta de confirmación'
+        : input.cancelledBy === 'CLUB'
+          ? 'el club canceló tu turno'
+          : 'te confirmamos que cancelaste tu turno'
     }.
 
 📅 *Fecha:* ${input.date}

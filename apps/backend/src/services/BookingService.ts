@@ -3340,6 +3340,8 @@ Ingresó un nuevo turno web en *${params.clubName}*.
         startDateTime: Date;
         timeZone: string;
         reason?: CancelBookingReason;
+        cancelledBy?: 'CLIENT' | 'CLUB' | 'SYSTEM';
+        playerReasonText?: string | null;
     }) {
         const cleanClientPhone = toDialablePhoneNumber(params.clientPhone);
         const cleanClubPhone = toDialablePhoneNumber(params.clubPhone);
@@ -3352,7 +3354,8 @@ Ingresó un nuevo turno web en *${params.clubName}*.
         const clientMessage = `
 ❌ *Reserva Cancelada en ${params.clubName}* ❌
 
-Hola *${params.clientName}*, te confirmamos que tu turno ha sido anulado${isAutoCancel ? autoCancelCause : ' a través del sistema'}.
+Hola *${params.clientName}*, ${isAutoCancel ? `tu turno fue cancelado${autoCancelCause}` : params.cancelledBy === 'CLUB' ? 'el club canceló tu turno' : 'te confirmamos que cancelaste tu turno'}.${params.playerReasonText ? `
+📝 *Motivo:* ${params.playerReasonText}` : ''}
 
 📅 *Fecha:* ${date}
 ⏰ *Hora:* ${time}
@@ -3367,7 +3370,7 @@ Hola *${params.clientName}*, te confirmamos que tu turno ha sido anulado${isAuto
         const clubMessage = `
 ⚠️ *¡Turno Cancelado!* ⚠️
 
-${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en' : 'Un cliente canceló su reserva en'} *${params.clubName}*.
+${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en' : params.cancelledBy === 'CLUB' ? 'Se canceló desde el panel del club una reserva en' : 'Un cliente canceló su reserva en'} *${params.clubName}*.
 
 👤 *Cliente:* ${params.clientName}
 📞 *Tel:* ${cleanClientPhone ? `wa.me/${cleanClientPhone}` : 'No registrado'}
@@ -4274,6 +4277,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
             ])).sort((a, b) => a - b);
 
             const slots: Array<{ start: string; durationMinutes: number }> = [];
+            // Turnos que empiezan después de la medianoche pero son de esta noche (el club cierra pasada las 00).
+            const overnightSlots: Array<{ start: string; durationMinutes: number }> = [];
             if (clubOpen && !resolved.isClosed) {
                 for (const duration of durations) {
                     const built = buildSlotsFromSchedule(
@@ -4291,6 +4296,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     ) as Array<{ slotTime: string; dayOffset: number }>;
                     for (const slot of built) {
                         if (slot.dayOffset === 0) slots.push({ start: slot.slotTime, durationMinutes: duration });
+                        else if (slot.dayOffset === 1) overnightSlots.push({ start: slot.slotTime, durationMinutes: duration });
                     }
                 }
             }
@@ -4301,7 +4307,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 mode: schedule.mode,
                 durations: schedule.durations,
                 formats,
-                slots
+                slots,
+                overnightSlots
             });
         }
 
@@ -4576,6 +4583,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
         const skipAccessValidation = options?.skipAccessValidation ?? false;
         const isDepositExpiry = reason === 'ONLINE_DEPOSIT_EXPIRED';
         const isAutoCancel = reason === 'AUTO_CANCEL_UNCONFIRMED' || isDepositExpiry;
+        // Quién canceló, para que el aviso diga la verdad ("Un cliente canceló" solo si fue el cliente).
+        const triggeredBy = options?.triggeredBy ?? (isAutoCancel ? 'SYSTEM' : clubId != null ? 'ADMIN' : 'USER');
+        const cancelledBy: 'CLIENT' | 'CLUB' | 'SYSTEM' = isAutoCancel || triggeredBy === 'SYSTEM' ? 'SYSTEM' : triggeredBy === 'ADMIN' ? 'CLUB' : 'CLIENT';
 
         const booking = await this.bookingRepo.findById(bookingId);
         if (!booking) {
@@ -4801,7 +4811,7 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 nextState: { status: 'CANCELLED' },
                 detail: {
                     reason,
-                    triggeredBy: options?.triggeredBy ?? (isAutoCancel ? 'SYSTEM' : clubId != null ? 'ADMIN' : 'USER'),
+                    triggeredBy,
                     refundedAmount: refundedAmount,
                 },
             });
@@ -4828,7 +4838,9 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                 notificationUserId: currentBooking.user?.id ?? null,
                 startDateTime: currentBooking.startDateTime,
                 timeZone,
-                reason
+                reason,
+                cancelledBy,
+                playerReasonText: options?.playerReasonText ?? null
             });
 
             const customerEventsV2Enabled = featureFlags.ENABLE_WHATSAPP_CUSTOMER_EVENTS_V2;
@@ -4853,7 +4865,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     clientPhone,
                     startDateTime: currentBooking.startDateTime,
                     timeZone,
-                    reason
+                    reason,
+                    cancelledBy
                 }, tx);
             }
             if (staffEventsV2Enabled) {
@@ -4867,7 +4880,8 @@ ${isAutoCancel ? 'El sistema canceló automáticamente una reserva pendiente en'
                     clientPhone,
                     startDateTime: currentBooking.startDateTime,
                     timeZone,
-                    reason
+                    reason,
+                    cancelledBy
                 }, tx);
             }
             if (account) {
