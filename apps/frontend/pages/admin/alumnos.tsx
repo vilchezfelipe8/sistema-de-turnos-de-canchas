@@ -638,7 +638,7 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
                   <div className="rounded-2xl border border-p-error bg-p-error-bg px-4 py-3">
                     <p className="text-[15px] font-semibold text-[var(--error-fg)]">Debe {formatCurrency(owedAmount)}</p>
                     <p className="mt-0.5 text-[13px] text-p-text-secondary">
-                      {owing.length === 1 ? 'De 1 clase.' : `De ${owing.length} clases.`} Se cobra desde cada clase, tocando "Ver" en el alumno.
+                      {owing.length === 1 ? 'De 1 clase.' : `De ${owing.length} clases.`} Se cobra desde cada clase, tocando &ldquo;Ver&rdquo; en el alumno.
                     </p>
                   </div>
                 ) : null}

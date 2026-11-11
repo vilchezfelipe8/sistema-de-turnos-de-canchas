@@ -3799,7 +3799,7 @@ function ClassSessionDrawerContent({
           <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-[13px] text-p-text-secondary">
-                Marcá quién vino. Tocá "Ver" para cobrar o usar un pack.
+                Marcá quién vino. Tocá &ldquo;Ver&rdquo; para cobrar o usar un pack.
               </p>
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 <AdminFilterToolbar className="border-0 bg-transparent p-0 gap-2 sm:flex-nowrap sm:justify-end">
