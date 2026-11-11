@@ -414,6 +414,8 @@ function BookingsContent({ slug }: { slug: string }) {
   const [searchDraft, setSearchDraft] = useState(queryText);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<BookingListResult | null>(null);
+  // De qué pestaña es la lista cargada: al cambiar de pestaña no se muestra la anterior.
+  const [resultView, setResultView] = useState<PageView | null>(null);
   const [fixedItems, setFixedItems] = useState<FixedBookingListItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -452,6 +454,7 @@ function BookingsContent({ slug }: { slug: string }) {
         listAdminFixedBookings(slug, { q: queryText || undefined }),
       ]);
       setResult(bookings);
+      setResultView(view);
       setFixedItems(fixed.items);
     } catch (err) {
       reportUiError({ area: 'AdminBookingsPage', action: 'load' }, err);
@@ -532,7 +535,8 @@ function BookingsContent({ slug }: { slug: string }) {
   );
 
   const timeZone = result?.timeZone || 'America/Argentina/Buenos_Aires';
-  const items = result?.items ?? [];
+  const items = useMemo(() => (resultView === view ? result?.items ?? [] : []), [result, resultView, view]);
+  const showingOtherView = resultView !== view;
   const groups = useMemo(() => {
     const byDay: Array<{ key: string; items: BookingListItem[] }> = [];
     for (const item of items) {
@@ -654,7 +658,7 @@ function BookingsContent({ slug }: { slug: string }) {
               }}
             />
           )
-        ) : loading && !result ? (
+        ) : (loading && !result) || (showingOtherView && !error) ? (
           <p className="py-10 text-center text-[13px] text-p-text-muted">Cargando…</p>
         ) : items.length === 0 ? (
           <div className="rounded-xl border border-p-border bg-p-surface px-4 py-10 text-center">
@@ -687,7 +691,7 @@ function BookingsContent({ slug }: { slug: string }) {
               </div>
             ) : (
               groups.map((group) => (
-                <div key={group.key}>
+                <div key={`${group.key}-${group.items[0].id}`}>
                   <p className="mb-1.5 px-1 text-[12px] font-semibold text-p-text-secondary">
                     {dayTitle(group.key, timeZone)}
                     <span className="ml-1.5 font-normal text-p-text-muted">· {group.items.length}</span>
