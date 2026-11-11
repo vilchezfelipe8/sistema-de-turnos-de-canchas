@@ -29,9 +29,7 @@ export type PlaygroundSidebarItem = {
  * directa redirige a /admin/agenda. Solo aplica a admins/owners del club indicado
  * (clave = slug del club), el resto de los clubes no se ve afectado.
  */
-export const CLUB_LOCKED_SIDEBAR_ITEMS: Record<string, Set<string>> = {
-  'club-atletico-barrio-parque': new Set(['Academia', 'Reservas', 'Mensajes', 'Facturacion', 'Informes']),
-};
+export const CLUB_LOCKED_SIDEBAR_ITEMS: Record<string, Set<string>> = {};
 
 export const PLAYGROUND_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [
   { label: 'Calendario', icon: CalendarDays, href: '/admin/agenda', minAccess: 'operator' },
