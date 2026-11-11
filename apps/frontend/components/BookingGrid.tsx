@@ -497,7 +497,8 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     selectedDuration,
     isPerPlayerPricing ? selectedFormatId || null : null
   );
-  const durationOptions = useMemo(() => selectedActivityDurations, [selectedActivityDurations]);
+  // Se muestran de menor a mayor; la primera configurada sigue siendo la que viene elegida.
+  const durationOptions = useMemo(() => [...selectedActivityDurations].sort((a, b) => a - b), [selectedActivityDurations]);
   const activeScheduleViewMode: ScheduleViewMode = isMobileListOnly || isClubAppVariant ? 'list' : scheduleViewMode;
 
   useEffect(() => { setIsAuthenticated(Boolean(hasAuthSession)); }, [hasAuthSession]);
@@ -588,10 +589,10 @@ export default function BookingGrid({ clubSlug, variant = 'default' }: BookingGr
     // hacerlo rebotaba entre ambos valores en un bucle infinito.
     if (formatFixedDuration) return;
     if (durationOptions.includes(selectedDuration)) return;
-    setSelectedDuration(durationOptions[0]);
+    setSelectedDuration(selectedActivityDurations[0]);
     setSelectedSlot(null);
     setSelectedCourt(null);
-  }, [durationOptions, formatFixedDuration, selectedDuration]);
+  }, [durationOptions, formatFixedDuration, selectedActivityDurations, selectedDuration]);
 
   const filteredSlotsWithCourts = (() => {
     if (!selectedDate) return [];
