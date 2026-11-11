@@ -374,7 +374,7 @@ export default function PlayerInviteSearch({
               }
             }
           }}
-          placeholder="Buscá por nombre, DNI o email"
+          placeholder="Nombre, DNI o email"
           autoComplete="off"
           autoCapitalize="words"
           enterKeyHint="search"

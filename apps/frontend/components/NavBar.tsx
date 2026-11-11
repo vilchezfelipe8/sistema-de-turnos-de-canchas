@@ -487,7 +487,7 @@ export default function Navbar({
                       <button
                         type="button"
                         className="p-player-menu-item p-player-menu-danger"
-                        onClick={() => setShowLogoutModal(true)}
+                        onClick={() => { setShowUserMenu(false); setShowLogoutModal(true); }}
                       >
                         <span className="p-player-menu-item-main"><LogOut size={15} /> Cerrar sesión</span>
                       </button>

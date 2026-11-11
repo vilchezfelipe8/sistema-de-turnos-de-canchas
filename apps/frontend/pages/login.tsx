@@ -40,9 +40,9 @@ const LOGIN_CSS = `
   .lg-err { background:var(--error-bg); border:1px solid var(--danger-border); color:var(--error-fg); }
   .lg-ok { background:var(--positive-bg); border:1px solid var(--accent-border); color:var(--positive-fg); }
   .lg-intent { background:var(--surface-2, var(--positive-bg)); border:1px solid var(--border-subtle); color:var(--text-primary); font-weight:600; }
-  .lg-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .lg-grid2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:10px 12px; }
   .lg-full { grid-column:1 / -1; }
-  .lg-field { display:flex; flex-direction:column; gap:5px; }
+  .lg-field { display:flex; flex-direction:column; gap:5px; min-width:0; }
   .lg-label { font-size:10px; font-weight:700; letter-spacing:.03em; color:var(--text-muted); }
   .lg-input-wrap { position:relative; display:flex; align-items:center; }
   .lg-input-icon { position:absolute; left:13px; color:var(--text-muted); display:flex; pointer-events:none; }
@@ -56,7 +56,7 @@ const LOGIN_CSS = `
   .lg-phone-wrap:focus-within { border-color:var(--accent-border-strong); box-shadow:0 0 0 3px var(--accent-bg-soft); }
   .lg-phone-prefix { display:flex; align-items:center; gap:8px; padding:0 12px; background:var(--surface-2); border-right:1px solid var(--border-subtle); flex-shrink:0; }
   .lg-phone-select { background:transparent; border:none; color:var(--text-secondary); font-family:${FONT}; font-size:13px; font-weight:700; outline:none; }
-  .lg-phone-input { flex:1; padding:10px 14px; background:transparent; border:none; color:var(--text-primary); font-family:${FONT}; font-size:14px; font-weight:600; outline:none; }
+  .lg-phone-input { flex:1; min-width:0; padding:10px 14px; background:transparent; border:none; color:var(--text-primary); font-family:${FONT}; font-size:14px; font-weight:600; outline:none; }
   .lg-phone-input::placeholder { color:var(--text-muted); font-weight:400; }
   .lg-divider { display:flex; align-items:center; gap:12px; }
   .lg-divider-line { flex:1; height:1px; background:var(--border-subtle); }
@@ -123,7 +123,7 @@ const LOGIN_CSS = `
     .lg-inline-link { padding:8px 0 8px 12px; margin:-8px 0; }
     .lg-toggle-btn { padding:8px 6px; }
   }
-  @media(max-width:480px) { .lg-root { padding:60px 16px 16px; } .lg-screen-nav { top:18px; left:16px; } .lg-grid2 { grid-template-columns:1fr; } .lg-header { padding:22px 24px 18px; } .lg-brand-link { margin-bottom:12px; } .lg-body { padding:18px 24px 22px; gap:12px; } .lg-form { gap:10px; } }
+  @media(max-width:480px) { .lg-root { padding:60px 16px 16px; } .lg-screen-nav { top:18px; left:16px; } .lg-grid2 { grid-template-columns:minmax(0,1fr); } .lg-header { padding:22px 24px 18px; } .lg-brand-link { margin-bottom:12px; } .lg-body { padding:18px 24px 22px; gap:12px; } .lg-form { gap:10px; } }
   @media(max-height:820px) and (min-width:481px) { .lg-root { padding-top:48px; padding-bottom:16px; } .lg-screen-nav { top:16px; } .lg-header { padding:20px 24px 18px; } .lg-brand-link { margin-bottom:12px; } .lg-title { font-size:20px; } .lg-body { padding:18px 24px 22px; gap:12px; } .lg-form { gap:10px; } .lg-grid2 { gap:8px 10px; } .lg-field { gap:4px; } .lg-input { padding-top:9px; padding-bottom:9px; } .lg-phone-input { padding-top:9px; padding-bottom:9px; } .lg-toggle { padding-top:12px; } }
 `;
 

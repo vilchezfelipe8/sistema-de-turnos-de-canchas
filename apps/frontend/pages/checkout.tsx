@@ -31,6 +31,8 @@ import {
   readBookingCheckoutDraft,
   readCheckoutReturn,
   removeBookingCheckoutDraft,
+  rememberCompletedCheckout,
+  readCompletedCheckout,
   saveBookingCheckoutDraft,
   type BookingCheckoutDraft,
   type BookingCheckoutParticipantDraft,
@@ -545,6 +547,7 @@ export default function CheckoutPage() {
         ? rawStatus === 'CONFIRMED'
         : draft.bookingConfirmationMode === 'AUTOMATIC';
       removeBookingCheckoutDraft(draft.id);
+      if (bookingId) rememberCompletedCheckout(draft.id, bookingId);
       if (payOnline && bookingId) {
         // La reserva ya está hecha: si el pago online no abre, se muestra la confirmación igual.
         try {
@@ -617,7 +620,9 @@ export default function CheckoutPage() {
     }
   };
 
-  const doneBookingId = typeof router.query.done === 'string' ? router.query.done : '';
+  const doneBookingId = typeof router.query.done === 'string' && router.query.done
+    ? router.query.done
+    : (draftLoaded && typeof router.query.draft === 'string' ? readCompletedCheckout(router.query.draft) : '');
   useEffect(() => {
     if (!draftLoaded || draft || confirmedBookingId !== null || !doneBookingId) return;
     void router.replace(`/bookings?booking=${encodeURIComponent(doneBookingId)}`);
