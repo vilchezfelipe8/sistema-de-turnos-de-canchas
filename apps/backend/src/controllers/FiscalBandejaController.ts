@@ -21,6 +21,13 @@ const listFacturasSchema = z.object({
   page: z.coerce.number().int().min(1).default(1)
 });
 
+// Grupos que usa la pantalla (además de un status puntual).
+const STATUS_GROUPS: Record<string, string[]> = {
+  PROBLEMS: ['REJECTED', 'TECHNICAL_ERROR'],
+  IN_PROGRESS: ['PENDING', 'PROCESSING'],
+  ISSUED: ['APPROVED', 'APPROVED_WITH_OBSERVATIONS']
+};
+
 const listIncidentsSchema = z.object({
   status: z.enum(['OPEN', 'RESOLVED', 'ALL']).default('OPEN'),
   page: z.coerce.number().int().min(1).default(1)
@@ -68,11 +75,15 @@ export class FiscalBandejaController {
       const skip = (page - 1) * PAGE_SIZE;
 
       const where: any = { clubId };
-      if (status) where.status = status;
+      if (status) where.status = STATUS_GROUPS[status] ? { in: STATUS_GROUPS[status] } : status;
       if (accountId) where.accountId = accountId;
       if (facturaId) where.id = facturaId;
 
-      const [items, total] = await Promise.all([
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const [items, total, byStatus, monthByKind] = await Promise.all([
         prisma.factura.findMany({
           where,
           orderBy: { createdAt: 'desc' },
@@ -101,13 +112,43 @@ export class FiscalBandejaController {
             ultimoIntentoAt: true,
             createdAt: true,
             pdfUrl: true,
-            qrUrl: true
+            qrUrl: true,
+            accountId: true,
+            comprobanteAsociado: { select: { id: true, puntoDeVenta: true, numeroComprobante: true, comprobanteDescripcion: true } },
+            notasCreditoAsociadas: { select: { id: true, status: true } }
           }
         }),
-        prisma.factura.count({ where })
+        prisma.factura.count({ where }),
+        prisma.factura.groupBy({ by: ['status'], where: { clubId }, _count: { _all: true } }),
+        prisma.factura.groupBy({
+          by: ['kind'],
+          where: { clubId, status: { in: STATUS_GROUPS.ISSUED as any }, fechaEmision: { gte: monthStart } },
+          _count: { _all: true },
+          _sum: { importeTotal: true }
+        })
       ]);
 
-      return res.json({ items, total, page, pageSize: PAGE_SIZE, pages: Math.ceil(total / PAGE_SIZE) });
+      const countIn = (statuses: string[]) =>
+        byStatus.filter((row) => statuses.includes(row.status)).reduce((sum, row) => sum + row._count._all, 0);
+      const monthInvoices = monthByKind.find((row) => row.kind === 'INVOICE');
+      const monthCreditNotes = monthByKind.find((row) => row.kind === 'CREDIT_NOTE');
+
+      return res.json({
+        items,
+        total,
+        page,
+        pageSize: PAGE_SIZE,
+        pages: Math.ceil(total / PAGE_SIZE),
+        summary: {
+          all: countIn(Object.values(STATUS_GROUPS).flat().concat('CANCELLED')),
+          problems: countIn(STATUS_GROUPS.PROBLEMS),
+          inProgress: countIn(STATUS_GROUPS.IN_PROGRESS),
+          issued: countIn(STATUS_GROUPS.ISSUED),
+          monthInvoiceCount: monthInvoices?._count._all ?? 0,
+          // Facturado neto del mes: facturas menos notas de crédito.
+          monthNetTotal: Number(monthInvoices?._sum.importeTotal ?? 0) - Number(monthCreditNotes?._sum.importeTotal ?? 0)
+        }
+      });
     } catch (error) {
       return sendAppError(res, error, 'No se pudieron cargar los comprobantes');
     }

@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { ChevronLeft, ChevronRight, RotateCcw, CheckCheck, Eye, X, FileX2 } from 'lucide-react';
+import { AlertTriangle, ExternalLink, RotateCcw, X } from 'lucide-react';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
-import { AdminSegmentedControl } from '../../components/admin/ui';
+import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
-import { extractErrorMessage } from '../../utils/uiError';
+import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { showAdminToast } from '../../utils/adminToast';
 import {
   listFacturas,
@@ -13,659 +14,519 @@ import {
   listIncidents,
   resolveIncident,
   type FacturaSummary,
-  type FacturaStatus,
+  type FacturaStatusFilter,
   type FiscalIncident,
   type PaginatedResult,
 } from '../../services/FiscalBandejaService';
+import { getFiscalConfig, type FiscalConfigData } from '../../services/FiscalConfigService';
 
-type BandejaTab = 'comprobantes' | 'incidencias';
+// Facturación: las facturas que salieron, las que no y qué hacer con cada una.
 
-const BANDEJA_TABS: Array<{ value: BandejaTab; label: string }> = [
-  { value: 'comprobantes', label: 'Comprobantes' },
-  { value: 'incidencias', label: 'Incidencias' },
+// ---------- textos ----------
+
+type ListFilter = '' | 'PROBLEMS' | 'IN_PROGRESS' | 'ISSUED';
+
+const FILTERS: Array<{ value: ListFilter; label: string; countKey: 'all' | 'problems' | 'inProgress' | 'issued' }> = [
+  { value: '', label: 'Todas', countKey: 'all' },
+  { value: 'PROBLEMS', label: 'No salieron', countKey: 'problems' },
+  { value: 'IN_PROGRESS', label: 'Saliendo', countKey: 'inProgress' },
+  { value: 'ISSUED', label: 'Emitidas', countKey: 'issued' },
 ];
 
-const parseBandejaTab = (value: unknown): BandejaTab => {
-  if (String(value || '') === 'incidencias') return 'incidencias';
-  return 'comprobantes';
+const parseFilter = (value: unknown): ListFilter => {
+  const raw = String(value || '');
+  return raw === 'PROBLEMS' || raw === 'IN_PROGRESS' || raw === 'ISSUED' ? raw : '';
 };
 
-// ---------- helpers ----------
+type RowState = { label: string; tone: 'ok' | 'progress' | 'problem' | 'muted' };
 
-const STATUS_LABELS: Record<FacturaStatus, string> = {
-  PENDING: 'Pendiente',
-  PROCESSING: 'En proceso',
-  APPROVED: 'Aprobado',
-  APPROVED_WITH_OBSERVATIONS: 'Aprobado c/obs.',
-  REJECTED: 'Rechazado',
-  TECHNICAL_ERROR: 'Error técnico',
-  CANCELLED: 'Cancelado',
+const isIssued = (f: FacturaSummary) => f.status === 'APPROVED' || f.status === 'APPROVED_WITH_OBSERVATIONS';
+const isAnnulled = (f: FacturaSummary) =>
+  f.kind === 'INVOICE' && (f.notasCreditoAsociadas ?? []).some((nc) => nc.status === 'APPROVED' || nc.status === 'APPROVED_WITH_OBSERVATIONS');
+const annulInProgress = (f: FacturaSummary) =>
+  f.kind === 'INVOICE' && (f.notasCreditoAsociadas ?? []).some((nc) => nc.status === 'PENDING' || nc.status === 'PROCESSING');
+
+const rowState = (f: FacturaSummary): RowState => {
+  if (isAnnulled(f)) return { label: 'Anulada', tone: 'muted' };
+  if (isIssued(f)) return { label: 'Emitida', tone: 'ok' };
+  if (f.status === 'PENDING' || f.status === 'PROCESSING') return { label: 'Saliendo…', tone: 'progress' };
+  if (f.status === 'REJECTED') return { label: 'ARCA la rechazó', tone: 'problem' };
+  if (f.status === 'TECHNICAL_ERROR') return { label: 'No salió', tone: 'problem' };
+  return { label: 'Cancelada', tone: 'muted' };
 };
 
-const STATUS_COLORS: Record<FacturaStatus, string> = {
-  PENDING: 'bg-p-warning-bg text-p-warning',
-  PROCESSING: 'bg-p-accent/10 text-p-accent',
-  APPROVED: 'bg-p-positive-bg text-p-positive',
-  APPROVED_WITH_OBSERVATIONS: 'bg-emerald-50 text-emerald-700',
-  REJECTED: 'bg-p-error-bg text-[var(--error-fg)]',
-  TECHNICAL_ERROR: 'bg-p-warning-bg text-p-warning',
-  CANCELLED: 'bg-p-surface-3 text-p-text-muted',
+const TONE_CLASS: Record<RowState['tone'], string> = {
+  ok: 'bg-p-positive-bg text-p-positive',
+  progress: 'bg-p-surface-2 text-p-text-secondary',
+  problem: 'bg-p-error-bg text-[var(--error-fg)]',
+  muted: 'bg-p-surface-2 text-p-text-muted',
 };
 
-const RETRYABLE = new Set<FacturaStatus>(['PENDING', 'TECHNICAL_ERROR']);
-
-const ALL_STATUSES: Array<{ value: string; label: string }> = [
-  { value: '', label: 'Todos' },
-  { value: 'PENDING', label: 'Pendientes' },
-  { value: 'PROCESSING', label: 'En proceso' },
-  { value: 'APPROVED', label: 'Aprobados' },
-  { value: 'APPROVED_WITH_OBSERVATIONS', label: 'Con observaciones' },
-  { value: 'TECHNICAL_ERROR', label: 'Error técnico' },
-  { value: 'REJECTED', label: 'Rechazados' },
-  { value: 'CANCELLED', label: 'Cancelados' },
-];
-
-const INCIDENT_STATUSES: Array<{ value: 'OPEN' | 'RESOLVED' | 'ALL'; label: string }> = [
-  { value: 'OPEN', label: 'Abiertas' },
-  { value: 'RESOLVED', label: 'Resueltas' },
-  { value: 'ALL', label: 'Todas' },
-];
-
-const PRIORITY_COLORS: Record<string, string> = {
-  HIGH: 'bg-p-error-bg text-[var(--error-fg)]',
-  MEDIUM: 'bg-p-warning-bg text-p-warning',
-  LOW: 'bg-p-surface-3 text-p-text-muted',
+// Qué hacer, según lo que sugiere el backend.
+const ACTION_HINT: Record<string, string> = {
+  RETRY_AUTOMATICALLY: 'Pique la vuelve a intentar sola.',
+  REFRESH_AUTH_AND_RETRY: 'Pique pide permiso a ARCA de nuevo y la reintenta.',
+  REQUIRE_ADMIN_CONFIGURATION_FIX: 'Revisá los datos del club, el punto de venta o el certificado en Ajustes → Facturación.',
+  REQUIRE_RECEIVER_DATA_FIX: 'Revisá el CUIT o DNI del cliente y volvé a emitirla desde la cuenta.',
+  REQUIRE_MANUAL_RECONCILIATION: 'Puede que ARCA ya la tenga. Fijate en la web de ARCA antes de reintentar, para no duplicarla.',
+  REQUIRE_ENGINEERING_REVIEW: 'Es un error que tiene que mirar Pique. Escribinos.',
 };
 
-const PRIORITY_LABELS: Record<string, string> = {
-  HIGH: 'Alta',
-  MEDIUM: 'Media',
-  LOW: 'Baja',
+const INCIDENT_TEXT: Record<string, { title: string; hint: string }> = {
+  MAX_RETRIES_EXCEEDED: {
+    title: 'Una factura no salió después de varios intentos',
+    hint: 'Probá Reintentar. Si sigue fallando, probá la conexión en Ajustes → Facturación.',
+  },
+  REQUIRE_MANUAL_RECONCILIATION: {
+    title: 'Puede haber una factura duplicada',
+    hint: 'ARCA ya tenía un número que Pique no registró. Fijate en la web de ARCA antes de reintentar.',
+  },
+  CERT_EXPIRY: {
+    title: 'El certificado de ARCA vence pronto',
+    hint: 'Sacá uno nuevo en ARCA y cargalo en Ajustes → Facturación.',
+  },
+  REQUIRE_RECEIVER_DATA_FIX: { title: 'ARCA rechazó los datos de un cliente', hint: ACTION_HINT.REQUIRE_RECEIVER_DATA_FIX },
+  REQUIRE_ADMIN_CONFIGURATION_FIX: { title: 'ARCA rechazó la configuración del club', hint: ACTION_HINT.REQUIRE_ADMIN_CONFIGURATION_FIX },
+  REQUIRE_ENGINEERING_REVIEW: { title: 'Un error que tiene que revisar Pique', hint: ACTION_HINT.REQUIRE_ENGINEERING_REVIEW },
 };
 
-const fmtMoney = (v: string | null) => {
-  if (!v) return '—';
-  const n = parseFloat(v);
-  if (isNaN(n)) return v;
-  return `$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`;
+const RETRYABLE = new Set(['PENDING', 'TECHNICAL_ERROR']);
+
+const formatMoney = (value: number | string | null) => `$${Number(value || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })}`;
+
+const formatDate = (iso: string | null) => {
+  if (!iso) return '';
+  const date = new Date(iso);
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  return date
+    .toLocaleDateString('es-AR', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) })
+    .replace(/\./g, '');
 };
 
-const fmtDate = (iso: string | null) => {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+const voucherNumber = (pdv: number | null | undefined, number: number | null | undefined) =>
+  pdv && number ? `${String(pdv).padStart(4, '0')}-${String(number).padStart(8, '0')}` : '';
+
+const voucherTitle = (f: FacturaSummary) => {
+  const base = f.kind === 'CREDIT_NOTE' ? 'Nota de crédito' : `Factura${f.voucherClass ? ` ${f.voucherClass}` : ''}`;
+  const number = voucherNumber(f.puntoDeVenta, f.numeroComprobante);
+  return number ? `${base} ${number}` : base;
 };
 
-const fmtDateTime = (iso: string | null) => {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('es-AR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
+// ---------- fila ----------
 
-const kindLabel = (kind: 'INVOICE' | 'CREDIT_NOTE') =>
-  kind === 'INVOICE' ? 'Factura' : 'Nota de Crédito';
-
-const SUGGESTED_ACTION_LABELS: Record<string, string> = {
-  RETRY_AUTOMATICALLY: 'Reintento automático',
-  REFRESH_AUTH_AND_RETRY: 'Refrescar auth',
-  REQUIRE_ADMIN_CONFIGURATION_FIX: 'Corregir configuración',
-  REQUIRE_RECEIVER_DATA_FIX: 'Corregir datos receptor',
-  REQUIRE_MANUAL_RECONCILIATION: 'Reconciliación manual',
-  REQUIRE_ENGINEERING_REVIEW: 'Revisión técnica',
-};
-
-const comprobanteNum = (f: FacturaSummary) => {
-  if (!f.puntoDeVenta || !f.numeroComprobante) return '—';
-  return `${String(f.puntoDeVenta).padStart(4, '0')}-${String(f.numeroComprobante).padStart(8, '0')}`;
-};
-
-// ---------- pagination ----------
-
-function Paginator({
-  page,
-  pages,
-  total,
-  pageSize,
-  onPage,
+function InvoiceRow({
+  factura,
+  busy,
+  onRetry,
+  onAnnul,
 }: {
-  page: number;
-  pages: number;
-  total: number;
-  pageSize: number;
-  onPage: (p: number) => void;
+  factura: FacturaSummary;
+  busy: boolean;
+  onRetry: () => void;
+  onAnnul: () => void;
 }) {
-  if (pages <= 1) return null;
-  const from = (page - 1) * pageSize + 1;
-  const to = Math.min(page * pageSize, total);
-  return (
-    <div className="flex items-center justify-between border-t border-p-border px-4 py-3">
-      <span className="text-[12px] text-p-text-muted">
-        {from}–{to} de {total}
-      </span>
-      <div className="flex items-center gap-1">
-        <button
-          disabled={page <= 1}
-          onClick={() => onPage(page - 1)}
-          className="flex h-7 w-7 items-center justify-center rounded border border-p-border bg-p-surface text-p-text-muted hover:bg-p-hover disabled:opacity-40"
-        >
-          <ChevronLeft className="h-3.5 w-3.5" />
-        </button>
-        <span className="min-w-[60px] text-center text-[12px] text-p-text">
-          {page} / {pages}
-        </span>
-        <button
-          disabled={page >= pages}
-          onClick={() => onPage(page + 1)}
-          className="flex h-7 w-7 items-center justify-center rounded border border-p-border bg-p-surface text-p-text-muted hover:bg-p-hover disabled:opacity-40"
-        >
-          <ChevronRight className="h-3.5 w-3.5" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------- comprobantes tab ----------
-
-function ComprobantesTab({ slug }: { slug: string }) {
-  const router = useRouter();
-  const facturaIdFilter = String(router.query.facturaId || '').trim() || undefined;
-
-  const [statusFilter, setStatusFilter] = useState('');
-  const [page, setPage] = useState(1);
-  const [result, setResult] = useState<PaginatedResult<FacturaSummary> | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [retrying, setRetrying] = useState<string | null>(null);
-  const [emittingNc, setEmittingNc] = useState<string | null>(null);
-  const [confirmNcId, setConfirmNcId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await listFacturas(slug, {
-        status: statusFilter || undefined,
-        facturaId: facturaIdFilter,
-        page,
-      });
-      setResult(data);
-    } catch (e) {
-      setError(extractErrorMessage(e, 'Error al cargar comprobantes.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [slug, statusFilter, facturaIdFilter, page]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const handleStatusChange = (s: string) => {
-    // Clear facturaId filter when changing status
-    const nextQuery = { ...router.query } as Record<string, unknown>;
-    delete nextQuery.facturaId;
-    void router.replace({ pathname: router.pathname, query: { ...nextQuery, tab: 'comprobantes' } }, undefined, { shallow: true });
-    setStatusFilter(s);
-    setPage(1);
-  };
-
-  const clearFacturaIdFilter = () => {
-    const { facturaId: _removed, ...nextQuery } = router.query;
-    void router.replace({ pathname: router.pathname, query: nextQuery }, undefined, { shallow: true });
-  };
-
-  const handleRetry = async (facturaId: string) => {
-    setRetrying(facturaId);
-    try {
-      await retryFactura(slug, facturaId);
-      showAdminToast('Reintento encolado.');
-      await load();
-    } catch (e) {
-      showAdminToast(extractErrorMessage(e, 'Error al reintentar.'));
-    } finally {
-      setRetrying(null);
-    }
-  };
-
-  const handleEmitNc = async (facturaId: string) => {
-    setEmittingNc(facturaId);
-    setConfirmNcId(null);
-    try {
-      await createCreditNote(slug, facturaId);
-      showAdminToast('Nota de crédito encolada para emisión.');
-      await load();
-    } catch (e) {
-      showAdminToast(extractErrorMessage(e, 'Error al emitir la NC.'));
-    } finally {
-      setEmittingNc(null);
-    }
-  };
+  const [confirmAnnul, setConfirmAnnul] = useState(false);
+  const state = rowState(factura);
+  const canAnnul = factura.kind === 'INVOICE' && isIssued(factura) && !isAnnulled(factura) && !annulInProgress(factura);
+  const problem = state.tone === 'problem';
+  const original = factura.comprobanteAsociado;
 
   return (
-    <div className="flex flex-col gap-4">
-      {/* filtros */}
-      <div className="flex flex-wrap items-center gap-2">
-        {ALL_STATUSES.map((s) => (
-          <button
-            key={s.value}
-            onClick={() => handleStatusChange(s.value)}
-            className={`rounded-full border px-3 py-1 text-[12px] font-medium transition-colors ${
-              statusFilter === s.value && !facturaIdFilter
-                ? 'border-p-accent bg-p-accent text-white'
-                : 'border-p-border bg-p-surface text-p-text-muted hover:bg-p-hover'
+    <li className="px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[14px] font-semibold text-p-text">{factura.receptorNombre || 'Consumidor final'}</p>
+          <p className="mt-0.5 text-[12px] text-p-text-muted">
+            {voucherTitle(factura)} · {formatDate(factura.fechaEmision || factura.createdAt)}
+          </p>
+          {factura.kind === 'CREDIT_NOTE' && original && (
+            <p className="mt-0.5 text-[12px] text-p-text-muted">
+              Anula la {(original.comprobanteDescripcion || 'factura').replace(/^Factura/, 'factura')} {voucherNumber(original.puntoDeVenta, original.numeroComprobante)}
+            </p>
+          )}
+          {annulInProgress(factura) && <p className="mt-0.5 text-[12px] text-p-text-muted">Anulándose…</p>}
+        </div>
+        <div className="shrink-0 text-right">
+          <p
+            className={`text-[14px] font-semibold tabular-nums ${
+              state.tone === 'muted' ? 'text-p-text-muted line-through' : 'text-p-text'
             }`}
           >
-            {s.label}
-          </button>
-        ))}
-        {facturaIdFilter && (
-          <div className="flex items-center gap-1 rounded-full border border-p-accent/40 bg-p-accent/10 pl-3 pr-1.5 py-1 text-[12px] font-medium text-p-accent">
-            Comprobante: {facturaIdFilter.slice(0, 8)}…
+            {factura.kind === 'CREDIT_NOTE' ? '−' : ''}
+            {formatMoney(factura.importeTotal)}
+          </p>
+          <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${TONE_CLASS[state.tone]}`}>{state.label}</span>
+        </div>
+      </div>
+
+      {problem && (
+        <div className="mt-2 rounded-lg bg-p-surface-2 px-3 py-2">
+          {factura.suggestedAction && ACTION_HINT[factura.suggestedAction] && (
+            <p className="text-[12px] font-semibold text-p-text">{ACTION_HINT[factura.suggestedAction]}</p>
+          )}
+          {factura.mensajeError && (
+            <details className="mt-0.5">
+              <summary className="cursor-pointer text-[12px] text-p-text-muted">Qué dijo ARCA</summary>
+              <p className="mt-1 break-words text-[12px] text-p-text-secondary">{factura.mensajeError}</p>
+            </details>
+          )}
+        </div>
+      )}
+
+      {(factura.pdfUrl || RETRYABLE.has(factura.status) || canAnnul) && !confirmAnnul && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+          {factura.pdfUrl && (
+            <a
+              href={factura.pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[12px] font-semibold text-p-text hover:underline"
+            >
+              <ExternalLink size={12} />
+              Ver comprobante
+            </a>
+          )}
+          {RETRYABLE.has(factura.status) && (
             <button
               type="button"
-              onClick={clearFacturaIdFilter}
-              className="ml-1 flex h-4 w-4 items-center justify-center rounded-full hover:bg-p-accent/20"
+              disabled={busy}
+              onClick={onRetry}
+              className="inline-flex items-center gap-1 text-[12px] font-semibold text-p-text hover:underline disabled:opacity-50"
             >
-              <X className="h-3 w-3" />
+              <RotateCcw size={12} />
+              {busy ? 'Reintentando…' : 'Reintentar'}
+            </button>
+          )}
+          {canAnnul && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirmAnnul(true)}
+              className="text-[12px] font-semibold text-p-text-muted hover:text-[var(--error-fg)] hover:underline disabled:opacity-50"
+            >
+              Anular factura
+            </button>
+          )}
+        </div>
+      )}
+
+      {confirmAnnul && (
+        <div className="mt-2 rounded-xl border border-p-border bg-p-surface-2 px-3 py-3">
+          <p className="text-[13px] font-semibold text-p-text">¿Anular esta factura?</p>
+          <p className="mt-1 text-[12px] text-p-text-secondary">
+            Se emite una nota de crédito por {formatMoney(factura.importeTotal)} a {factura.receptorNombre || 'Consumidor final'}. No se puede deshacer. La plata
+            no se devuelve sola: si corresponde, hacé la devolución en Caja.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setConfirmAnnul(false);
+                onAnnul();
+              }}
+              className="inline-flex h-9 items-center rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+            >
+              Sí, anular
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmAnnul(false)}
+              className="inline-flex h-9 items-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2"
+            >
+              Cancelar
             </button>
           </div>
-        )}
-      </div>
-
-      {/* tabla */}
-      <div className="overflow-hidden rounded-xl border border-p-border bg-p-surface">
-        {error && (
-          <div className="px-4 py-3 text-[13px] text-[var(--error-fg)]">{error}</div>
-        )}
-        {loading && !result && (
-          <div className="px-4 py-6 text-center text-[13px] text-p-text-muted">Cargando...</div>
-        )}
-        {result && result.items.length === 0 && (
-          <div className="px-4 py-8 text-center text-[13px] text-p-text-muted">
-            No hay comprobantes{statusFilter ? ' con ese estado' : ''}.
-          </div>
-        )}
-        {result && result.items.length > 0 && (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-[13px]">
-                <thead>
-                  <tr className="border-b border-p-border bg-p-hover">
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Tipo</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Estado</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Número</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Receptor</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Fecha</th>
-                    <th className="px-4 py-2.5 text-right font-medium text-p-text-muted">Total</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">CAE</th>
-                    <th className="px-4 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-p-border">
-                  {result.items.map((f) => (
-                    <tr key={f.id} className="hover:bg-p-hover/40">
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-p-text">{kindLabel(f.kind)}</div>
-                        {f.comprobanteDescripcion && (
-                          <div className="text-[11px] text-p-text-muted">{f.comprobanteDescripcion}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${STATUS_COLORS[f.status]}`}
-                        >
-                          {STATUS_LABELS[f.status]}
-                        </span>
-                        {f.mensajeError && (
-                          <div
-                            className="mt-1 max-w-[180px] truncate text-[11px] text-p-warning"
-                            title={f.mensajeError}
-                          >
-                            {f.mensajeError}
-                          </div>
-                        )}
-                        {f.suggestedAction && (
-                          <div className="mt-1 inline-flex items-center rounded-full bg-p-surface-3 px-2 py-0.5 text-[10px] font-medium text-p-text-muted">
-                            {SUGGESTED_ACTION_LABELS[f.suggestedAction] ?? f.suggestedAction}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-p-text">{comprobanteNum(f)}</td>
-                      <td className="px-4 py-3">
-                        {f.receptorNombre ? (
-                          <>
-                            <div className="text-p-text">{f.receptorNombre}</div>
-                            {f.receptorDocNumero && (
-                              <div className="text-[11px] text-p-text-muted">{f.receptorDocNumero}</div>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-p-text-muted">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-p-text">{fmtDate(f.fechaEmision)}</td>
-                      <td className="px-4 py-3 text-right font-medium text-p-text">{fmtMoney(f.importeTotal)}</td>
-                      <td className="px-4 py-3 font-mono text-[11px] text-p-text-muted">
-                        {f.cae ? (
-                          <>
-                            <div>{f.cae}</div>
-                            <div>vto. {fmtDate(f.caeVencimiento)}</div>
-                          </>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {f.pdfUrl && (
-                            <a
-                              href={f.pdfUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded border border-p-border bg-p-surface px-2.5 py-1 text-[12px] text-p-text hover:bg-p-hover"
-                            >
-                              <Eye className="h-3 w-3" />
-                              Ver
-                            </a>
-                          )}
-                          {RETRYABLE.has(f.status) && (
-                            <button
-                              disabled={retrying === f.id}
-                              onClick={() => handleRetry(f.id)}
-                              title="Reintentar"
-                              className="inline-flex items-center gap-1 rounded border border-p-border bg-p-surface px-2.5 py-1 text-[12px] text-p-text hover:bg-p-hover disabled:opacity-50"
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                              {retrying === f.id ? 'Encolando...' : 'Reintentar'}
-                            </button>
-                          )}
-                          {(f.status === 'APPROVED' || f.status === 'APPROVED_WITH_OBSERVATIONS') && f.kind === 'INVOICE' && (
-                            confirmNcId === f.id ? (
-                              <div className="flex items-center gap-1">
-                                <span className="text-[11px] text-p-text-muted">¿Emitir NC?</span>
-                                <button
-                                  disabled={emittingNc === f.id}
-                                  onClick={() => handleEmitNc(f.id)}
-                                  className="inline-flex items-center gap-1 rounded border border-red-300 bg-red-50 px-2.5 py-1 text-[12px] font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
-                                >
-                                  {emittingNc === f.id ? 'Emitiendo...' : 'Confirmar'}
-                                </button>
-                                <button
-                                  onClick={() => setConfirmNcId(null)}
-                                  className="inline-flex items-center rounded border border-p-border bg-p-surface px-2 py-1 text-[12px] text-p-text-muted hover:bg-p-hover"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => setConfirmNcId(f.id)}
-                                title="Emitir Nota de Crédito para anular este comprobante"
-                                className="inline-flex items-center gap-1 rounded border border-p-border bg-p-surface px-2.5 py-1 text-[12px] text-p-text-muted hover:bg-p-hover"
-                              >
-                                <FileX2 className="h-3 w-3" />
-                                NC
-                              </button>
-                            )
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Paginator
-              page={result.page}
-              pages={result.pages}
-              total={result.total}
-              pageSize={result.pageSize}
-              onPage={(p) => setPage(p)}
-            />
-          </>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </li>
   );
 }
 
-// ---------- incidencias tab ----------
+// ---------- contenido ----------
 
-function IncidenciasTab({ slug }: { slug: string }) {
+function BillingContent({ slug }: { slug: string }) {
   const router = useRouter();
-  const [statusFilter, setStatusFilter] = useState<'OPEN' | 'RESOLVED' | 'ALL'>('OPEN');
-  const [page, setPage] = useState(1);
-  const [result, setResult] = useState<PaginatedResult<FiscalIncident> | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [resolving, setResolving] = useState<string | null>(null);
+  const filter = parseFilter(router.query.estado);
+  const facturaIdFilter = String(router.query.facturaId || '').trim() || undefined;
 
-  const load = useCallback(async () => {
+  const [config, setConfig] = useState<FiscalConfigData | null>(null);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [incidents, setIncidents] = useState<FiscalIncident[]>([]);
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState<PaginatedResult<FacturaSummary> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const loadList = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const data = await listIncidents(slug, { status: statusFilter, page });
-      setResult(data);
-    } catch (e) {
-      setError(extractErrorMessage(e, 'Error al cargar incidencias.'));
+      setResult(await listFacturas(slug, { status: (filter || undefined) as FacturaStatusFilter | undefined, facturaId: facturaIdFilter, page }));
+    } catch (err) {
+      reportUiError({ area: 'AdminBillingPage', action: 'loadList' }, err);
+      setError(extractErrorMessage(err, 'No se pudieron cargar las facturas.'));
     } finally {
       setLoading(false);
     }
-  }, [slug, statusFilter, page]);
+  }, [slug, filter, facturaIdFilter, page]);
+
+  const loadIncidents = useCallback(async () => {
+    try {
+      setIncidents((await listIncidents(slug, { status: 'OPEN' })).items);
+    } catch (err) {
+      reportUiError({ area: 'AdminBillingPage', action: 'loadIncidents' }, err);
+    }
+  }, [slug]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadList();
+  }, [loadList]);
 
-  const handleStatusChange = (s: 'OPEN' | 'RESOLVED' | 'ALL') => {
-    setStatusFilter(s);
+  useEffect(() => {
+    void loadIncidents();
+    getFiscalConfig(slug)
+      .then(setConfig)
+      .catch((err) => reportUiError({ area: 'AdminBillingPage', action: 'loadConfig' }, err))
+      .finally(() => setConfigLoaded(true));
+  }, [slug, loadIncidents]);
+
+  const setQuery = (next: { estado?: ListFilter; facturaId?: string }) => {
+    const query: Record<string, string> = {};
+    if (next.estado) query.estado = next.estado;
+    if (next.facturaId) query.facturaId = next.facturaId;
     setPage(1);
+    void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true });
   };
 
-  const handleResolve = async (incidentId: string) => {
-    setResolving(incidentId);
+  const handleRetry = async (factura: FacturaSummary) => {
+    if (busyId) return;
     try {
-      await resolveIncident(slug, incidentId);
-      showAdminToast('Incidencia resuelta.');
-      await load();
-    } catch (e) {
-      showAdminToast(extractErrorMessage(e, 'Error al resolver la incidencia.'));
+      setBusyId(factura.id);
+      await retryFactura(slug, factura.id);
+      showAdminToast('Reintentando. En un rato se actualiza.');
+      await loadList();
+    } catch (err) {
+      reportUiError({ area: 'AdminBillingPage', action: 'retry' }, err);
+      showAdminToast(extractErrorMessage(err, 'No se pudo reintentar.'));
     } finally {
-      setResolving(null);
+      setBusyId(null);
     }
   };
 
-  const handleViewFactura = (facturaId: string) => {
-    void router.push(
-      { pathname: router.pathname, query: { tab: 'comprobantes', facturaId } },
-      undefined,
-      { shallow: true }
-    );
+  const handleAnnul = async (factura: FacturaSummary) => {
+    if (busyId) return;
+    try {
+      setBusyId(factura.id);
+      await createCreditNote(slug, factura.id);
+      showAdminToast('Anulando: la nota de crédito sale en un rato.');
+      await loadList();
+    } catch (err) {
+      reportUiError({ area: 'AdminBillingPage', action: 'annul' }, err);
+      showAdminToast(extractErrorMessage(err, 'No se pudo anular la factura.'));
+    } finally {
+      setBusyId(null);
+    }
   };
 
-  return (
-    <div className="flex flex-col gap-4">
-      {/* filtros */}
-      <div className="flex items-center gap-2">
-        {INCIDENT_STATUSES.map((s) => (
-          <button
-            key={s.value}
-            onClick={() => handleStatusChange(s.value)}
-            className={`rounded-full border px-3 py-1 text-[12px] font-medium transition-colors ${
-              statusFilter === s.value
-                ? 'border-p-accent bg-p-accent text-white'
-                : 'border-p-border bg-p-surface text-p-text-muted hover:bg-p-hover'
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+  const handleResolveIncident = async (incident: FiscalIncident) => {
+    try {
+      await resolveIncident(slug, incident.id);
+      setIncidents((prev) => prev.filter((item) => item.id !== incident.id));
+    } catch (err) {
+      reportUiError({ area: 'AdminBillingPage', action: 'resolveIncident' }, err);
+      showAdminToast(extractErrorMessage(err, 'No se pudo marcar como revisado.'));
+    }
+  };
 
-      {/* tabla */}
-      <div className="overflow-hidden rounded-xl border border-p-border bg-p-surface">
-        {error && (
-          <div className="px-4 py-3 text-[13px] text-[var(--error-fg)]">{error}</div>
+  const summary = result?.summary;
+  const billingOn = Boolean(config?.facturacionHabilitada && config.modoFacturacion && config.modoFacturacion !== 'DESHABILITADA');
+  const items = result?.items ?? [];
+
+  return (
+    <section className="h-full min-h-0 overflow-y-auto p-4 pb-20 lg:p-6">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h1 className="text-[22px] font-bold text-p-text">Facturación</h1>
+            <p className="text-[13px] text-p-text-muted">
+              {summary && summary.monthInvoiceCount > 0
+                ? `Este mes: ${summary.monthInvoiceCount} ${summary.monthInvoiceCount === 1 ? 'factura' : 'facturas'} · ${formatMoney(summary.monthNetTotal)} facturado`
+                : 'Las facturas electrónicas que emite el club.'}
+            </p>
+          </div>
+          <Link href="/admin/ajustes?tab=facturacion" className="text-[13px] font-semibold text-p-text-secondary hover:underline">
+            Configurar
+          </Link>
+        </div>
+
+        {configLoaded && !billingOn && (
+          <AdminFeedbackBanner tone="info">
+            {config ? 'La facturación está apagada.' : 'Todavía no configuraste la facturación.'}{' '}
+            <Link href="/admin/ajustes?tab=facturacion" className="font-semibold underline">
+              {config ? 'Prenderla' : 'Configurarla'}
+            </Link>
+          </AdminFeedbackBanner>
         )}
-        {loading && !result && (
-          <div className="px-4 py-6 text-center text-[13px] text-p-text-muted">Cargando...</div>
+        {configLoaded && billingOn && config?.usaHomologacion && (
+          <AdminFeedbackBanner tone="warning">Modo prueba: estas facturas no tienen validez fiscal.</AdminFeedbackBanner>
         )}
-        {result && result.items.length === 0 && (
-          <div className="px-4 py-8 text-center text-[13px] text-p-text-muted">
-            No hay incidencias{statusFilter !== 'ALL' ? ` ${statusFilter === 'OPEN' ? 'abiertas' : 'resueltas'}` : ''}.
+
+        {incidents.length > 0 && (
+          <div className="overflow-hidden rounded-xl border border-p-warning bg-p-warning-bg">
+            <p className="flex items-center gap-1.5 px-4 pt-3 text-[13px] font-semibold text-p-warning">
+              <AlertTriangle size={15} />
+              Para revisar
+            </p>
+            <ul className="divide-y divide-p-warning/20">
+              {incidents.map((incident) => {
+                const text = INCIDENT_TEXT[incident.type] ?? { title: incident.title, hint: incident.detail || '' };
+                return (
+                  <li key={incident.id} className="flex flex-wrap items-start justify-between gap-2 px-4 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-semibold text-p-text">{text.title}</p>
+                      {text.hint && <p className="mt-0.5 text-[12px] text-p-text-secondary">{text.hint}</p>}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      {incident.facturaId && (
+                        <button
+                          type="button"
+                          onClick={() => setQuery({ facturaId: incident.facturaId! })}
+                          className="text-[12px] font-semibold text-p-text hover:underline"
+                        >
+                          Ver factura
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void handleResolveIncident(incident)}
+                        className="text-[12px] font-semibold text-p-text-muted hover:underline"
+                      >
+                        Ya lo revisé
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
-        {result && result.items.length > 0 && (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] text-[13px]">
-                <thead>
-                  <tr className="border-b border-p-border bg-p-hover">
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Tipo / Título</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Prioridad</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Estado</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Comprobante</th>
-                    <th className="px-4 py-2.5 text-left font-medium text-p-text-muted">Creada</th>
-                    <th className="px-4 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-p-border">
-                  {result.items.map((inc) => (
-                    <tr key={inc.id} className="hover:bg-p-hover/40">
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-p-text">{inc.title}</div>
-                        <div className="text-[11px] text-p-text-muted">{inc.type}</div>
-                        {inc.detail && (
-                          <div
-                            className="mt-0.5 max-w-[260px] truncate text-[11px] text-p-text-muted"
-                            title={inc.detail}
-                          >
-                            {inc.detail}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {inc.priority ? (
-                          <span
-                            className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                              PRIORITY_COLORS[inc.priority] ?? 'bg-p-surface-3 text-p-text-muted'
-                            }`}
-                          >
-                            {PRIORITY_LABELS[inc.priority] ?? inc.priority}
-                          </span>
-                        ) : (
-                          <span className="text-p-text-muted">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                            inc.status === 'OPEN'
-                              ? 'bg-p-warning-bg text-p-warning'
-                              : 'bg-p-positive-bg text-p-positive'
-                          }`}
-                        >
-                          {inc.status === 'OPEN' ? 'Abierta' : 'Resuelta'}
-                        </span>
-                        {inc.resolvedAt && (
-                          <div className="mt-0.5 text-[11px] text-p-text-muted">{fmtDateTime(inc.resolvedAt)}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {inc.facturaId ? (
-                          <button
-                            type="button"
-                            onClick={() => handleViewFactura(inc.facturaId!)}
-                            className="font-mono text-[11px] text-p-accent hover:underline underline-offset-2"
-                            title={`Ver comprobante ${inc.facturaId}`}
-                          >
-                            {inc.facturaId.slice(0, 8)}…
-                          </button>
-                        ) : (
-                          <span className="text-p-text-muted">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-p-text-muted">{fmtDateTime(inc.createdAt)}</td>
-                      <td className="px-4 py-3 text-right">
-                        {inc.status === 'OPEN' && (
-                          <button
-                            disabled={resolving === inc.id}
-                            onClick={() => handleResolve(inc.id)}
-                            title="Marcar como resuelta"
-                            className="inline-flex items-center gap-1 rounded border border-p-border bg-p-surface px-2.5 py-1 text-[12px] text-p-text hover:bg-p-hover disabled:opacity-50"
-                          >
-                            <CheckCheck className="h-3 w-3" />
-                            {resolving === inc.id ? 'Resolviendo...' : 'Resolver'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Paginator
-              page={result.page}
-              pages={result.pages}
-              total={result.total}
-              pageSize={result.pageSize}
-              onPage={(p) => setPage(p)}
-            />
-          </>
+
+        {facturaIdFilter ? (
+          <div className="flex w-fit items-center gap-2 rounded-full border border-p-border bg-p-surface py-1 pl-3 pr-1.5 text-[12px] font-semibold text-p-text">
+            Mostrando una factura
+            <button
+              type="button"
+              aria-label="Ver todas"
+              onClick={() => setQuery({ estado: filter })}
+              className="flex h-5 w-5 items-center justify-center rounded-full hover:bg-p-surface-2"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {FILTERS.map((option) => {
+              const count = summary ? summary[option.countKey] : null;
+              const selected = filter === option.value;
+              const alert = option.value === 'PROBLEMS' && (count ?? 0) > 0;
+              return (
+                <button
+                  key={option.value || 'all'}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => setQuery({ estado: option.value })}
+                  className={`h-8 rounded-full border px-3 text-[12px] font-semibold transition ${
+                    selected ? 'border-ink-900 bg-ink-900 text-ink-50' : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
+                  }`}
+                >
+                  {option.label}
+                  {count !== null && count > 0 && (
+                    <span className={`ml-1.5 tabular-nums ${alert && !selected ? 'text-[var(--error-fg)]' : ''}`}>{count}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         )}
+
+        {error && (
+          <AdminFeedbackBanner tone="error">
+            {error}{' '}
+            <button type="button" className="font-semibold underline" onClick={() => void loadList()}>
+              Reintentar
+            </button>
+          </AdminFeedbackBanner>
+        )}
+
+        <div className="overflow-hidden rounded-xl border border-p-border bg-p-surface">
+          {loading && !result ? (
+            <p className="px-4 py-8 text-center text-[13px] text-p-text-muted">Cargando…</p>
+          ) : items.length === 0 ? (
+            <div className="px-4 py-10 text-center">
+              <p className="text-[14px] font-semibold text-p-text">
+                {filter === 'PROBLEMS' ? 'No hay facturas con problemas' : filter ? 'No hay facturas acá' : 'Todavía no hay facturas'}
+              </p>
+              {!filter && billingOn && (
+                <p className="mt-1 text-[13px] text-p-text-muted">
+                  {config?.modoFacturacion === 'OBLIGATORIA'
+                    ? 'Van a aparecer acá cuando cobres.'
+                    : 'Emitilas desde la cuenta de cada cliente con "Emitir factura".'}
+                </p>
+              )}
+            </div>
+          ) : (
+            <ul className="divide-y divide-p-border">
+              {items.map((factura) => (
+                <InvoiceRow
+                  key={factura.id}
+                  factura={factura}
+                  busy={busyId === factura.id}
+                  onRetry={() => void handleRetry(factura)}
+                  onAnnul={() => void handleAnnul(factura)}
+                />
+              ))}
+            </ul>
+          )}
+          {result && result.pages > 1 && (
+            <div className="flex items-center justify-between border-t border-p-border px-4 py-2.5 text-[12px]">
+              <button
+                type="button"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => p - 1)}
+                className="font-semibold text-p-text hover:underline disabled:opacity-40"
+              >
+                Más nuevas
+              </button>
+              <span className="text-p-text-muted">
+                Página {result.page} de {result.pages}
+              </span>
+              <button
+                type="button"
+                disabled={page >= result.pages || loading}
+                onClick={() => setPage((p) => p + 1)}
+                className="font-semibold text-p-text hover:underline disabled:opacity-40"
+              >
+                Más viejas
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </section>
   );
 }
 
-// ---------- page ----------
+// ---------- página ----------
 
 export default function AdminBillingPage() {
-  const router = useRouter();
-  const activeTab = parseBandejaTab(router.query.tab);
-
-  const handleChangeTab = (nextTab: BandejaTab) => {
-    if (nextTab === activeTab) return;
-    void router.replace(
-      { pathname: '/admin/facturacion', query: { tab: nextTab } },
-      undefined,
-      { shallow: true }
-    );
-  };
-
   return (
     <AdminRouteShell title="Facturación | Pique Admin" activeItem="Facturacion" fromPath="/admin/facturacion">
       {(user) => {
         const slug = getActiveClubSlug(normalizeSessionUser(user as any));
-
-        if (!slug) {
-          return (
-            <div className="p-4 text-[13px] text-p-text-muted">
-              No se encontró el club activo.
-            </div>
-          );
-        }
-
-        return (
-          <div className="flex h-full min-h-0 flex-col gap-4 p-4 pb-0 lg:p-6 lg:pb-0">
-            <AdminSegmentedControl
-              options={BANDEJA_TABS}
-              value={activeTab}
-              onChange={(value) => handleChangeTab(value as BandejaTab)}
-              ariaLabel="Subnavegacion de facturacion"
-              className="w-fit"
-            />
-            <section className="min-h-0 flex-1 overflow-y-auto pb-6 lg:pb-8">
-              {activeTab === 'comprobantes' && <ComprobantesTab slug={slug} />}
-              {activeTab === 'incidencias' && <IncidenciasTab slug={slug} />}
-            </section>
-          </div>
-        );
+        if (!slug) return <div className="p-4 text-[13px] text-p-text-muted">No se encontró el club activo.</div>;
+        return <BillingContent slug={slug} />;
       }}
     </AdminRouteShell>
   );

@@ -37,7 +37,24 @@ export type FacturaSummary = {
   createdAt: string;
   pdfUrl: string | null;
   qrUrl: string | null;
+  accountId?: string | null;
+  /** En una nota de crédito: la factura que anula. */
+  comprobanteAsociado?: { id: string; puntoDeVenta: number | null; numeroComprobante: number | null; comprobanteDescripcion: string | null } | null;
+  /** En una factura: las notas de crédito que la anulan. */
+  notasCreditoAsociadas?: Array<{ id: string; status: FacturaStatus }>;
 };
+
+export type FacturasSummary = {
+  all: number;
+  problems: number;
+  inProgress: number;
+  issued: number;
+  monthInvoiceCount: number;
+  monthNetTotal: number;
+};
+
+/** Filtro de la lista: un grupo de la pantalla o un estado puntual. */
+export type FacturaStatusFilter = 'PROBLEMS' | 'IN_PROGRESS' | 'ISSUED' | FacturaStatus;
 
 export type FiscalIncident = {
   id: string;
@@ -57,6 +74,7 @@ export type PaginatedResult<T> = {
   page: number;
   pageSize: number;
   pages: number;
+  summary?: FacturasSummary;
 };
 
 export const listFacturas = async (
