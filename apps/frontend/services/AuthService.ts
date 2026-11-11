@@ -22,7 +22,8 @@ export type AuthLogoutReason =
   | 'manual'
   | 'session_expired'
   | 'session_invalid'
-  | 'session_revoked';
+  | 'session_revoked'
+  | 'account_deleted';
 
 type PendingLogoutRedirect = {
   target: string;
@@ -482,6 +483,19 @@ export const logoutOtherSessions = async (): Promise<number> => {
 };
 
 /** Cierra un acceso puntual (otro dispositivo). */
+export const deleteMyAccount = async (confirmation: string) => {
+  const headers = await buildCsrfHeaders({ 'Content-Type': 'application/json' });
+  const response = await fetch(`${apiBase()}/auth/account/delete`, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: JSON.stringify({ confirmation })
+  });
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, 'No se pudo eliminar la cuenta.');
+  }
+};
+
 export const revokeSession = async (sessionId: string) => {
   const headers = await buildCsrfHeaders();
   const activeClubId = getActiveClubId();

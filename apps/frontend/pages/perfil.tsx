@@ -18,6 +18,7 @@ import {
   logout,
   logoutOtherSessions,
   revokeSession,
+  deleteMyAccount,
   type AccountSecurityOverview,
   type SessionSecuritySummary
 } from '../services/AuthService';
@@ -75,6 +76,14 @@ const PAGE_CSS = `
   .pf-session-confirm { display:grid; gap:10px; padding:14px; border:1px solid var(--danger-border); border-radius:14px; background:var(--error-bg); }
   .pf-session-confirm p { margin:0; color:var(--text-primary); font-size:13px; line-height:1.5; }
   .pf-session-confirm-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .pf-delete-account { display:grid; gap:10px; justify-items:start; margin-top:18px; padding-top:16px; border-top:1px solid var(--border-subtle); }
+  .pf-delete-account > .pf-session-confirm { justify-self:stretch; }
+  .pf-delete-account-head { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:700; color:var(--text-primary); }
+  .pf-delete-account-head svg { color:var(--danger-fg, var(--text-muted)); }
+  .pf-delete-account-copy { margin:0; color:var(--text-muted); font-size:13px; line-height:1.5; }
+  .pf-delete-account-label { font-size:13px; color:var(--text-secondary); }
+  .pf-delete-account-input { width:100%; max-width:260px; min-height:40px; padding:0 12px; border-radius:10px; border:1px solid var(--border); background:var(--surface-1); color:var(--text-primary); font:inherit; font-size:14px; letter-spacing:.04em; }
+  .pf-delete-account-error { margin:0; color:var(--danger-fg, var(--text-primary)); font-size:13px; }
   .pf-saved { display:inline-flex; align-items:center; gap:6px; color:var(--positive-fg); font-size:13px; font-weight:700; }
   .pf-security-card { padding:20px; }
   .pf-section-heading { display:flex; align-items:center; gap:9px; margin:0 0 8px; color:var(--text-primary); font-size:15px; font-weight:800; }
@@ -245,6 +254,10 @@ export default function PerfilPage() {
   const [disconnectingFacebook, setDisconnectingFacebook] = useState(false);
   const [connectingProvider, setConnectingProvider] = useState<'google' | 'apple' | 'facebook' | null>(null);
   const [logoutOthersLoading, setLogoutOthersLoading] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteAccountText, setDeleteAccountText] = useState('');
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState('');
   const [logoutOthersConfirm, setLogoutOthersConfirm] = useState(false);
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
@@ -530,6 +543,18 @@ export default function PerfilPage() {
   const refreshSecurity = async () => {
     const overview = await getAccountSecurityOverview();
     setSecurity(overview);
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleteAccountError('');
+    setDeleteAccountLoading(true);
+    try {
+      await deleteMyAccount(deleteAccountText);
+      logout({ redirectTo: '/', reason: 'account_deleted' });
+    } catch (err: unknown) {
+      setDeleteAccountError(extractErrorMessage(err, 'No se pudo eliminar la cuenta.'));
+      setDeleteAccountLoading(false);
+    }
   };
 
   const handleLogoutOthers = async () => {
@@ -965,6 +990,60 @@ export default function PerfilPage() {
                 </>
               )}
             </div>
+          </div>
+
+          <div className="pf-delete-account">
+            <div className="pf-delete-account-head">
+              <AlertTriangle size={15} aria-hidden="true" />
+              <span>Eliminar cuenta</span>
+            </div>
+            {deleteAccountOpen ? (
+              <div className="pf-session-confirm" role="group" aria-label="Confirmar eliminación de la cuenta">
+                <p>
+                  Se borran tu nombre, email, DNI y teléfono, y no vas a poder volver a entrar con esta cuenta.
+                  Los clubes conservan el registro de los turnos que jugaste y pagaste. No se puede deshacer.
+                </p>
+                <label className="pf-delete-account-label" htmlFor="pf-delete-account-input">
+                  Escribí <b>ELIMINAR</b> para confirmar
+                </label>
+                <input
+                  id="pf-delete-account-input"
+                  className="pf-delete-account-input"
+                  value={deleteAccountText}
+                  onChange={(event) => { setDeleteAccountText(event.target.value); setDeleteAccountError(''); }}
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  disabled={deleteAccountLoading}
+                />
+                {deleteAccountError && <p className="pf-delete-account-error" role="alert">{deleteAccountError}</p>}
+                <div className="pf-session-confirm-actions">
+                  <button
+                    type="button"
+                    className="pf-secondary-btn pf-danger-btn"
+                    disabled={deleteAccountLoading || deleteAccountText.trim().toUpperCase() !== 'ELIMINAR'}
+                    onClick={handleDeleteAccount}
+                  >
+                    <BusyLabel busy={deleteAccountLoading} spinnerSize={14}>Eliminar mi cuenta</BusyLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="pf-secondary-btn"
+                    disabled={deleteAccountLoading}
+                    onClick={() => { setDeleteAccountOpen(false); setDeleteAccountText(''); setDeleteAccountError(''); }}
+                  >
+                    No
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="pf-delete-account-copy">Borra tus datos personales. Si tenés reservas por jugar, primero cancelalas o jugalas.</p>
+                <button type="button" className="pf-secondary-btn pf-danger-btn" onClick={() => setDeleteAccountOpen(true)}>
+                  Eliminar mi cuenta
+                </button>
+              </>
+            )}
           </div>
         </div>
         </ProfileDisclosure>

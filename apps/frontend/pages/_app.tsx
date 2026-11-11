@@ -203,7 +203,10 @@ export default function MyApp({ Component, pageProps }: AppProps) {
       const message =
         reason === 'manual'
           ? 'Sesión cerrada correctamente.'
-          : 'Tu sesión expiró. Iniciá sesión nuevamente.';
+          : reason === 'account_deleted'
+            ? 'Eliminamos tu cuenta y tus datos personales.'
+            : 'Tu sesión expiró. Iniciá sesión nuevamente.';
+      const tone = reason === 'manual' || reason === 'account_deleted' ? 'success' : 'warning';
       const now = Date.now();
       // Evita toasts duplicados cuando varias requests disparan logout casi al mismo tiempo.
       if (now - lastLogoutNoticeAtRef.current > LOGOUT_NOTICE_COOLDOWN_MS) {
@@ -211,11 +214,11 @@ export default function MyApp({ Component, pageProps }: AppProps) {
           // Solo persistimos cuando hay navegacion para mostrarlo en destino.
           sessionStorage.setItem(
             PENDING_APP_NOTICE_STORAGE_KEY,
-            JSON.stringify({ message, tone: reason === 'manual' ? 'success' : 'warning', ts: now })
+            JSON.stringify({ message, tone, ts: now })
           );
         } else {
           // Sin navegacion, mostrar una vez y no persistir para evitar duplicados.
-          showNotice(message, reason === 'manual' ? 'success' : 'warning');
+          showNotice(message, tone);
         }
         lastLogoutNoticeAtRef.current = now;
       }

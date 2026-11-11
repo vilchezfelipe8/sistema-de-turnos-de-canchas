@@ -35,6 +35,7 @@ router.post('/session/refresh', sessionRefreshLimiter, authController.sessionRef
 router.post('/session/logout', authController.sessionLogout);
 router.post('/session/logout-all', authMiddleware, authController.sessionLogoutAll);
 router.post('/session/logout-others', authMiddleware, authController.sessionLogoutOthers);
+router.post('/account/delete', authMiddleware, authController.accountDelete);
 router.post('/session/:sessionId/revoke', authMiddleware, authController.sessionRevokeOne);
 
 export default router;
