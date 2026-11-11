@@ -6144,7 +6144,8 @@ function AdminAgendaPlaygroundPage() {
       .toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
       .replace(/,/g, '')
       .replace(/\./g, '');
-  const simplifiedCreateDateLabel = formatShortDayLabel(selectedDate);
+  // Un turno pasada la medianoche pertenece al día siguiente: la etiqueta usa la fecha real del turno.
+  const simplifiedCreateDateLabel = formatShortDayLabel(buildStartDateTimeFromSlot(selectedDate, selectedStartSlot));
   const simplifiedEditDateLabel = simplifiedCreateDateLabel;
   // Precio por jugador: el total se muestra como "4 × $10.000".
   const createPlayerCount = Number(

@@ -1632,7 +1632,8 @@ export default function MyBookingsPage() {
                   )}
                   {(activeTab === 'PAST' || activeTab === 'CANCELLED') && selectedBooking.club?.slug && (
                     <>
-                      {activeTab === 'PAST' && selectedClubHasCompletedBooking && (
+                      {/* Reseñar desde un turno que se jugó: no desde uno que el club nunca confirmó. */}
+                      {activeTab === 'PAST' && selectedClubHasCompletedBooking && selectedBooking.status !== 'PENDING' && (
                         <button className="bk-action-btn bk-action-review" onClick={() => handleOpenReviewModal(selectedBooking)}>
                           <MessageSquare size={15} /> Dejar / editar reseña del club
                         </button>

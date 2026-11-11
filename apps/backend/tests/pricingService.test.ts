@@ -44,6 +44,15 @@ test('computeLightsExtra aplica desde la hora configurada en hora local del club
   assert.equal(PricingService.computeLightsExtra(AT_17_LOCAL, TZ, LIGHTS), 0);
 });
 
+test('computeLightsExtra sigue aplicando pasada la medianoche y deja de aplicar de día', () => {
+  // 00:30 y 05:30 locales: sigue siendo de noche.
+  assert.equal(PricingService.computeLightsExtra(new Date('2026-10-15T03:30:00.000Z'), TZ, LIGHTS), 4000);
+  assert.equal(PricingService.computeLightsExtra(new Date('2026-10-15T08:30:00.000Z'), TZ, LIGHTS), 4000);
+  // 06:00 y 08:00 locales: de día, sin luces.
+  assert.equal(PricingService.computeLightsExtra(new Date('2026-10-15T09:00:00.000Z'), TZ, LIGHTS), 0);
+  assert.equal(PricingService.computeLightsExtra(new Date('2026-10-15T11:00:00.000Z'), TZ, LIGHTS), 0);
+});
+
 test('computeLightsExtra no aplica con luces desactivadas, monto inválido u hora inválida', () => {
   assert.equal(PricingService.computeLightsExtra(AT_19_LOCAL, TZ, { ...LIGHTS, lightsEnabled: false }), 0);
   assert.equal(PricingService.computeLightsExtra(AT_19_LOCAL, TZ, { ...LIGHTS, lightsExtraAmount: 0 }), 0);
