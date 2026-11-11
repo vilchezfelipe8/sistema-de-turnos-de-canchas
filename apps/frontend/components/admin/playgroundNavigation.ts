@@ -1,10 +1,10 @@
 import {
   BarChart3,
   CalendarDays,
+  ClipboardList,
   CreditCard,
   GraduationCap,
   MessageSquare,
-  Receipt,
   ScrollText,
   Settings,
   ShoppingBag,
@@ -37,12 +37,11 @@ export const CLUB_LOCKED_SIDEBAR_ITEMS: Record<string, Set<string>> = {
  * Secciones que todavía no existen: no se muestran en el menú (un ítem gris sin uso parece roto).
  * Para mostrarlas deshabilitadas, sumarlas a PLAYGROUND_SIDEBAR_ITEMS con disabled: true.
  */
-export const UPCOMING_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [
-  { label: 'Reservas', icon: Receipt, href: '/admin/reservas', disabled: true, minAccess: 'admin' },
-];
+export const UPCOMING_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [];
 
 export const PLAYGROUND_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [
   { label: 'Calendario', icon: CalendarDays, href: '/admin/agenda', minAccess: 'operator' },
+  { label: 'Reservas', icon: ClipboardList, href: '/admin/reservas', minAccess: 'operator' },
   { label: 'Clientes', icon: Users, href: '/admin/clientes', minAccess: 'admin' },
   { label: 'Academia', icon: GraduationCap, href: '/admin/academia?tab=clases', minAccess: 'admin' },
   { label: 'Caja', icon: CreditCard, href: '/admin/caja', minAccess: 'operator' },
