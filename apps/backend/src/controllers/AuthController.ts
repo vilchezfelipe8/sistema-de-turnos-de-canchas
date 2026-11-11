@@ -1572,6 +1572,45 @@ export class AuthController {
         }
     };
 
+    sessionLogoutOthers = async (req: Request, res: Response) => {
+        try {
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+            }
+            const currentSessionId = String((req as any)?.user?.sid || '').trim() || null;
+            if (!currentSessionId) {
+                return res.status(409).json({ error: 'No pudimos reconocer este dispositivo. Volvé a ingresar e intentá de nuevo.' });
+            }
+            const closed = await this.authSessionService.revokeOtherUserSessions(userId, currentSessionId);
+            return res.json({ closed });
+        } catch (error: any) {
+            logger.error({ err: error, action: 'sessionLogoutOthers' }, 'Error cerrando las otras sesiones');
+            return res.status(500).json({ error: 'No se pudieron cerrar las otras sesiones.' });
+        }
+    };
+
+    sessionRevokeOne = async (req: Request, res: Response) => {
+        try {
+            const userId = Number((req as any)?.user?.userId || 0);
+            if (!Number.isInteger(userId) || userId <= 0) {
+                return sendAuthError(res, 401, 'AUTH_MISSING', 'No autorizado');
+            }
+            const sessionId = String(req.params.sessionId || '').trim();
+            const currentSessionId = String((req as any)?.user?.sid || '').trim() || null;
+            if (!sessionId) return res.status(400).json({ error: 'Falta la sesión.' });
+            if (sessionId === currentSessionId) {
+                return res.status(400).json({ error: 'Para salir de este dispositivo usá "Cerrar sesión".' });
+            }
+            const ok = await this.authSessionService.revokeUserSessionFamily(userId, sessionId);
+            if (!ok) return res.status(404).json({ error: 'Esa sesión ya no existe.' });
+            return res.status(204).send();
+        } catch (error: any) {
+            logger.error({ err: error, action: 'sessionRevokeOne' }, 'Error cerrando una sesión');
+            return res.status(500).json({ error: 'No se pudo cerrar esa sesión.' });
+        }
+    };
+
     sessionLogoutAll = async (req: Request, res: Response) => {
         try {
             const userId = Number((req as any)?.user?.userId || 0);

@@ -462,6 +462,42 @@ export const logoutAllSessions = async () => {
   }
 };
 
+/** Cierra todos los accesos menos el de este dispositivo. Devuelve cuántos cerró. */
+export const logoutOtherSessions = async (): Promise<number> => {
+  const headers = await buildCsrfHeaders();
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const response = await fetch(`${apiBase()}/auth/session/logout-others`, {
+    method: 'POST',
+    headers,
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, 'No se pudieron cerrar las otras sesiones.');
+  }
+  const data = await response.json().catch(() => ({}));
+  return Number(data?.closed || 0);
+};
+
+/** Cierra un acceso puntual (otro dispositivo). */
+export const revokeSession = async (sessionId: string) => {
+  const headers = await buildCsrfHeaders();
+  const activeClubId = getActiveClubId();
+  if (activeClubId) headers['x-active-club-id'] = String(activeClubId);
+
+  const response = await fetch(`${apiBase()}/auth/session/${encodeURIComponent(sessionId)}/revoke`, {
+    method: 'POST',
+    headers,
+    credentials: 'include'
+  });
+
+  if (!response.ok) {
+    await throwApiErrorFromResponse(response, 'No se pudo cerrar esa sesión.');
+  }
+};
+
 export const claimClubProfile = async (clubId: number): Promise<{ profile: ClubProfileSummary }> => {
   const headers = await buildCsrfHeaders();
   const activeClubId = getActiveClubId();
