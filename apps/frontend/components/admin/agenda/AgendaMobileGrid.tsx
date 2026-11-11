@@ -478,7 +478,7 @@ export default function AgendaMobileGrid({
                           </span>
                           {height >= 30 && (
                             <span className="truncate text-[10px] font-semibold opacity-70 tabular-nums">
-                              {slotToTime(booking.startSlot)}–{slotToTime(booking.endSlot)}
+                              {booking.startTimeLabel && booking.endTimeLabel ? `${booking.startTimeLabel}–${booking.endTimeLabel}` : `${slotToTime(booking.startSlot)}–${slotToTime(booking.endSlot)}`}
                             </span>
                           )}
                           {height >= 52 && isClass && booking.classInfo?.enrolled != null && (
@@ -658,7 +658,7 @@ export default function AgendaMobileGrid({
                         <span>{previewCourt?.name || 'Cancha'}</span>
                         {previewCourt?.sport ? <span>· {previewCourt.sport}</span> : null}
                         <span className="tabular-nums">
-                          · {slotToTime(previewBooking.startSlot)} a {slotToTime(previewBooking.endSlot)}
+                          · {previewBooking.startTimeLabel ?? slotToTime(previewBooking.startSlot)} a {previewBooking.endTimeLabel ?? slotToTime(previewBooking.endSlot)}
                         </span>
                         {!isBlocked && !isClass && Number(previewBooking.participantsCount || 0) > 0 && (
                           <span className="inline-flex items-center gap-0.5">

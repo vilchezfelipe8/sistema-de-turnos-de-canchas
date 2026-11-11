@@ -768,6 +768,7 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
   const endSlotRaw = Math.ceil((endMinutes - baseMinutes) / slotMinutes);
   const startSlot = Math.max(0, Math.min(totalSlots - 1, startSlotRaw));
   const endSlot = Math.max(startSlot + 1, Math.min(totalSlots, endSlotRaw));
+  const toHHMM = (date: Date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
   const status = String(booking?.status || '').toUpperCase();
   const state: Booking['state'] =
@@ -813,8 +814,15 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
     hoverPaymentStatusRaw === 'PAID' || hoverPaymentStatusRaw === 'PARTIAL' || hoverPaymentStatusRaw === 'UNPAID'
       ? (hoverPaymentStatusRaw as Booking['hoverPayment']['status'])
       : fallbackHoverStatus;
-  const paymentState: Booking['paymentState'] =
-    bookingPrice <= 0 || paidAmount + 0.009 >= bookingPrice
+  // Si el backend manda el estado de la cuenta (incluye consumos), manda ese.
+  // Con solo el precio de la cancha, una reserva con un agua sin cobrar figuraba "Pagado".
+  const paymentState: Booking['paymentState'] = hoverPaymentRaw && hoverPaymentStatusRaw
+    ? hoverPaymentStatus === 'PAID'
+      ? 'paid'
+      : hoverPaymentStatus === 'PARTIAL'
+        ? 'partial'
+        : 'unpaid'
+    : bookingPrice <= 0 || paidAmount + 0.009 >= bookingPrice
       ? 'paid'
       : paidAmount > 0.009
         ? 'partial'
@@ -825,6 +833,8 @@ function parseScheduleSlotToBooking(slot: any): Booking | null {
     courtId: String(slot?.courtId || booking?.courtId || booking?.court?.id || ''),
     startSlot,
     endSlot,
+    startTimeLabel: toHHMM(start),
+    endTimeLabel: toHHMM(end),
     title: resolvedTitle,
     state,
     paymentState,
@@ -3724,6 +3734,13 @@ export default function AdminAgendaPlaygroundPage() {
       Number(editingBaseline.endSlot) !== Number(selectedEndSlot)
     );
   }, [editingBaseline, selectedCourtId, selectedEndSlot, selectedStartSlot]);
+  // Horario a mostrar en el panel: el real de la reserva mientras no se cambie
+  // (los slots se recortan al final de la grilla: 22:00–23:30 se veía 22:00–23:00).
+  const useRealEditingTimes = Boolean(
+    editingBooking?.startTimeLabel && editingBooking?.endTimeLabel && editingBaseline && !hasScheduleChanges
+  );
+  const selectedStartTimeLabel = useRealEditingTimes ? editingBooking!.startTimeLabel! : slotToTime(selectedStartSlot);
+  const selectedEndTimeLabel = useRealEditingTimes ? editingBooking!.endTimeLabel! : slotToTime(selectedEndSlot);
   const isCompletedReservation = Boolean(
     persistedEditingBookingId &&
     bookingKind !== 'block' &&
@@ -3875,7 +3892,7 @@ export default function AdminAgendaPlaygroundPage() {
       ? 'Bloquear'
       : 'Crear reserva';
   const primaryActionMeta = editingBookingId
-    ? `${slotToTime(selectedStartSlot)} - ${slotToTime(selectedEndSlot)}`
+    ? `${selectedStartTimeLabel} - ${selectedEndTimeLabel}`
     : (selectedCourt?.name || 'Sin cancha');
   const operationalChecklist = [
     {
@@ -6616,7 +6633,7 @@ export default function AdminAgendaPlaygroundPage() {
   // El editor de horario/cancha se abre solo si hay cambios sin guardar o errores, para no esconderlos.
   const simplifiedScheduleEditorVisible =
     simplifiedScheduleEditorOpen || hasScheduleChanges || Boolean(timeFieldError) || Boolean(courtFieldError);
-  const simplifiedHeaderTimeLabel = `${slotToTime(selectedStartSlot)}–${slotToTime(selectedEndSlot)}`;
+  const simplifiedHeaderTimeLabel = `${selectedStartTimeLabel}–${selectedEndTimeLabel}`;
   const simplifiedHeaderShortDateLabel = (() => {
     const label = selectionStartDateTime
       .toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' })
@@ -7002,6 +7019,11 @@ export default function AdminAgendaPlaygroundPage() {
                                         paymentState={booking.paymentState}
                                         totalAmount={booking.hoverPayment?.totalAmount}
                                         remainingAmount={booking.hoverPayment?.remainingAmount}
+                                        timeRangeLabel={
+                                          booking.startTimeLabel && booking.endTimeLabel
+                                            ? `${booking.startTimeLabel} - ${booking.endTimeLabel}`
+                                            : undefined
+                                        }
                                         isRecurring={booking.isRecurring}
                                         participantsCount={booking.participantsCount}
                                         sportLabel={court.sport}
@@ -7748,7 +7770,7 @@ export default function AdminAgendaPlaygroundPage() {
                       <p className="mt-1 text-[14px] text-p-text-secondary">
                         <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
                         {' · '}
-                        {simplifiedEditDateLabel} {slotToTime(selectedStartSlot)}–{slotToTime(selectedEndSlot)} · {selectedCourt?.name || 'Cancha'}
+                        {simplifiedEditDateLabel} {selectedStartTimeLabel}–{selectedEndTimeLabel} · {selectedCourt?.name || 'Cancha'}
                       </p>
                     </div>
                     <button
@@ -7932,7 +7954,7 @@ export default function AdminAgendaPlaygroundPage() {
                       <p className="mt-1 text-[14px] text-p-text-secondary">
                         <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
                         {' · '}
-                        {simplifiedEditDateLabel} {slotToTime(selectedStartSlot)}–{slotToTime(selectedEndSlot)} · {selectedCourt?.name || 'Cancha'}
+                        {simplifiedEditDateLabel} {selectedStartTimeLabel}–{selectedEndTimeLabel} · {selectedCourt?.name || 'Cancha'}
                       </p>
                     </div>
                     <button
