@@ -84,6 +84,7 @@ const LOGIN_CSS = `
   .lg-label-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .lg-inline-link { background:none; border:none; padding:0; font-family:${FONT}; font-size:11px; font-weight:700; color:var(--accent-fg); cursor:pointer; }
   .lg-inline-link:hover { text-decoration:underline; text-underline-offset:3px; }
+  .lg-inline-link-error { font-size:13px; color:inherit; text-decoration:underline; text-underline-offset:3px; }
   .lg-help-option { display:flex; align-items:center; gap:12px; width:100%; padding:13px; border-radius:14px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-family:${FONT}; text-align:left; cursor:pointer; transition:border-color .15s, background .15s; }
   .lg-help-option:hover:not(:disabled) { background:var(--surface-3); border-color:var(--border-strong); }
   .lg-help-option:focus-visible { outline:2px solid var(--positive-fg); outline-offset:3px; }
@@ -463,9 +464,23 @@ export default function LoginPage() {
 
             {/* Error */}
             {error && (
-              <div className="lg-notice lg-err">
+              <div className="lg-notice lg-err" role="alert">
                 <AlertCircle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-                <span>{error}</span>
+                <span>
+                  {error}
+                  {isLogin && !recoveryMode && !loginHelpOpen && (
+                    <>
+                      {' '}
+                      <button
+                        type="button"
+                        className="lg-inline-link lg-inline-link-error"
+                        onClick={() => { setError(''); setSuccessMessage(''); setLoginHelpOpen(true); }}
+                      >
+                        ¿La olvidaste?
+                      </button>
+                    </>
+                  )}
+                </span>
               </div>
             )}
 
@@ -480,13 +495,14 @@ export default function LoginPage() {
             {recoveryMode ? (
               <form onSubmit={handleRecoveryConfirm} className="lg-form">
                 <div className="lg-field">
-                  <label className="lg-label">{recoveryMode === 'activate' ? 'DNI' : 'DNI o email'}</label>
+                  <label className="lg-label" htmlFor="lg-recovery-identifier">{recoveryMode === 'activate' ? 'DNI' : 'DNI o email'}</label>
                   <div className="lg-input-wrap">
                     <span className="lg-input-icon">{recoveryMode === 'activate' ? <IdCard size={14} /> : <User size={14} />}</span>
                     <input
                       type="text"
                       inputMode={recoveryMode === 'activate' ? 'numeric' : 'text'}
                       required
+                      id="lg-recovery-identifier"
                       value={recoveryIdentifier}
                       disabled={recoveryStep === 'confirm'}
                       onChange={e => setRecoveryIdentifier(recoveryMode === 'activate' ? normalizeDniInput(e.target.value) : e.target.value)}
@@ -508,7 +524,7 @@ export default function LoginPage() {
                 ) : (
                   <>
                     <div className="lg-field">
-                      <label className="lg-label">Código</label>
+                      <label className="lg-label" htmlFor="lg-recovery-code">Código</label>
                       <div className="lg-input-wrap">
                         <span className="lg-input-icon"><Lock size={14} /></span>
                         <input
@@ -517,6 +533,7 @@ export default function LoginPage() {
                           autoComplete="one-time-code"
                           required
                           maxLength={6}
+                          id="lg-recovery-code"
                           value={recoveryCode}
                           onChange={e => setRecoveryCode(e.target.value.replace(/[^\d]/g, ''))}
                           className="lg-input"
@@ -525,13 +542,14 @@ export default function LoginPage() {
                       </div>
                     </div>
                     <div className="lg-field">
-                      <label className="lg-label">{recoveryMode === 'activate' ? 'Elegí tu contraseña' : 'Nueva contraseña'}</label>
+                      <label className="lg-label" htmlFor="lg-recovery-password">{recoveryMode === 'activate' ? 'Elegí tu contraseña' : 'Nueva contraseña'}</label>
                       <div className="lg-input-wrap">
                         <span className="lg-input-icon"><Lock size={14} /></span>
                         <input
                           type="password"
                           required
                           minLength={6}
+                          id="lg-recovery-password"
                           value={recoveryPassword}
                           onChange={e => setRecoveryPassword(e.target.value)}
                           className="lg-input"
@@ -557,10 +575,10 @@ export default function LoginPage() {
             ) : loginHelpOpen && isLogin ? (
               <div className="lg-form">
                 <div className="lg-field">
-                  <label className="lg-label">DNI o email</label>
+                  <label className="lg-label" htmlFor="lg-help-identifier">DNI o email</label>
                   <div className="lg-input-wrap">
                     <span className="lg-input-icon"><User size={14} /></span>
-                    <input type="text" value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
+                    <input id="lg-help-identifier" type="text" value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
                   </div>
                 </div>
                 <button
@@ -608,26 +626,26 @@ export default function LoginPage() {
                 <div className="lg-grid2">
                   {/* Nombre */}
                   <div className="lg-field">
-                    <label className="lg-label">Nombre</label>
+                    <label className="lg-label" htmlFor="lg-first-name">Nombre</label>
                     <div className="lg-input-wrap">
                       <span className="lg-input-icon"><User size={14} /></span>
-                      <input type="text" required value={firstName} onChange={e => setFirstName(e.target.value)} className="lg-input" placeholder="Ej: Juan" />
+                      <input id="lg-first-name" type="text" required value={firstName} onChange={e => setFirstName(e.target.value)} className="lg-input" placeholder="Ej: Juan" />
                     </div>
                   </div>
                   {/* Apellido */}
                   <div className="lg-field">
-                    <label className="lg-label">Apellido</label>
+                    <label className="lg-label" htmlFor="lg-last-name">Apellido</label>
                     <div className="lg-input-wrap">
                       <span className="lg-input-icon"><User size={14} /></span>
-                      <input type="text" required value={lastName} onChange={e => setLastName(e.target.value)} className="lg-input" placeholder="Ej: Pérez" />
+                      <input id="lg-last-name" type="text" required value={lastName} onChange={e => setLastName(e.target.value)} className="lg-input" placeholder="Ej: Pérez" />
                     </div>
                   </div>
                   {/* DNI */}
                   <div className="lg-field lg-full">
-                    <label className="lg-label">DNI <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>(opcional)</span></label>
+                    <label className="lg-label" htmlFor="lg-dni">DNI <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>(opcional)</span></label>
                     <div className="lg-input-wrap">
                       <span className="lg-input-icon"><IdCard size={14} /></span>
-                      <input type="text" inputMode="numeric" value={dni} onChange={e => setDni(normalizeDniInput(e.target.value))} className="lg-input" placeholder="Ej: 35123456" />
+                      <input id="lg-dni" type="text" inputMode="numeric" value={dni} onChange={e => setDni(normalizeDniInput(e.target.value))} className="lg-input" placeholder="Ej: 35123456" />
                     </div>
                     <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
                       Para ingresar con tu DNI y que el club te identifique más rápido. No se muestra a otros jugadores.
@@ -635,7 +653,7 @@ export default function LoginPage() {
                   </div>
                   {/* Teléfono */}
                   <div className="lg-field lg-full">
-                    <label className="lg-label">Teléfono</label>
+                    <label className="lg-label" htmlFor="lg-phone">Teléfono</label>
                     <div className="lg-phone-wrap">
                       <div className="lg-phone-prefix">
                         <Phone size={13} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
@@ -643,6 +661,7 @@ export default function LoginPage() {
                           value={phoneCountryIso2}
                           onChange={e => setPhoneCountryIso2(normalizePhoneCountryIso2(e.target.value))}
                           className="lg-phone-select"
+                          aria-label="Código de país"
                         >
                           {PHONE_COUNTRY_OPTIONS.map(opt => (
                             <option key={opt.iso2} value={opt.iso2}>{opt.callingCode} {opt.iso2}</option>
@@ -650,6 +669,7 @@ export default function LoginPage() {
                         </select>
                       </div>
                       <input
+                        id="lg-phone"
                         type="tel"
                         required
                         maxLength={20}
@@ -666,18 +686,18 @@ export default function LoginPage() {
               {/* Login: DNI o email. Registro: email */}
               {isLogin ? (
                 <div className="lg-field">
-                  <label className="lg-label">DNI o email</label>
+                  <label className="lg-label" htmlFor="lg-identifier">DNI o email</label>
                   <div className="lg-input-wrap">
                     <span className="lg-input-icon"><User size={14} /></span>
-                    <input type="text" required value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
+                    <input id="lg-identifier" type="text" required value={identifier} onChange={e => setIdentifier(e.target.value)} className="lg-input" placeholder="35123456 o tu@email.com" autoComplete="username" />
                   </div>
                 </div>
               ) : (
                 <div className="lg-field">
-                  <label className="lg-label">Correo electrónico</label>
+                  <label className="lg-label" htmlFor="lg-email">Correo electrónico</label>
                   <div className="lg-input-wrap">
                     <span className="lg-input-icon"><Mail size={14} /></span>
-                    <input type="email" required value={email} onChange={e => setEmail(e.target.value)} className="lg-input" placeholder="tu@email.com" autoComplete="email" />
+                    <input id="lg-email" type="email" required value={email} onChange={e => setEmail(e.target.value)} className="lg-input" placeholder="tu@email.com" autoComplete="email" />
                   </div>
                 </div>
               )}
@@ -685,7 +705,7 @@ export default function LoginPage() {
               {/* Password */}
               <div className="lg-field">
                 <div className="lg-label-row">
-                  <label className="lg-label">Contraseña</label>
+                  <label className="lg-label" htmlFor="lg-password">Contraseña</label>
                   {isLogin && (
                     <button
                       type="button"
@@ -699,24 +719,23 @@ export default function LoginPage() {
                 <div className="lg-input-wrap">
                   <span className="lg-input-icon"><Lock size={14} /></span>
                   <input
+                    id="lg-password"
                     type={showPassword ? 'text' : 'password'}
                     required={isLogin}
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     className="lg-input"
-                    placeholder="••••••••"
+                    placeholder={isLogin ? 'Tu contraseña' : 'Mínimo 6 caracteres'}
                     autoComplete={isLogin ? 'current-password' : 'new-password'}
                     style={{ paddingRight: 42 }}
                   />
+                  {/* Un toque muestra, otro oculta (antes había que mantenerlo apretado, incómodo en el celular). */}
                   <button
                     type="button"
                     className="lg-eye-btn"
-                    aria-label="Ver contraseña"
-                    onMouseDown={() => setShowPassword(true)}
-                    onMouseUp={() => setShowPassword(false)}
-                    onMouseLeave={() => setShowPassword(false)}
-                    onTouchStart={() => setShowPassword(true)}
-                    onTouchEnd={() => setShowPassword(false)}
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((value) => !value)}
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -741,6 +760,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={handleGoogleLogin}
+                    aria-label="Continuar con Google"
                     disabled={loading || magicLoading || Boolean(oauthLoading)}
                     className="lg-btn lg-btn-ghost lg-btn-loading"
                   >
@@ -758,6 +778,7 @@ export default function LoginPage() {
                     <button
                       type="button"
                       onClick={handleAppleLogin}
+                      aria-label="Continuar con Apple"
                       disabled={loading || magicLoading || Boolean(oauthLoading)}
                       className="lg-btn lg-btn-ghost lg-btn-loading"
                     >
@@ -774,6 +795,7 @@ export default function LoginPage() {
                     <button
                       type="button"
                       onClick={handleFacebookLogin}
+                      aria-label="Continuar con Facebook"
                       disabled={loading || magicLoading || Boolean(oauthLoading)}
                       className="lg-btn lg-btn-ghost lg-btn-loading"
                     >

@@ -116,6 +116,10 @@ const normalizeOAuthReturnTo = (value: string | null | undefined, fallback = '/'
 
 type VerifyFailureReason = 'invalid_or_expired' | 'internal_error';
 
+// Mismo mensaje si no existe, si está desactivada o si la contraseña no coincide:
+// así no se puede averiguar qué DNI o email tiene cuenta.
+const INVALID_LOGIN_MESSAGE = 'El DNI, el email o la contraseña no son correctos.';
+
 export class AuthController {
     private authEmailService: AuthEmailService | null = null;
     private authSessionService = new AuthSessionService();
@@ -499,7 +503,7 @@ export class AuthController {
         try {
             const user = await this.findUserByLoginIdentifier(rawIdentifier);
             if (!user) {
-                return res.status(400).json({ error: "Credenciales inválidas" });
+                return res.status(400).json({ error: INVALID_LOGIN_MESSAGE });
             }
 
             if (user.accountStatus === 'PENDING_ACTIVATION') {
@@ -511,12 +515,12 @@ export class AuthController {
                 );
             }
             if (user.accountStatus === 'DISABLED') {
-                return res.status(400).json({ error: "Credenciales inválidas" });
+                return res.status(400).json({ error: INVALID_LOGIN_MESSAGE });
             }
 
             const isPasswordValid = await bcrypt.compare(password, user.password);
             if (!isPasswordValid) {
-                return res.status(400).json({ error: "Credenciales inválidas" });
+                return res.status(400).json({ error: INVALID_LOGIN_MESSAGE });
             }
 
             await prisma.user.update({
