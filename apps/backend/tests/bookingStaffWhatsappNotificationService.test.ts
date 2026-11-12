@@ -110,7 +110,7 @@ test('staff booking cancelled usa V2 sin doble envio legacy', async () => {
   assert.equal(v2Calls[0].eventType, 'BOOKING_CANCELLED');
   assert.equal(v2Calls[0].recipientRole, 'CLUB_STAFF');
   assert.equal(v2Calls[0].dedupeKey, 'booking:201:staff:booking_cancelled:v2');
-  assert.equal(v2Calls[0].templateParams.cancel_reason_label, 'falta de confirmacion');
+  assert.equal(v2Calls[0].templateParams.cancel_reason_label, 'falta de confirmación');
 });
 
 test('staff pending warning usa V2 cuando flag staff esta activo', async () => {

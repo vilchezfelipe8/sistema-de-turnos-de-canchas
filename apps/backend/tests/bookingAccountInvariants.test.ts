@@ -489,10 +489,12 @@ test('cancelBooking fails for CONFIRMED booking without account', async () => {
 test('ClientDebtService.listByClub fails when confirmed/completed bookings have no account', async () => {
   const debtService = new ClientDebtService();
 
+  const originalClubFindUnique = (prisma as any).club.findUnique;
   const originalClientFindMany = (prisma as any).client.findMany;
   const originalAccountFindMany = (prisma as any).account.findMany;
   const originalBookingFindMany = (prisma as any).booking.findMany;
 
+  (prisma as any).club.findUnique = async () => null;
   (prisma as any).client.findMany = async () => [];
   (prisma as any).account.findMany = async () => [];
   (prisma as any).booking.findMany = async (args: any) => {
@@ -508,6 +510,7 @@ test('ClientDebtService.listByClub fails when confirmed/completed bookings have 
       /Inconsistencia de integridad: hay reservas CONFIRMED\/COMPLETED sin Account BOOKING/
     );
   } finally {
+    (prisma as any).club.findUnique = originalClubFindUnique;
     (prisma as any).client.findMany = originalClientFindMany;
     (prisma as any).account.findMany = originalAccountFindMany;
     (prisma as any).booking.findMany = originalBookingFindMany;

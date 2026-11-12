@@ -129,7 +129,9 @@ function buildServiceHarness() {
 
 function withMockedTransaction(tx: TxMock, run: () => Promise<void>) {
   const originalTransaction = (prisma as any).$transaction;
-  (prisma as any).$transaction = async (fn: any) => fn(tx);
+  // Sin bloqueos de cancha salvo que el test los mockee.
+  (prisma as any).$transaction = async (fn: any) =>
+    fn({ courtBlock: { findFirst: async () => null }, ...tx });
   return run().finally(() => {
     (prisma as any).$transaction = originalTransaction;
   });

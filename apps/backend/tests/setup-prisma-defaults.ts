@@ -14,6 +14,10 @@ const STUBS: Stub[] = [
   { model: 'clubSettings', method: 'findFirst', value: () => null },
   // Bloqueos de cancha: ninguno.
   { model: 'courtBlock', method: 'findMany', value: () => [] },
+  { model: 'courtBlock', method: 'findFirst', value: () => null },
+  // Clases de academia en la cancha: ninguna (crear una reserva chequea que no se pise con una clase).
+  { model: 'classSession', method: 'findFirst', value: () => null },
+  { model: 'classSession', method: 'findMany', value: () => [] },
   // Padrón de socios: vacío.
   { model: 'clubMember', method: 'findMany', value: () => [] },
 ];
