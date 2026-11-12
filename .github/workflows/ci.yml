@@ -33,13 +33,10 @@ jobs:
       - run: npx prisma generate
       - name: Typecheck
         run: npx tsc --noEmit -p tsconfig.json
-      # Informativo hasta arreglar los 31 tests que ya fallaban en main (mocks desactualizados
-      # de reservas, clientes, checkout y WhatsApp). Cuando estén en verde, quitar continue-on-error.
-      - name: Tests (informativo)
-        continue-on-error: true
-        run: node --test -r ts-node/register tests/*.test.ts tests/**/*.test.ts
-        env:
-          NODE_ENV: test
+      # Sin base de datos: setup-env.js fija el entorno de test y setup-prisma-defaults.ts
+      # responde "sin configuración" a las lecturas que un test no mockea.
+      - name: Tests
+        run: node --test -r ./tests/setup-env.js -r ts-node/register -r ./tests/setup-prisma-defaults.ts tests/*.test.ts tests/**/*.test.ts
       - name: Build
         run: npx tsc -p tsconfig.json
 
