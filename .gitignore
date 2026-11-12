@@ -54,3 +54,6 @@ coverage/
 .wwebjs_cache/
 *.session.json
 apps/wpp-service/qr.png
+
+# Config local de Claude Code (servidores de preview)
+.claude/launch.json
