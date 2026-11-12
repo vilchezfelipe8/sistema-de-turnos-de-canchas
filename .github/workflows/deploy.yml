@@ -1,0 +1,75 @@
+# Deploy a producción con un botón (Actions -> Deploy -> Run workflow).
+# Entra por SSH al servidor y corre scripts/deploy.sh con el tag elegido.
+#
+# Requiere (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_HOST     IP o dominio del servidor
+#   DEPLOY_USER     usuario SSH (ej. deploy o root)
+#   DEPLOY_SSH_KEY  clave privada SSH dedicada a GitHub Actions
+#   DEPLOY_KNOWN_HOSTS  salida de `ssh-keyscan <host>` (fija la huella del servidor)
+# Solo lo pueden lanzar (a mano) colaboradores con permiso de escritura; queda registrado quién.
+# (Los environments con aprobación no están disponibles en repos privados del plan gratuito.)
+# El servidor descarga las imágenes de ghcr.io con el token temporal de este job (solo lectura,
+# vence al terminar): no hace falta guardar ningún token en el servidor.
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Commit corto de main ya publicado por el workflow Images (ej. 40f8024)"
+        required: true
+      dry_run:
+        description: "Solo mostrar qué haría"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validar tag
+        run: |
+          [[ "${{ inputs.tag }}" =~ ^[0-9a-f]{7,40}$ ]] || { echo "Tag inválido"; exit 1; }
+
+      - name: Verificar que la imagen existe
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for app in backend frontend; do
+            docker manifest inspect "ghcr.io/vilchezfelipe8/pique-${app}:${{ inputs.tag }}" > /dev/null \
+              || { echo "No existe pique-${app}:${{ inputs.tag }}. Corré el workflow Images para ese commit."; exit 1; }
+          done
+
+      - name: Configurar SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          [[ -n "$SSH_KEY" && -n "$KNOWN_HOSTS" ]] || { echo "Faltan los secretos DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS"; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Desplegar
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          TAG: ${{ inputs.tag }}
+          DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: |
+          # El token viaja por stdin (no queda en la línea de comandos ni en logs) y se hace logout al final.
+          printf '%s\n' "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "set -e; docker login ghcr.io -u '$GHCR_USER' --password-stdin >/dev/null; \
+             trap 'docker logout ghcr.io >/dev/null 2>&1' EXIT; \
+             cd /opt/pique && DEPLOYED_BY='$GHCR_USER' scripts/deploy.sh '$TAG' $DRY_RUN_FLAG"
+
+      - name: Resumen
+        if: success()
+        run: echo "Desplegado \`${{ inputs.tag }}\` por @${{ github.actor }}${{ inputs.dry_run && ' (dry-run)' || '' }}" >> "$GITHUB_STEP_SUMMARY"
