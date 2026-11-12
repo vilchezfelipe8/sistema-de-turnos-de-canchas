@@ -72,8 +72,19 @@ async function withPrismaMocks(
     bookingFindUnique: (prisma.booking as any).findUnique,
     accountFindFirst: (prisma.account as any).findFirst,
     paymentCreate: (prisma.payment as any).create,
-    cashMovementCreate: (prisma.cashMovement as any).create
+    cashMovementCreate: (prisma.cashMovement as any).create,
+    clubSettingsFindUnique: (prisma.clubSettings as any).findUnique
   };
+
+  // Config del club: checkout online habilitado y sin seña ni descuentos, salvo que el test diga otra cosa.
+  (prisma.clubSettings as any).findUnique = mocks.clubSettingsFindUnique ?? (async () => ({
+    onlineCheckoutEnabled: true,
+    paymentMethodDiscounts: null,
+    bookingConfirmationMode: 'AUTOMATIC',
+    bookingDepositPercent: null,
+    onlineDepositRequired: false,
+    onlineDepositHoldMinutes: 15
+  }));
 
   if (mocks.bookingFindUnique) (prisma.booking as any).findUnique = mocks.bookingFindUnique;
   if (mocks.accountFindFirst) (prisma.account as any).findFirst = mocks.accountFindFirst;
@@ -87,6 +98,7 @@ async function withPrismaMocks(
     (prisma.account as any).findFirst = original.accountFindFirst;
     (prisma.payment as any).create = original.paymentCreate;
     (prisma.cashMovement as any).create = original.cashMovementCreate;
+    (prisma.clubSettings as any).findUnique = original.clubSettingsFindUnique;
   }
 }
 
