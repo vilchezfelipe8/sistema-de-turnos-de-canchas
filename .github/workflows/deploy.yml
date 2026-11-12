@@ -6,7 +6,8 @@
 #   DEPLOY_USER     usuario SSH (ej. deploy o root)
 #   DEPLOY_SSH_KEY  clave privada SSH dedicada a GitHub Actions
 #   DEPLOY_KNOWN_HOSTS  salida de `ssh-keyscan <host>` (fija la huella del servidor)
-# y el environment "production" (Settings -> Environments) para pedir aprobación antes de correr.
+# Solo lo pueden lanzar (a mano) colaboradores con permiso de escritura; queda registrado quién.
+# (Los environments con aprobación no están disponibles en repos privados del plan gratuito.)
 # El servidor descarga las imágenes de ghcr.io con el token temporal de este job (solo lectura,
 # vence al terminar): no hace falta guardar ningún token en el servidor.
 name: Deploy
@@ -33,7 +34,6 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - name: Validar tag
         run: |

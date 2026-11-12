@@ -11,8 +11,8 @@ servidor ni cambios a mano, y que desplegar o volver atrás sea un botón.
    publica en GitHub Container Registry:
    - `ghcr.io/vilchezfelipe8/pique-backend:<commit-corto>` (y `:main`)
    - `ghcr.io/vilchezfelipe8/pique-frontend:<commit-corto>` (y `:main`)
-3. **Deploy** (`.github/workflows/deploy.yml`): manual. Se elige el commit, pide aprobación
-   (environment `production`), entra por SSH y corre `scripts/deploy.sh <commit>`:
+3. **Deploy** (`.github/workflows/deploy.yml`): manual (solo colaboradores con escritura). Se elige
+   el commit, entra por SSH y corre `scripts/deploy.sh <commit>`:
    backup → `docker compose pull` → `prisma migrate deploy` → `up -d` → espera salud →
    fija los tags en `.env` → registra en `deployments.log`.
 
@@ -24,8 +24,8 @@ Las migraciones no se deshacen solas: si una migración rompe, restaurar el back
 
 ### En GitHub
 1. Mergear este PR. El workflow Images publica las primeras imágenes de `main`.
-2. Settings → Environments → **New environment** `production` → *Required reviewers*: quienes
-   pueden aprobar un despliegue.
+2. (Environments con aprobación no están disponibles en repos privados del plan gratuito: el deploy
+   lo lanza a mano un colaborador con escritura.)
 3. Settings → Secrets and variables → Actions → **New repository secret**:
    - `DEPLOY_HOST`: `200.141.23.247`
    - `DEPLOY_USER`: usuario del servidor (ideal: uno `deploy` con acceso a docker, no `root`)
