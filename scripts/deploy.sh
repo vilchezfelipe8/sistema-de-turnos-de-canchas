@@ -38,7 +38,7 @@ run() {
 }
 
 echo "==> Backup de la base"
-run "$PROJECT_ROOT/scripts/backup-production.sh"
+run bash "$PROJECT_ROOT/scripts/backup-production.sh"
 
 echo "==> Descargando imágenes"
 run "${COMPOSE[@]}" pull "${APP_SERVICES[@]}"
@@ -57,6 +57,23 @@ if [[ "$DRY_RUN" != "--dry-run" ]]; then
     sleep 3
   done
   [[ "$status" == "healthy" ]] || { echo "El backend no quedó sano (estado: ${status:-?}). Revisar: docker compose logs backend" >&2; exit 1; }
+fi
+
+# Nginx resuelve las IPs de backend/frontend al arrancar: tras recrearlos hay que recargarlo
+# o sigue apuntando a los contenedores viejos (502 en /api).
+echo "==> Recargando Nginx"
+run "${COMPOSE[@]}" exec -T nginx nginx -s reload
+
+if [[ "$DRY_RUN" != "--dry-run" ]]; then
+  PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://pique.ar/api/health}"
+  echo "==> Verificando ${PUBLIC_HEALTH_URL} desde afuera"
+  code=""
+  for _ in $(seq 1 20); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$PUBLIC_HEALTH_URL" || true)"
+    [[ "$code" == "200" ]] && break
+    sleep 2
+  done
+  [[ "$code" == "200" ]] || { echo "La API pública no responde 200 (último: ${code:-?}). Revisar: docker compose logs nginx backend" >&2; exit 1; }
 fi
 
 echo "==> Fijando tags en .env"
