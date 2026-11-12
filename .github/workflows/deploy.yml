@@ -7,6 +7,8 @@
 #   DEPLOY_SSH_KEY  clave privada SSH dedicada a GitHub Actions
 #   DEPLOY_KNOWN_HOSTS  salida de `ssh-keyscan <host>` (fija la huella del servidor)
 # y el environment "production" (Settings -> Environments) para pedir aprobación antes de correr.
+# El servidor descarga las imágenes de ghcr.io con el token temporal de este job (solo lectura,
+# vence al terminar): no hace falta guardar ningún token en el servidor.
 name: Deploy
 
 on:
@@ -23,6 +25,10 @@ on:
 concurrency:
   group: deploy-production
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
 
 jobs:
   deploy:
@@ -52,9 +58,17 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
 
       - name: Desplegar
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+          TAG: ${{ inputs.tag }}
+          DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: |
-          ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            "cd /opt/pique && DEPLOYED_BY='${{ github.actor }}' scripts/deploy.sh '${{ inputs.tag }}' ${{ inputs.dry_run && '--dry-run' || '' }}"
+          # El token viaja por stdin (no queda en la línea de comandos ni en logs) y se hace logout al final.
+          printf '%s\n' "$GHCR_TOKEN" | ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "set -e; docker login ghcr.io -u '$GHCR_USER' --password-stdin >/dev/null; \
+             trap 'docker logout ghcr.io >/dev/null 2>&1' EXIT; \
+             cd /opt/pique && DEPLOYED_BY='$GHCR_USER' scripts/deploy.sh '$TAG' $DRY_RUN_FLAG"
 
       - name: Resumen
         if: success()

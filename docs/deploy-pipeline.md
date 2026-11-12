@@ -35,8 +35,8 @@ Las migraciones no se deshacen solas: si una migración rompe, restaurar el back
 
 ### En el servidor (`/opt/pique`)
 1. Agregar la clave pública (`deploy_key.pub`) a `~/.ssh/authorized_keys` del usuario de deploy.
-2. Login en ghcr.io para poder descargar imágenes privadas (token con `read:packages`):
-   `echo <token> | docker login ghcr.io -u <usuario-github> --password-stdin`
+2. No hace falta login en ghcr.io: el workflow Deploy le pasa al servidor el token temporal del
+   job (solo lectura, vence al terminar) y hace logout al final.
 3. Copiar desde `main` los archivos nuevos: `scripts/deploy.sh` y `docker-compose.production.yml`.
    Antes, comparar el compose con el actual del servidor (puede tener ajustes locales).
 4. Probar sin tocar nada: `scripts/deploy.sh <commit> --dry-run`.
