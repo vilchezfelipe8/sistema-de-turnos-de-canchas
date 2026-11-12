@@ -108,7 +108,7 @@ test('booking cancelled usa V2 y no mezcla legacy cuando el flag esta activo', a
   assert.equal(legacyCalls.length, 0);
   assert.equal(v2Calls.length, 1);
   assert.equal(v2Calls[0].eventType, 'BOOKING_CANCELLED');
-  assert.equal(v2Calls[0].templateParams.cancel_reason_label, 'falta de confirmacion');
+  assert.equal(v2Calls[0].templateParams.cancel_reason_label, 'falta de confirmación');
 });
 
 test('pending warning usa legacy cuando el flag V2 esta apagado', async () => {

@@ -306,6 +306,9 @@ test('createBooking no genera history si falla por CLIENT_POSSIBLE_DUPLICATE', a
       booking: {
         findMany: async () => [],
       },
+      courtBlock: {
+        findFirst: async () => null,
+      },
       client: {
         findFirst: async () => null,
       },

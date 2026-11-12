@@ -9,6 +9,10 @@ const withPlayerSlotStub = (tx: any) => {
   if (tx && !tx.bookingPlayerSlot) {
     tx.bookingPlayerSlot = { findMany: async () => [], findFirst: async () => null, count: async () => 0 };
   }
+  // Sin bloqueos de cancha salvo que el test los mockee.
+  if (tx && !tx.courtBlock) {
+    tx.courtBlock = { findFirst: async () => null, findMany: async () => [] };
+  }
   return tx;
 };
 function createService() {
