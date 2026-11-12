@@ -38,7 +38,7 @@ run() {
 }
 
 echo "==> Backup de la base"
-run "$PROJECT_ROOT/scripts/backup-production.sh"
+run bash "$PROJECT_ROOT/scripts/backup-production.sh"
 
 echo "==> Descargando imágenes"
 run "${COMPOSE[@]}" pull "${APP_SERVICES[@]}"
