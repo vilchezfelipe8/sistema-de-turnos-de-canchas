@@ -6,8 +6,11 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
+# Imágenes: por defecto se construyen en el servidor (pique-backend/pique-frontend:local).
+# Con BACKEND_IMAGE/FRONTEND_IMAGE=ghcr.io/vilchezfelipe8/pique-<app> se descargan las que
+# publica GitHub Actions (workflow Images) y scripts/deploy.sh no compila nada.
 x-backend: &backend
-  image: pique-backend:${BACKEND_RELEASE_TAG:-${RELEASE_TAG:-local}}
+  image: ${BACKEND_IMAGE:-pique-backend}:${BACKEND_RELEASE_TAG:-${RELEASE_TAG:-local}}
   build:
     context: ./apps/backend
   env_file:
@@ -95,7 +98,7 @@ services:
       PROCESS_ROLE: scheduler
 
   frontend:
-    image: pique-frontend:${FRONTEND_RELEASE_TAG:-${RELEASE_TAG:-local}}
+    image: ${FRONTEND_IMAGE:-pique-frontend}:${FRONTEND_RELEASE_TAG:-${RELEASE_TAG:-local}}
     build:
       context: ./apps/frontend
       args:

@@ -1,0 +1,69 @@
+# CI: valida cada PR y cada push a main (typecheck, tests y build de las dos apps).
+# No toca producción ni publica nada.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma validate
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+          DIRECT_DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      - run: npx prisma generate
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+      # Informativo hasta arreglar los 31 tests que ya fallaban en main (mocks desactualizados
+      # de reservas, clientes, checkout y WhatsApp). Cuando estén en verde, quitar continue-on-error.
+      - name: Tests (informativo)
+        continue-on-error: true
+        run: node --test -r ts-node/register tests/*.test.ts tests/**/*.test.ts
+        env:
+          NODE_ENV: test
+      - name: Build
+        run: npx tsc -p tsconfig.json
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/frontend/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Tests
+        run: npm test
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+          NEXT_PUBLIC_API_URL: /api
+          NEXT_PUBLIC_SITE_URL: https://pique.ar

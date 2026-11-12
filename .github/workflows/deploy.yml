@@ -1,0 +1,61 @@
+# Deploy a producción con un botón (Actions -> Deploy -> Run workflow).
+# Entra por SSH al servidor y corre scripts/deploy.sh con el tag elegido.
+#
+# Requiere (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_HOST     IP o dominio del servidor
+#   DEPLOY_USER     usuario SSH (ej. deploy o root)
+#   DEPLOY_SSH_KEY  clave privada SSH dedicada a GitHub Actions
+#   DEPLOY_KNOWN_HOSTS  salida de `ssh-keyscan <host>` (fija la huella del servidor)
+# y el environment "production" (Settings -> Environments) para pedir aprobación antes de correr.
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Commit corto de main ya publicado por el workflow Images (ej. 40f8024)"
+        required: true
+      dry_run:
+        description: "Solo mostrar qué haría"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Validar tag
+        run: |
+          [[ "${{ inputs.tag }}" =~ ^[0-9a-f]{7,40}$ ]] || { echo "Tag inválido"; exit 1; }
+
+      - name: Verificar que la imagen existe
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for app in backend frontend; do
+            docker manifest inspect "ghcr.io/vilchezfelipe8/pique-${app}:${{ inputs.tag }}" > /dev/null \
+              || { echo "No existe pique-${app}:${{ inputs.tag }}. Corré el workflow Images para ese commit."; exit 1; }
+          done
+
+      - name: Configurar SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          [[ -n "$SSH_KEY" && -n "$KNOWN_HOSTS" ]] || { echo "Faltan los secretos DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS"; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Desplegar
+        run: |
+          ssh -i ~/.ssh/deploy_key "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "cd /opt/pique && DEPLOYED_BY='${{ github.actor }}' scripts/deploy.sh '${{ inputs.tag }}' ${{ inputs.dry_run && '--dry-run' || '' }}"
+
+      - name: Resumen
+        if: success()
+        run: echo "Desplegado \`${{ inputs.tag }}\` por @${{ github.actor }}${{ inputs.dry_run && ' (dry-run)' || '' }}" >> "$GITHUB_STEP_SUMMARY"
