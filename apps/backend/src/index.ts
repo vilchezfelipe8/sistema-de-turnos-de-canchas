@@ -256,6 +256,17 @@ const startScheduler = async () => {
     await extendClassSeries();
   }, CLASS_SERIES_EXTEND_INTERVAL_MS);
 
+  // Cursos que se cobran al anotarse: suelta los lugares que no se pagaron a tiempo.
+  setInterval(async () => {
+    try {
+      await classSeriesService.releaseExpiredPaidSpots();
+      metricsService.recordSchedulerRun('class_series_release_unpaid', 'success');
+    } catch (error) {
+      console.error('❌ Error liberando lugares de cursos sin pagar:', error);
+      metricsService.recordSchedulerRun('class_series_release_unpaid', 'error');
+    }
+  }, 5 * 60 * 1000);
+
   console.log('⏰ Scheduler de reservas iniciado');
 };
 

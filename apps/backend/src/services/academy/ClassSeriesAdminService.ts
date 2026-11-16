@@ -8,6 +8,11 @@ import { ClassCreditUsageAdminService } from './ClassCreditUsageAdminService';
 import { ClassPassAdminService } from './ClassPassAdminService';
 import { PersonService } from '../PersonService';
 import { pushNotificationService } from '../PushNotificationService';
+import { AccountService } from '../AccountService';
+import { ClubPaymentIntegrationService } from '../ClubPaymentIntegrationService';
+import { MercadoPagoService } from '../MercadoPagoService';
+import { mercadoPagoConfig } from '../../utils/mercadoPagoConfig';
+import { generateDisplayCode } from '../../utils/displayCode';
 
 /**
  * Cursos: una clase con días fijos (ej. martes y jueves 18:00).
@@ -46,7 +51,12 @@ export type ClassSeriesInput = {
   visibility?: 'PUBLIC' | 'PRIVATE';
   /** Los que se anotan desde la app esperan que el club los acepte. */
   requiresApproval?: boolean;
+  /** Se paga por Mercado Pago al anotarse desde la app (la cuota del mes). */
+  requiresPayment?: boolean;
 };
+
+/** Tiempo que se guarda el lugar mientras el jugador paga. */
+const PAID_SPOT_HOLD_MS = 30 * 60_000;
 
 export type ClassSeriesConflict = { date: string; startsAt: string; reason: string };
 
@@ -80,6 +90,9 @@ export class ClassSeriesAdminService {
   private readonly creditUsageService = new ClassCreditUsageAdminService();
   private readonly classPassService = new ClassPassAdminService();
   private readonly personService = new PersonService();
+  private readonly accountService = new AccountService();
+  private readonly paymentIntegrationService = new ClubPaymentIntegrationService();
+  private readonly mercadoPagoService = new MercadoPagoService();
 
   // ---------------------------------------------------------------------------
   // Fechas
@@ -157,7 +170,7 @@ export class ClassSeriesAdminService {
       input.activityTypeId ? this.validation.assertActivityBelongsToClub(clubId, Number(input.activityTypeId)) : Promise.resolve(null),
     ]);
 
-    return {
+    const validated = {
       teacherId,
       activityTypeId: input.activityTypeId ? Number(input.activityTypeId) : null,
       courtId: input.courtId ? Number(input.courtId) : null,
@@ -172,8 +185,24 @@ export class ClassSeriesAdminService {
       startsOn,
       endsOn,
       visibility: (input.visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE') as 'PUBLIC' | 'PRIVATE',
-      requiresApproval: input.visibility === 'PUBLIC' ? Boolean(input.requiresApproval) : false,
+      // Cobrar al anotarse y aprobar a cada uno no van juntos: el que paga queda anotado.
+      requiresApproval: input.visibility === 'PUBLIC' && !input.requiresPayment ? Boolean(input.requiresApproval) : false,
+      requiresPayment: input.visibility === 'PUBLIC' ? Boolean(input.requiresPayment) : false,
     };
+    if (validated.requiresPayment) {
+      if (!(Number(validated.pricePerStudent ?? 0) > 0)) {
+        throw fieldError('Para cobrar al anotarse, poné el precio por clase.', 'pricePerStudent', 'Poné el precio por clase.');
+      }
+      const integration = await this.paymentIntegrationService.getMercadoPagoIntegrationStatusForClub(clubId);
+      if (!integration.connected) {
+        throw fieldError(
+          'Para cobrar al anotarse, conectá Mercado Pago en Ajustes > Integraciones.',
+          'requiresPayment',
+          'Falta conectar Mercado Pago.'
+        );
+      }
+    }
+    return validated;
   }
 
   /** Fechas en las que la cancha ya está ocupada por un turno, otra clase o un bloqueo. */
@@ -440,6 +469,7 @@ export class ClassSeriesAdminService {
       activeMembersCount: row._count?.members ?? undefined,
       visibility: String(row.visibility || 'PRIVATE'),
       requiresApproval: Boolean(row.requiresApproval),
+      requiresPayment: Boolean(row.requiresPayment),
     };
   }
 
@@ -631,7 +661,9 @@ export class ClassSeriesAdminService {
   }
 
   private async assertRoomInSeries(series: { id: string; capacity: number }) {
-    const activeMembers = await prisma.classSeriesMember.count({ where: { seriesId: series.id, leftAt: null, status: 'ACTIVE' } });
+    const activeMembers = await prisma.classSeriesMember.count({
+      where: { seriesId: series.id, leftAt: null, status: { in: ['ACTIVE', 'AWAITING_PAYMENT'] } },
+    });
     if (activeMembers >= series.capacity) {
       throw conflict('El curso está completo.', ErrorCodes.CLASS_SESSION_CAPACITY_EXCEEDED);
     }
@@ -657,7 +689,7 @@ export class ClassSeriesAdminService {
     if (!options.fromAppUserId) await this.validation.assertUserBelongsToClub(clubId, actorUserId);
 
     const already = await prisma.classSeriesMember.findFirst({
-      where: { seriesId: series.id, studentClientId: student.id, leftAt: null, status: { in: ['ACTIVE', 'PENDING'] } },
+      where: { seriesId: series.id, studentClientId: student.id, leftAt: null, status: { in: ['ACTIVE', 'PENDING', 'AWAITING_PAYMENT'] } },
       select: { id: true, status: true },
     });
     if (already) {
@@ -764,7 +796,7 @@ export class ClassSeriesAdminService {
     clubId: number,
     seriesId: string,
     actorUserId: number,
-    event: 'REQUEST' | 'JOINED' | 'LEFT' | 'CANCELLED_REQUEST',
+    event: 'REQUEST' | 'JOINED' | 'PAID' | 'LEFT' | 'CANCELLED_REQUEST',
     playerName: string
   ) {
     try {
@@ -777,6 +809,8 @@ export class ClassSeriesAdminService {
       const content =
         event === 'REQUEST'
           ? { title: `${playerName} pidió lugar en un curso`, body: `${label}. Tocá para aceptarlo o rechazarlo.`, url: '/admin/academia?tab=clases&pedidos=1' }
+          : event === 'PAID'
+            ? { title: `${playerName} se anotó y pagó un curso`, body: `${label}. Ya está en las clases que vienen.`, url: '/admin/academia?tab=clases' }
           : event === 'JOINED'
             ? { title: `${playerName} se anotó a un curso`, body: `${label}. Ya está en las clases que vienen.`, url: '/admin/academia?tab=clases' }
             : event === 'LEFT'
@@ -853,7 +887,7 @@ export class ClassSeriesAdminService {
       include: {
         teacher: { select: { displayName: true } },
         activityType: { select: { name: true } },
-        _count: { select: { members: { where: { leftAt: null, status: 'ACTIVE' } } } },
+        _count: { select: { members: { where: { leftAt: null, status: { in: ['ACTIVE', 'AWAITING_PAYMENT'] } } } } },
       },
       orderBy: [{ startTime: 'asc' }],
     });
@@ -865,6 +899,11 @@ export class ClassSeriesAdminService {
         })
       : [];
     const myStatus = new Map(mine.map((row) => [row.seriesId, String(row.status)]));
+    const timeZone = await this.resolveTimeZone(clubId);
+    const quotes = new Map<string, Awaited<ReturnType<ClassSeriesAdminService['signupQuote']>>>();
+    for (const row of rows) {
+      if (row.requiresPayment) quotes.set(row.id, await this.signupQuote(row, timeZone));
+    }
     return rows.map((row) => ({
       id: row.id,
       activity: row.activityType?.name ?? null,
@@ -878,14 +917,16 @@ export class ClassSeriesAdminService {
       pricePerClass: row.pricePerStudent == null ? null : Number(row.pricePerStudent),
       spotsLeft: Math.max(0, row.capacity - (row._count?.members ?? 0)),
       requiresApproval: row.requiresApproval,
-      myStatus: (myStatus.get(row.id) as 'ACTIVE' | 'PENDING' | undefined) ?? null,
+      requiresPayment: row.requiresPayment,
+      // Lo que paga hoy al anotarse: las clases que quedan del mes (o el mes que viene, si ya no quedan).
+      signupPrice: quotes.get(row.id) ?? null,
+      myStatus: (myStatus.get(row.id) as 'ACTIVE' | 'PENDING' | 'AWAITING_PAYMENT' | undefined) ?? null,
     }));
   }
 
   private async assertPublicSeries(clubId: number, seriesId: string) {
     const series = await prisma.classSeries.findFirst({
       where: { id: String(seriesId), clubId, status: 'ACTIVE', visibility: 'PUBLIC' },
-      select: { id: true, requiresApproval: true },
     });
     if (!series) throw notFound('Ese curso no está disponible.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
     return series;
@@ -895,6 +936,7 @@ export class ClassSeriesAdminService {
   async joinFromApp(clubId: number, seriesId: string, userId: number) {
     const series = await this.assertPublicSeries(clubId, seriesId);
     const client = await this.personService.ensureClientForUser(clubId, userId, { source: 'SELF_BOOKING' });
+    if (series.requiresPayment) return this.joinPaying(clubId, series, client.id, userId);
     const result = await this.addMember(
       clubId,
       series.id,
@@ -903,7 +945,11 @@ export class ClassSeriesAdminService {
       { fromAppUserId: userId, pending: series.requiresApproval }
     );
     await this.notifyStaff(clubId, series.id, userId, series.requiresApproval ? 'REQUEST' : 'JOINED', client.name);
-    return { status: series.requiresApproval ? ('PENDING' as const) : ('ACTIVE' as const), enrolled: result.enrolled };
+    return {
+      status: series.requiresApproval ? ('PENDING' as const) : ('ACTIVE' as const),
+      enrolled: result.enrolled,
+      initPoint: null as string | null,
+    };
   }
 
   /** El jugador se baja del curso (o cancela su pedido). */
@@ -912,13 +958,19 @@ export class ClassSeriesAdminService {
     const client = await prisma.client.findFirst({ where: { clubId, userId: Number(userId) }, select: { id: true } });
     const member = client
       ? await prisma.classSeriesMember.findFirst({
-          where: { seriesId: String(seriesId), studentClientId: client.id, leftAt: null, status: { in: ['ACTIVE', 'PENDING'] } },
+          where: {
+            seriesId: String(seriesId),
+            studentClientId: client.id,
+            leftAt: null,
+            status: { in: ['ACTIVE', 'PENDING', 'AWAITING_PAYMENT'] },
+          },
           select: { id: true, status: true, studentClient: { select: { name: true } } },
         })
       : null;
     if (!member) throw notFound('No estás en este curso.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
     const result = await this.removeMember(clubId, String(seriesId), member.id);
-    await this.notifyStaff(
+    // Si todavía no había pagado, el club nunca se enteró: no hace falta avisar.
+    if (member.status !== 'AWAITING_PAYMENT') await this.notifyStaff(
       clubId,
       String(seriesId),
       userId,
@@ -928,12 +980,374 @@ export class ClassSeriesAdminService {
     return { kept: result.kept };
   }
 
+  // ---------------------------------------------------------------------------
+  // Cobrar al anotarse (Mercado Pago)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Lo que paga el jugador al anotarse: las clases que quedan este mes, como un pack.
+   * Si este mes ya no quedan clases, el mes que viene completo.
+   */
+  async signupQuote(
+    series: {
+      id: string;
+      weekdays: number[];
+      startTime: string;
+      durationMinutes: number;
+      startsOn: Date;
+      endsOn: Date | null;
+      generatedUntil: Date | null;
+      pricePerStudent: Prisma.Decimal | number | null;
+    },
+    timeZone: string
+  ) {
+    const price = Number(series.pricePerStudent ?? 0);
+    if (!(price > 0)) return null;
+    const now = new Date();
+    const todayKey = this.todayKey(timeZone);
+    const generatedUntilKey = series.generatedUntil ? toDateKey(series.generatedUntil) : null;
+    let month = todayKey.slice(0, 7);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const [year, monthNumber] = month.split('-').map(Number);
+      const monthStart = `${month}-01`;
+      const nextMonth = monthNumber === 12 ? `${year + 1}-01` : `${year}-${String(monthNumber + 1).padStart(2, '0')}`;
+      const nextMonthStart = `${nextMonth}-01`;
+      const fromKey = attempt === 0 ? todayKey : monthStart;
+      const occurrences = this.occurrences(
+        {
+          weekdays: series.weekdays,
+          startTime: series.startTime,
+          durationMinutes: series.durationMinutes,
+          startsOn: toDateKey(series.startsOn),
+          endsOn: series.endsOn ? toDateKey(series.endsOn) : null,
+        },
+        fromKey,
+        addDaysToKey(nextMonthStart, -1),
+        timeZone
+      ).filter((occurrence) => occurrence.startsAt > now);
+      // Fechas ya generadas: cuentan solo si la clase existe y no se canceló (las salteadas no se cobran).
+      const sessions = await prisma.classSession.findMany({
+        where: {
+          seriesId: series.id,
+          startsAt: { gt: now, lt: fromZonedTime(`${nextMonthStart}T00:00:00`, timeZone) },
+          status: { in: [...ACTIVE_SESSION_STATUSES] },
+        },
+        select: { startsAt: true },
+      });
+      const sessionKeys = new Set(sessions.map((row) => this.localDateKey(row.startsAt, timeZone)));
+      const classes = occurrences.filter((occurrence) =>
+        generatedUntilKey && occurrence.date <= generatedUntilKey ? sessionKeys.has(occurrence.date) : true
+      ).length;
+      if (classes > 0) {
+        return {
+          month,
+          monthLabel: new Date(`${monthStart}T12:00:00Z`).toLocaleDateString('es-AR', { month: 'long', timeZone: 'UTC' }),
+          classes,
+          pricePerClass: price,
+          total: Number((price * classes).toFixed(2)),
+          // Igual que la cuota del mes: vence una semana después de fin de mes.
+          expiresAt: fromZonedTime(`${addDaysToKey(nextMonthStart, 7)}T00:00:00`, timeZone).toISOString(),
+        };
+      }
+      month = nextMonth;
+    }
+    return null;
+  }
+
+  /** Anotarse pagando: guarda el lugar, arma la cuota del mes y devuelve el link de Mercado Pago. */
+  private async joinPaying(clubId: number, series: any, studentClientId: string, userId: number) {
+    const accessToken = await this.paymentIntegrationService.getMercadoPagoAccessTokenForClub(clubId);
+    if (!accessToken) {
+      throw conflict('Este club todavía no cobra online. Escribile al club para anotarte.', ErrorCodes.PAYMENT_PROVIDER_NOT_CONFIGURED);
+    }
+
+    const existing = await prisma.classSeriesMember.findFirst({
+      where: { seriesId: series.id, studentClientId, leftAt: null, status: 'AWAITING_PAYMENT' },
+      select: { id: true },
+    });
+    if (existing) {
+      const open = await prisma.onlinePaymentAttempt.findFirst({
+        where: { classSeriesMemberId: existing.id, status: { in: ['CREATED', 'PENDING'] }, initPoint: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        select: { initPoint: true },
+      });
+      if (open?.initPoint) return { status: 'AWAITING_PAYMENT' as const, enrolled: 0, initPoint: open.initPoint };
+    }
+
+    const spot = existing ? await this.loadPaidSpot(existing.id) : await this.reservePaidSpot(clubId, series, studentClientId, userId);
+    try {
+      const initPoint = await this.createSignupCheckout({
+        clubId,
+        series,
+        memberId: spot.memberId,
+        accountId: spot.accountId,
+        amount: spot.amount,
+        title: spot.title,
+        userId,
+        accessToken,
+      });
+      return { status: 'AWAITING_PAYMENT' as const, enrolled: 0, initPoint };
+    } catch (error) {
+      // Sin link de pago no tiene sentido guardar el lugar.
+      await prisma.$transaction((tx) => this.releasePaidSpotTx(tx, spot.memberId));
+      throw error;
+    }
+  }
+
+  /** Guarda el lugar (sin anotar en las clases todavía) y crea la cuota del mes con su cuenta. */
+  async reservePaidSpot(clubId: number, series: any, studentClientId: string, userId: number) {
+    await this.assertRoomInSeries(series);
+    const timeZone = await this.resolveTimeZone(clubId);
+    const quote = await this.signupQuote(series, timeZone);
+    if (!quote) throw conflict('Este curso no tiene clases para cobrar por ahora.', ErrorCodes.INVALID_INPUT);
+    const student = await prisma.client.findFirst({
+      where: { id: studentClientId, clubId },
+      select: { id: true, userId: true },
+    });
+    if (!student) throw notFound('Cliente no encontrado.', ErrorCodes.CLIENT_NOT_FOUND);
+
+    const title = `Curso ${describeWeekdays(series.weekdays)} ${series.startTime} · ${quote.monthLabel}`;
+    const created = await prisma.$transaction(async (tx) => {
+      const member = await tx.classSeriesMember.create({
+        data: {
+          clubId,
+          seriesId: series.id,
+          studentClientId: student.id,
+          createdByUserId: Number(userId),
+          status: 'AWAITING_PAYMENT',
+          requestedByUserId: Number(userId),
+        },
+        select: { id: true },
+      });
+      const pass = await tx.classPass.create({
+        data: {
+          clubId,
+          ownerClientId: student.id,
+          beneficiaryClientId: student.id,
+          beneficiaryUserId: student.userId ?? null,
+          packageName: title,
+          priceAtPurchase: quote.total,
+          totalCredits: quote.classes,
+          usedCredits: 0,
+          remainingCredits: quote.classes,
+          expiresAt: new Date(quote.expiresAt),
+          teacherId: series.teacherId,
+          status: 'ACTIVE',
+          seriesMemberId: member.id,
+          coversMonth: quote.month,
+          createdByUserId: Number(userId),
+        },
+        select: { id: true },
+      });
+      return { memberId: member.id, passId: pass.id };
+    });
+
+    try {
+      const opened = await this.accountService.openAccount({ clubId, sourceType: 'CLASS_PASS', sourceId: created.passId });
+      // openAccount devuelve la cuenta antes de sumarle la cuota: el total se lee de nuevo.
+      const account = await prisma.account.findUnique({ where: { id: opened.id }, select: { id: true, totalAmount: true } });
+      const amount = Number(account?.totalAmount ?? 0);
+      if (!(amount > 0)) throw conflict('No se pudo armar el cobro del curso.', ErrorCodes.CHECKOUT_NOT_AVAILABLE);
+      return { memberId: created.memberId, accountId: opened.id, amount, title, quote };
+    } catch (error) {
+      await prisma.$transaction((tx) => this.releasePaidSpotTx(tx, created.memberId));
+      throw error;
+    }
+  }
+
+  private async loadPaidSpot(memberId: string) {
+    const pass = await prisma.classPass.findFirst({
+      where: { seriesMemberId: memberId, status: { not: 'CANCELLED' } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, clubId: true, packageName: true },
+    });
+    if (!pass) throw notFound('No encontramos tu lugar en el curso. Probá anotarte de nuevo.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    const opened = await this.accountService.openAccount({ clubId: pass.clubId, sourceType: 'CLASS_PASS', sourceId: pass.id });
+    const account = (await prisma.account.findUnique({ where: { id: opened.id } })) ?? opened;
+    const paid = await this.accountService.calculateNetPaidAmount(account.id);
+    return {
+      memberId,
+      accountId: account.id,
+      amount: Number(Math.max(0, Number(account.totalAmount) - paid).toFixed(2)),
+      title: pass.packageName,
+      quote: null,
+    };
+  }
+
+  private async createSignupCheckout(input: {
+    clubId: number;
+    series: any;
+    memberId: string;
+    accountId: string;
+    amount: number;
+    title: string;
+    userId: number;
+    accessToken: string;
+  }) {
+    if (!(input.amount > 0)) throw conflict('Este curso no tiene nada para cobrar.', ErrorCodes.CHECKOUT_NO_PENDING_BALANCE);
+    const [club, user, integration] = await Promise.all([
+      prisma.club.findUnique({ where: { id: input.clubId }, select: { name: true, slug: true } }),
+      prisma.user.findUnique({ where: { id: input.userId }, select: { firstName: true, lastName: true, email: true } }),
+      prisma.clubPaymentIntegration.findUnique({
+        where: { clubId_provider: { clubId: input.clubId, provider: 'MERCADO_PAGO' } },
+        select: { id: true },
+      }),
+    ]);
+    const attempt = await prisma.onlinePaymentAttempt.create({
+      data: {
+        clubId: input.clubId,
+        bookingId: null,
+        classSeriesMemberId: input.memberId,
+        accountId: input.accountId,
+        userId: input.userId,
+        integrationId: integration?.id ?? null,
+        provider: 'MERCADO_PAGO',
+        status: 'CREATED',
+        amount: input.amount,
+        currency: 'ARS',
+        idempotencyKey: `course:${input.memberId}:${input.amount.toFixed(2)}:${generateDisplayCode('K')}`,
+        externalReference: `course-checkout:${input.memberId}:attempt:${generateDisplayCode('CHK')}`,
+      },
+    });
+
+    const publicBase = mercadoPagoConfig.frontendUrl || 'http://localhost:3001';
+    const backendBase = mercadoPagoConfig.appBaseUrl || 'http://localhost:3000';
+    const returnUrl = (checkoutStatus: 'success' | 'pending' | 'failure') => {
+      const url = new URL(`/club/${club?.slug || ''}`, publicBase);
+      url.searchParams.set('curso', input.series.id);
+      url.searchParams.set('checkoutStatus', checkoutStatus);
+      return url.toString();
+    };
+    const webhookUrl = new URL('/api/webhooks/mercadopago', backendBase);
+    webhookUrl.searchParams.set('clubId', String(input.clubId));
+    webhookUrl.searchParams.set('attemptId', attempt.id);
+
+    try {
+      const preference = await this.mercadoPagoService.createPreference({
+        accessToken: input.accessToken,
+        title: `${input.title} - ${club?.name || 'Club'}`,
+        description: `${input.title} · ${club?.name || ''}`.trim(),
+        quantity: 1,
+        unitPrice: input.amount,
+        payer: user?.email
+          ? { name: user.firstName || 'Jugador', surname: user.lastName || undefined, email: user.email }
+          : undefined,
+        externalReference: attempt.id,
+        notificationUrl: webhookUrl.toString(),
+        successUrl: returnUrl('success'),
+        pendingUrl: returnUrl('pending'),
+        failureUrl: returnUrl('failure'),
+        metadata: { attemptId: attempt.id, classSeriesMemberId: input.memberId, accountId: input.accountId, clubId: input.clubId },
+      });
+      const initPoint = String(preference.init_point || preference.sandbox_init_point || '').trim();
+      if (!initPoint) throw conflict('Mercado Pago no devolvió el link de pago.', ErrorCodes.CHECKOUT_NOT_AVAILABLE);
+      await prisma.onlinePaymentAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          status: 'PENDING',
+          providerPreferenceId: String(preference.id || '').trim() || null,
+          initPoint,
+          rawProviderData: preference as Prisma.InputJsonValue,
+        },
+      });
+      await prisma.auditLog.create({
+        data: {
+          clubId: input.clubId,
+          userId: input.userId,
+          entity: 'ONLINE_PAYMENT_ATTEMPT',
+          entityId: attempt.id,
+          action: 'CHECKOUT_ATTEMPT_CREATED',
+          payload: { provider: 'MERCADO_PAGO', classSeriesMemberId: input.memberId, amount: input.amount },
+        },
+      });
+      return initPoint;
+    } catch (error) {
+      await prisma.onlinePaymentAttempt.update({
+        where: { id: attempt.id },
+        data: { status: 'ERROR', failureReason: 'PREFERENCE_FAILED' },
+      });
+      throw error;
+    }
+  }
+
+  /** Pago aprobado (desde el webhook, en su transacción): queda anotado en las clases que vienen. */
+  async confirmPaidSpotTx(tx: Tx, memberId: string) {
+    const member = await tx.classSeriesMember.findUnique({ where: { id: memberId }, include: { series: true } });
+    if (!member || (member.status === 'ACTIVE' && !member.leftAt)) return false;
+    const updated = await tx.classSeriesMember.update({
+      where: { id: member.id },
+      data: { status: 'ACTIVE', leftAt: null, joinedAt: new Date() },
+      include: { studentClient: { select: { id: true, name: true, email: true, phone: true, userId: true } } },
+    });
+    await this.enrollMemberInFutureTx(tx, member.series, updated);
+    return true;
+  }
+
+  /** Aviso al club después de que se confirmó el pago. */
+  async notifyPaidSpotConfirmed(memberId: string) {
+    const member = await prisma.classSeriesMember.findUnique({
+      where: { id: memberId },
+      select: { clubId: true, seriesId: true, requestedByUserId: true, studentClient: { select: { name: true } } },
+    });
+    if (!member) return;
+    await this.notifyStaff(member.clubId, member.seriesId, Number(member.requestedByUserId || 0), 'PAID', member.studentClient?.name || 'Un jugador');
+  }
+
+  /** Suelta el lugar de alguien que no pagó: anula la cuota y los intentos de pago abiertos. */
+  async releasePaidSpotTx(tx: Tx, memberId: string) {
+    await tx.classSeriesMember.updateMany({ where: { id: memberId, leftAt: null }, data: { leftAt: new Date() } });
+    const passes = await tx.classPass.findMany({
+      where: { seriesMemberId: memberId, status: { not: 'CANCELLED' } },
+      select: { id: true },
+    });
+    for (const pass of passes) {
+      await this.accountService.cancelItemsForSourceTx(tx, { sourceType: 'CLASS_PASS', sourceId: pass.id });
+      await tx.classPass.update({ where: { id: pass.id }, data: { status: 'CANCELLED' } });
+    }
+    await tx.onlinePaymentAttempt.updateMany({
+      where: { classSeriesMemberId: memberId, status: { in: ['CREATED', 'PENDING'] } },
+      data: { status: 'CANCELLED', failureReason: 'COURSE_SPOT_RELEASED' },
+    });
+  }
+
+  /** Libera los lugares guardados que no se pagaron a tiempo. Lo corre el scheduler. */
+  async releaseExpiredPaidSpots() {
+    const cutoff = new Date(Date.now() - PAID_SPOT_HOLD_MS);
+    const rows = await prisma.classSeriesMember.findMany({
+      where: { status: 'AWAITING_PAYMENT', leftAt: null, createdAt: { lt: cutoff } },
+      select: { id: true },
+      take: 200,
+    });
+    let released = 0;
+    for (const row of rows) {
+      const attempts = await prisma.onlinePaymentAttempt.findMany({
+        where: { classSeriesMemberId: row.id },
+        select: { status: true, createdAt: true, providerPaymentId: true },
+      });
+      if (attempts.some((attempt) => attempt.status === 'APPROVED')) continue;
+      // Un pago en curso (Mercado Pago ya lo registró) o un link recién pedido: se espera.
+      const inFlight = attempts.some(
+        (attempt) =>
+          (attempt.status === 'PENDING' || attempt.status === 'CREATED') &&
+          (attempt.providerPaymentId || attempt.createdAt > cutoff)
+      );
+      if (inFlight) continue;
+      try {
+        await prisma.$transaction((tx) => this.releasePaidSpotTx(tx, row.id));
+        released += 1;
+      } catch (error) {
+        console.error('[academia] No se pudo liberar un lugar sin pagar', { memberId: row.id, error });
+      }
+    }
+    return { released };
+  }
+
   /** Cursos del jugador en todos sus clubes, con las próximas clases. */
   async listMine(userId: number) {
     const members = await prisma.classSeriesMember.findMany({
       where: {
         leftAt: null,
-        status: { in: ['ACTIVE', 'PENDING'] },
+        status: { in: ['ACTIVE', 'PENDING', 'AWAITING_PAYMENT'] },
         studentClient: { userId: Number(userId) },
         series: { status: 'ACTIVE' },
       },
@@ -976,7 +1390,7 @@ export class ClassSeriesAdminService {
     }
     return members.map((member) => ({
       id: member.series.id,
-      status: member.status as 'ACTIVE' | 'PENDING',
+      status: member.status as 'ACTIVE' | 'PENDING' | 'AWAITING_PAYMENT',
       clubName: member.series.club?.name || '',
       clubSlug: member.series.club?.slug || '',
       activity: member.series.activityType?.name ?? null,
@@ -1004,6 +1418,10 @@ export class ClassSeriesAdminService {
       const now = new Date();
       await tx.classSeriesMember.update({ where: { id: member.id }, data: { leftAt: now } });
       if (member.status === 'PENDING') return 0;
+      if (member.status === 'AWAITING_PAYMENT') {
+        await this.releasePaidSpotTx(tx, member.id);
+        return 0;
+      }
       const future = await tx.classEnrollment.findMany({
         where: { seriesMemberId: member.id, enrollmentStatus: { not: 'CANCELLED' }, classSession: { startsAt: { gt: now } } },
         select: { id: true, attendanceStatus: true, paymentStatus: true, paidAmount: true, _count: { select: { creditUsages: true } } },

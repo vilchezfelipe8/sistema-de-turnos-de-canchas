@@ -40,6 +40,7 @@ const seriesBodySchema = z.object({
   skipConflicts: z.boolean().optional(),
   visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
   requiresApproval: z.boolean().optional(),
+  requiresPayment: z.boolean().optional(),
 });
 
 const memberBodySchema = z.object({

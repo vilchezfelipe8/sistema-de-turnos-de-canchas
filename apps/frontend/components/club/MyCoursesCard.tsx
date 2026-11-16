@@ -59,12 +59,14 @@ export default function MyCoursesCard() {
   }, [courses]);
 
   const leave = async (course: MyCourse) => {
-    const pending = course.status === 'PENDING';
+    const pending = course.status !== 'ACTIVE';
     if (!pending && !window.confirm('¿Te bajás del curso? Dejás de estar en las próximas clases.')) return;
     try {
       setBusyId(course.id);
       await ClubService.leaveClubCourse(course.clubSlug, course.id);
-      notice(pending ? 'Cancelaste el pedido.' : 'Te bajaste del curso.');
+      notice(
+        course.status === 'AWAITING_PAYMENT' ? 'Listo, liberamos tu lugar.' : pending ? 'Cancelaste el pedido.' : 'Te bajaste del curso.'
+      );
       await load();
     } catch (error) {
       reportUiError({ area: 'MyCoursesCard', action: 'leave' }, error);
@@ -85,7 +87,8 @@ export default function MyCoursesCard() {
       <div className="mc-list">
         {courses.map((course) => {
           const busy = busyId === course.id;
-          const pending = course.status === 'PENDING';
+          const pending = course.status !== 'ACTIVE';
+          const awaitingPayment = course.status === 'AWAITING_PAYMENT';
           const details = [course.clubName, course.teacher ? `con ${course.teacher}` : null, course.court, course.level].filter(Boolean);
           return (
             <article key={course.id} className="mc-row">
@@ -96,7 +99,9 @@ export default function MyCoursesCard() {
                   </p>
                   <p className="mc-sub">{details.join(' · ')}</p>
                 </div>
-                <span className={`mc-badge${pending ? '' : ' is-in'}`}>{pending ? 'Esperando al club' : 'Anotado'}</span>
+                <span className={`mc-badge${pending ? '' : ' is-in'}`}>
+                  {awaitingPayment ? 'Falta pagar' : pending ? 'Esperando al club' : 'Anotado'}
+                </span>
               </div>
 
               {!pending && course.nextClasses.length > 0 && (
@@ -112,7 +117,7 @@ export default function MyCoursesCard() {
               <div className="mc-foot">
                 {course.clubSlug ? (
                   <Link href={`/club/${course.clubSlug}`} className="mc-link">
-                    Ver club
+                    {awaitingPayment ? 'Pagar en la página del club' : 'Ver club'}
                   </Link>
                 ) : (
                   <span />

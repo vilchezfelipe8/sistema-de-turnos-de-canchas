@@ -1318,6 +1318,7 @@ enum ClassSeriesMemberStatus {
   PENDING  // pidió lugar desde la app y espera que el club lo acepte
   ACTIVE
   REJECTED
+  AWAITING_PAYMENT // se anotó desde la app y tiene el lugar guardado mientras paga
 }
 
 // Curso: clase que se repite en días fijos. Genera las ClassSession de las próximas semanas
@@ -1353,6 +1354,8 @@ model ClassSeries {
   visibility       ClassSessionVisibility @default(PRIVATE)
   // Los que se anotan desde la app quedan esperando hasta que el club los acepte.
   requiresApproval Boolean @default(false)
+  // Cobrar por Mercado Pago al anotarse desde la app (la cuota del mes).
+  requiresPayment  Boolean @default(false)
 
   createdByUserId Int
   createdAt DateTime @default(now()) @db.Timestamptz(3)
@@ -1927,8 +1930,10 @@ model OnlinePaymentAttempt {
   id                   String                     @id @default(cuid())
   clubId               Int
   club                 Club                       @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  bookingId            Int
-  booking              Booking                    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  bookingId            Int?
+  // Cobro al anotarse a un curso (sin reserva): el alumno que queda anotado al aprobarse.
+  classSeriesMemberId  String?
+  booking              Booking?                   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   accountId            String
   account              Account                    @relation(fields: [accountId], references: [id], onDelete: Cascade)
   userId               Int
@@ -1960,6 +1965,7 @@ model OnlinePaymentAttempt {
   @@index([accountId, status])
   @@index([provider, status])
   @@index([providerPaymentId])
+  @@index([classSeriesMemberId])
 }
 
 

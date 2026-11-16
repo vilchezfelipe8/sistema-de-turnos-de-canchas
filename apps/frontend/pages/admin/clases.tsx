@@ -900,6 +900,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   // Curso en la app: los jugadores lo ven en la página del club y se anotan solos.
   const [classVisibleInApp, setClassVisibleInApp] = useState(false);
   const [classRequiresApproval, setClassRequiresApproval] = useState(false);
+  const [classRequiresPayment, setClassRequiresPayment] = useState(false);
   // Pedidos de lugar que llegaron desde la app (todos los cursos) y el modal para responderlos.
   const [seriesRequests, setSeriesRequests] = useState<AdminClassSeriesRequest[]>([]);
   // null = cerrado; { seriesId: null } = todos los cursos; con id = solo ese curso.
@@ -1308,6 +1309,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     setClassEndsOn('');
     setClassVisibleInApp(false);
     setClassRequiresApproval(false);
+    setClassRequiresPayment(false);
     setSeriesConflicts(null);
     setClassFormMoreOpen(false);
   }, []);
@@ -1390,6 +1392,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setClassEndsOn(series.endsOn || '');
         setClassVisibleInApp(series.visibility === 'PUBLIC');
         setClassRequiresApproval(Boolean(series.requiresApproval));
+        setClassRequiresPayment(Boolean(series.requiresPayment));
         setForm({
           ...buildEmptyClassForm(),
           teacherId: series.teacherId,
@@ -1553,7 +1556,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       endsOn: classEndsOn || null,
       skipConflicts,
       visibility: classVisibleInApp ? 'PUBLIC' : 'PRIVATE',
-      requiresApproval: classVisibleInApp && classRequiresApproval,
+      requiresApproval: classVisibleInApp && !classRequiresPayment && classRequiresApproval,
+      requiresPayment: classVisibleInApp && classRequiresPayment,
     };
     try {
       setSubmitting(true);
@@ -2590,12 +2594,29 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 onChange={setClassVisibleInApp}
               />
               {classVisibleInApp && (
-                <div className="pl-6">
+                <div className="space-y-2 pl-6">
                   <CheckboxField
-                    label="Aprobar a cada uno antes de sumarlo"
-                    checked={classRequiresApproval}
-                    onChange={setClassRequiresApproval}
+                    label="Cobrar al anotarse (Mercado Pago)"
+                    checked={classRequiresPayment}
+                    onChange={(checked) => {
+                      setClassRequiresPayment(checked);
+                      if (checked) setClassRequiresApproval(false);
+                    }}
                   />
+                  {classRequiresPayment ? (
+                    <p className="text-[12px] text-p-text-muted">
+                      Pagan las clases que quedan del mes y quedan anotados. Después, el mes se cobra como siempre.
+                    </p>
+                  ) : (
+                    <CheckboxField
+                      label="Aprobar a cada uno antes de sumarlo"
+                      checked={classRequiresApproval}
+                      onChange={setClassRequiresApproval}
+                    />
+                  )}
+                  {fieldErrors.requiresPayment ? (
+                    <p className="text-[12px] text-[var(--error-fg)]">{fieldErrors.requiresPayment}</p>
+                  ) : null}
                 </div>
               )}
             </div>

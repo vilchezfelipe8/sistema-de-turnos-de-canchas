@@ -80,14 +80,18 @@ export type ClubCourse = {
   pricePerClass: number | null;
   spotsLeft: number;
   requiresApproval: boolean;
-  /** Estado del jugador logueado en el curso. */
-  myStatus: 'PENDING' | 'ACTIVE' | null;
+  /** Se paga por Mercado Pago al anotarse. */
+  requiresPayment: boolean;
+  /** Lo que se paga al anotarse: las clases que quedan del mes. */
+  signupPrice: { month: string; monthLabel: string; classes: number; pricePerClass: number; total: number } | null;
+  /** Estado del jugador logueado en el curso. AWAITING_PAYMENT: tiene el lugar guardado mientras paga. */
+  myStatus: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT' | null;
 };
 
 /** Curso del jugador (en cualquiera de sus clubes), con las próximas clases. */
 export type MyCourse = {
   id: string;
-  status: 'ACTIVE' | 'PENDING';
+  status: 'ACTIVE' | 'PENDING' | 'AWAITING_PAYMENT';
   clubName: string;
   clubSlug: string;
   activity: string | null;
@@ -230,7 +234,10 @@ export class ClubService {
     return res.json();
   }
 
-  static async joinClubCourse(slug: string, id: string): Promise<{ status: 'PENDING' | 'ACTIVE'; enrolled: number }> {
+  static async joinClubCourse(
+    slug: string,
+    id: string
+  ): Promise<{ status: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT'; enrolled: number; initPoint: string | null }> {
     const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/courses/${id}/join`, { method: 'POST' });
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));

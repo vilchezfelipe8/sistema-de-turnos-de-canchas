@@ -232,6 +232,7 @@ export type AdminClassSeries = {
   status: 'ACTIVE' | 'ENDED';
   visibility: 'PUBLIC' | 'PRIVATE';
   requiresApproval: boolean;
+  requiresPayment: boolean;
   members?: Array<{
     id: string;
     /** PENDING = pidió lugar desde la app y espera respuesta. */
@@ -267,6 +268,8 @@ export type AdminClassSeriesInput = {
   visibility?: 'PUBLIC' | 'PRIVATE';
   /** Solo con PUBLIC: el club acepta a cada uno antes de sumarlo. */
   requiresApproval?: boolean;
+  /** Solo con PUBLIC: se paga por Mercado Pago al anotarse (la cuota del mes). */
+  requiresPayment?: boolean;
 };
 
 /** Pedido de lugar en un curso, hecho por un jugador desde la app. */

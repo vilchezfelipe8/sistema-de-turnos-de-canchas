@@ -41,10 +41,34 @@ export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice =
     void load();
   }, [load, loggedIn]);
 
+  // Vuelta de Mercado Pago (?curso=...&checkoutStatus=...): se avisa cómo salió y se limpia la URL.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('checkoutStatus');
+    if (!params.get('curso') || !status) return;
+    if (status === 'success') onNotice('¡Pago recibido! En unos segundos quedás anotado al curso.', 'success');
+    else if (status === 'pending') onNotice('Tu pago está en proceso. Cuando se acredite, quedás anotado.', 'info');
+    else onNotice('El pago no se completó. Tu lugar queda guardado unos minutos para que pruebes de nuevo.', 'error');
+    params.delete('curso');
+    params.delete('checkoutStatus');
+    const query = params.toString();
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+    // El aviso de Mercado Pago puede tardar unos segundos: se vuelve a mirar.
+    const timer = window.setTimeout(() => void load(), 4000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const join = async (course: ClubCourse) => {
     try {
       setBusyId(course.id);
       const result = await ClubService.joinClubCourse(slug, course.id);
+      if (result.initPoint) {
+        // Cobro al anotarse: el lugar queda guardado y se paga en Mercado Pago.
+        window.location.href = result.initPoint;
+        return;
+      }
       onNotice(
         result.status === 'PENDING'
           ? 'Listo, le avisamos al club. Te confirman tu lugar.'
@@ -61,12 +85,15 @@ export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice =
   };
 
   const leave = async (course: ClubCourse) => {
-    const pending = course.myStatus === 'PENDING';
+    const pending = course.myStatus === 'PENDING' || course.myStatus === 'AWAITING_PAYMENT';
     if (!pending && !window.confirm('¿Te bajás del curso? Dejás de estar en las próximas clases.')) return;
     try {
       setBusyId(course.id);
       await ClubService.leaveClubCourse(slug, course.id);
-      onNotice(pending ? 'Cancelaste el pedido.' : 'Te bajaste del curso.', 'success');
+      onNotice(
+        course.myStatus === 'AWAITING_PAYMENT' ? 'Listo, liberamos tu lugar.' : pending ? 'Cancelaste el pedido.' : 'Te bajaste del curso.',
+        'success'
+      );
       await load();
     } catch (error) {
       reportUiError({ area: 'ClubCoursesPanel', action: 'leave' }, error);
@@ -108,6 +135,18 @@ export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice =
                     <BusyLabel busy={busy}>Bajarme</BusyLabel>
                   </button>
                 </div>
+              ) : course.myStatus === 'AWAITING_PAYMENT' ? (
+                <>
+                  <button type="button" className="cl-review-cta" disabled={busy} onClick={() => void join(course)}>
+                    <BusyLabel busy={busy}>Pagar y confirmar mi lugar</BusyLabel>
+                  </button>
+                  <div className="cl-course-actions">
+                    <span className="cl-course-state">Te guardamos el lugar unos minutos</span>
+                    <button type="button" className="cl-course-link" disabled={busy} onClick={() => void leave(course)}>
+                      Cancelar
+                    </button>
+                  </div>
+                </>
               ) : course.myStatus === 'PENDING' ? (
                 <div className="cl-course-actions">
                   <span className="cl-course-state">Esperando que el club te acepte</span>
@@ -124,9 +163,23 @@ export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice =
                   Iniciá sesión para anotarte
                 </Link>
               ) : (
-                <button type="button" className="cl-review-cta" disabled={busy} onClick={() => void join(course)}>
-                  <BusyLabel busy={busy}>{course.requiresApproval ? 'Pedir lugar' : 'Anotarme'}</BusyLabel>
-                </button>
+                <>
+                  <button type="button" className="cl-review-cta" disabled={busy} onClick={() => void join(course)}>
+                    <BusyLabel busy={busy}>
+                      {course.requiresPayment && course.signupPrice
+                        ? `Anotarme y pagar ${formatPrice(course.signupPrice.total)}`
+                        : course.requiresApproval
+                          ? 'Pedir lugar'
+                          : 'Anotarme'}
+                    </BusyLabel>
+                  </button>
+                  {course.requiresPayment && course.signupPrice && (
+                    <p className="cl-course-spots">
+                      Pagás {course.signupPrice.monthLabel} con Mercado Pago:{' '}
+                      {course.signupPrice.classes === 1 ? '1 clase' : `${course.signupPrice.classes} clases`}.
+                    </p>
+                  )}
+                </>
               )}
               {!course.myStatus && !full && course.spotsLeft <= 3 && (
                 <p className="cl-course-spots">

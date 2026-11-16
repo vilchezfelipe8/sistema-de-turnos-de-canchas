@@ -5,6 +5,7 @@ import { ClubPaymentIntegrationService } from './ClubPaymentIntegrationService';
 import { MercadoPagoService } from './MercadoPagoService';
 import { PaymentService } from './PaymentService';
 import { AccountService } from './AccountService';
+import { ClassSeriesAdminService } from './academy/ClassSeriesAdminService';
 
 const EPSILON = 0.009;
 
@@ -13,6 +14,7 @@ export class OnlineCheckoutService {
   private readonly clubPaymentIntegrationService = new ClubPaymentIntegrationService();
   private readonly paymentService = new PaymentService();
   private readonly accountService = new AccountService();
+  private readonly classSeriesService = new ClassSeriesAdminService();
 
   async processMercadoPagoWebhook(input: {
     clubId?: number | null;
@@ -49,7 +51,9 @@ export class OnlineCheckoutService {
       throw badRequest('No pudimos asociar el pago online a un intento local.', ErrorCodes.ONLINE_PAYMENT_WEBHOOK_INVALID);
     }
 
-    return prisma.$transaction(async (tx) => {
+    // Cobro al anotarse a un curso: el aviso al club va después de confirmar la transacción.
+    const after = { courseMemberId: null as string | null };
+    const result = await prisma.$transaction(async (tx) => {
       const attemptRows = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT "id"
         FROM "OnlinePaymentAttempt"
@@ -346,6 +350,12 @@ export class OnlineCheckoutService {
         }
       });
 
+      // Curso pagado al anotarse: queda anotado en las clases que vienen.
+      if (attempt.classSeriesMemberId) {
+        const confirmed = await this.classSeriesService.confirmPaidSpotTx(tx, attempt.classSeriesMemberId);
+        if (confirmed) after.courseMemberId = attempt.classSeriesMemberId;
+      }
+
       await tx.auditLog.create({
         data: {
           clubId,
@@ -369,6 +379,15 @@ export class OnlineCheckoutService {
         status: 'APPROVED'
       };
     });
+
+    if (after.courseMemberId) {
+      try {
+        await this.classSeriesService.notifyPaidSpotConfirmed(after.courseMemberId);
+      } catch (error) {
+        console.error('[academia] No se pudo avisar el curso pagado', error);
+      }
+    }
+    return result;
   }
 
   private parseAttemptMethodDiscount(raw: unknown): {
