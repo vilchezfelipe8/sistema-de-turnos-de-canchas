@@ -252,6 +252,22 @@ export type AdminClassSeriesInput = {
   skipConflicts?: boolean;
 };
 
+/** Clase del pack usada (o devuelta) al marcar o sacar el presente. */
+export type AdminAttendanceCredit = { classPassId: string; packageName: string; remainingCredits: number };
+
+export type AdminClassSeriesMonthPass = {
+  month: string;
+  monthLabel: string;
+  classes: number;
+  settled: number;
+  pricePerClass: number | null;
+  total: number | null;
+  expiresAt: string;
+  existingPassId: string | null;
+  pass: AdminClassPass | null;
+  applied: number;
+};
+
 export type AdminClassSeriesConflict = { date: string; startsAt: string; reason: string };
 
 export type AdminClassSeriesSaveResult = {
@@ -1665,6 +1681,22 @@ export class ClubAdminService {
     return res.json();
   }
 
+  /** Cuota del mes de un alumno del curso (pack con las clases de ese mes). preview: solo calcula. */
+  static async classSeriesMonthPass(
+    slug: string,
+    seriesId: string,
+    memberId: string,
+    data: { month: string; preview?: boolean }
+  ): Promise<AdminClassSeriesMonthPass> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series/${seriesId}/members/${memberId}/month-pass`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al cobrar el mes');
+    return res.json();
+  }
+
   static async removeClassSeriesMember(slug: string, id: string, memberId: string): Promise<{ series: AdminClassSeries; kept: number }> {
     const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series/${id}/members/${memberId}`, {
       method: 'DELETE',
@@ -1861,7 +1893,7 @@ export class ClubAdminService {
       attendanceStatus: AdminClassAttendanceStatus;
       attendedAt?: string | null;
     }
-  ): Promise<AdminClassEnrollment> {
+  ): Promise<AdminClassEnrollment & { creditApplied?: AdminAttendanceCredit | null; creditReturned?: AdminAttendanceCredit | null }> {
     const res = await fetchWithAuth(
       `${apiBase()}/clubs/${slug}/admin/class-sessions/${classSessionId}/enrollments/${enrollmentId}/attendance`,
       {

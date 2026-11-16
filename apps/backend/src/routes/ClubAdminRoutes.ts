@@ -689,6 +689,13 @@ router.delete('/:slug/admin/class-series/:id/members/:memberId',
     classSeriesAdminController.removeMember
 );
 
+router.post('/:slug/admin/class-series/:id/members/:memberId/month-pass',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.monthPass
+);
+
 router.get('/:slug/admin/class-sessions',
     authMiddleware,
     verifyClubAccess,

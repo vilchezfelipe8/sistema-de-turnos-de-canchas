@@ -119,6 +119,104 @@ export class ClassCreditUsageAdminService {
     return 'ACTIVE' as const;
   }
 
+  /**
+   * Presente → usa sola 1 clase del pack del alumno.
+   *
+   * Solo cuando la clase no está pagada ni tiene cuenta con movimientos. Si el alumno tiene
+   * varios packs que sirven, usa el que vence primero. Si no hay ninguno, no pasa nada: la
+   * clase queda para cobrar como siempre.
+   */
+  async applyAttendanceCredit(clubId: number, classEnrollmentId: string, actorUserId: number) {
+    const enrollment = await prisma.classEnrollment.findFirst({
+      where: { id: String(classEnrollmentId), clubId },
+      select: {
+        id: true,
+        studentClientId: true,
+        enrollmentStatus: true,
+        paymentStatus: true,
+        classSession: { select: { teacherId: true, activityTypeId: true, classType: true } },
+        creditUsages: { select: { id: true }, take: 1 },
+      },
+    });
+    if (!enrollment || enrollment.enrollmentStatus !== 'ENROLLED') return null;
+    if (enrollment.paymentStatus !== 'UNPAID' || enrollment.creditUsages.length) return null;
+
+    const account = await prisma.account.findFirst({
+      where: { clubId, sourceType: 'CLASS_ENROLLMENT', sourceId: String(enrollment.id) },
+      select: { totalAmount: true, paidAmount: true },
+    });
+    if (account && (Number(account.totalAmount || 0) > 0.009 || Number(account.paidAmount || 0) > 0.009)) return null;
+
+    const session = enrollment.classSession;
+    const candidates = await prisma.classPass.findMany({
+      where: {
+        clubId,
+        beneficiaryClientId: enrollment.studentClientId,
+        status: 'ACTIVE',
+        remainingCredits: { gt: 0 },
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          { OR: [{ activityTypeId: null }, ...(session.activityTypeId ? [{ activityTypeId: session.activityTypeId }] : [])] },
+          { OR: [{ classType: null }, { classType: session.classType }] },
+          { OR: [{ teacherId: null }, { teacherId: session.teacherId }] },
+        ],
+      },
+      orderBy: [{ expiresAt: { sort: 'asc', nulls: 'last' } }, { purchasedAt: 'asc' }],
+      select: { id: true },
+    });
+
+    for (const candidate of candidates) {
+      try {
+        const usage = await this.create(clubId, candidate.id, actorUserId, {
+          classEnrollmentId: String(enrollment.id),
+          creditsUsed: 1,
+          reason: 'ATTENDANCE',
+        });
+        return {
+          classPassId: usage.classPassId,
+          packageName: usage.classPass?.packageName || '',
+          remainingCredits: Number(usage.classPass?.remainingCredits ?? 0),
+        };
+      } catch {
+        // Ese pack cambió entre la búsqueda y el uso: probamos con el siguiente.
+      }
+    }
+    return null;
+  }
+
+  /** Se desmarcó el presente: devuelve la clase que se había usado del pack por asistencia. */
+  async revertAttendanceCredit(clubId: number, classEnrollmentId: string) {
+    return prisma.$transaction(async (tx) => {
+      const usage = await tx.classCreditUsage.findFirst({
+        where: { clubId, classEnrollmentId: String(classEnrollmentId), reason: 'ATTENDANCE' },
+        select: { id: true, classPassId: true, creditsUsed: true },
+      });
+      if (!usage) return null;
+
+      await tx.classCreditUsage.delete({ where: { id: usage.id } });
+      const pass = await tx.classPass.update({
+        where: { id: usage.classPassId },
+        data: {
+          usedCredits: { decrement: usage.creditsUsed },
+          remainingCredits: { increment: usage.creditsUsed },
+        },
+        select: { id: true, status: true, packageName: true, remainingCredits: true },
+      });
+      if (pass.status === 'DEPLETED') {
+        await tx.classPass.update({ where: { id: pass.id }, data: { status: 'ACTIVE' } });
+      }
+      await tx.classEnrollment.updateMany({
+        where: { id: String(classEnrollmentId), clubId, paymentStatus: 'COVERED_BY_CREDIT' },
+        data: { paymentStatus: 'UNPAID' },
+      });
+      return {
+        classPassId: pass.id,
+        packageName: String(pass.packageName || '').trim(),
+        remainingCredits: Number(pass.remainingCredits),
+      };
+    });
+  }
+
   async listByClassPass(clubId: number, classPassId: string) {
     await this.validation.assertClassPassBelongsToClub(clubId, classPassId);
     const rows = await prisma.classCreditUsage.findMany({

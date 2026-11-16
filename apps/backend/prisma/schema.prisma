@@ -1378,6 +1378,7 @@ model ClassSeriesMember {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   enrollments ClassEnrollment[]
+  monthPasses ClassPass[]
 
   @@index([seriesId, leftAt])
   @@index([clubId, studentClientId])
@@ -1432,6 +1433,11 @@ model ClassPass {
   subscriptionId String?
   subscription   Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
+  // Cuota del mes de un curso: el pack trae las clases de ese mes (coversMonth = "2026-11").
+  seriesMemberId String?
+  seriesMember   ClassSeriesMember? @relation(fields: [seriesMemberId], references: [id], onDelete: SetNull)
+  coversMonth    String?
+
   @@index([clubId, status])
   @@index([clubId, ownerClientId])
   @@index([clubId, beneficiaryClientId])
@@ -1439,6 +1445,7 @@ model ClassPass {
   @@index([clubId, activityTypeId])
   @@index([clubId, teacherId])
   @@index([beneficiaryClientId, status, expiresAt])
+  @@index([seriesMemberId, coversMonth])
 }
 
 model ClassCreditUsage {

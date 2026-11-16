@@ -144,6 +144,25 @@ export class ClassSeriesAdminController {
     }
   };
 
+  monthPass = async (req: Request & { clubId?: number }, res: Response) => {
+    try {
+      const parsed = z
+        .object({ month: z.string().trim().regex(/^\d{4}-\d{2}$/), preview: z.boolean().optional() })
+        .safeParse(req.body);
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Elegí el mes.'));
+      const result = await this.service.monthPass(
+        this.resolveClubId(req),
+        this.resolveId(req.params.id, 'Curso'),
+        this.resolveId(req.params.memberId, 'Alumno'),
+        this.resolveActorUserId(req),
+        parsed.data
+      );
+      return res.status(parsed.data.preview ? 200 : 201).json(result);
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo cobrar el mes.');
+    }
+  };
+
   removeMember = async (req: Request & { clubId?: number }, res: Response) => {
     try {
       const result = await this.service.removeMember(

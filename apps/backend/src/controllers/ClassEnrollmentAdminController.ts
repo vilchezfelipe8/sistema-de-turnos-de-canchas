@@ -190,7 +190,8 @@ export class ClassEnrollmentAdminController {
         classSessionId,
         enrollmentId,
         parsed.data.attendanceStatus,
-        parsed.data.attendedAt ?? undefined
+        parsed.data.attendedAt ?? undefined,
+        this.resolveActorUserId(req)
       );
       return res.json(updated);
     } catch (error) {

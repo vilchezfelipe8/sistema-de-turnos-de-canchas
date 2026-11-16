@@ -4,6 +4,8 @@ import { prisma } from '../../prisma';
 import { AppError, ErrorCodes, badRequest, conflict, notFound } from '../../errors';
 import { AcademyAdminValidationService } from './AcademyAdminValidation';
 import { normalizeOptionalString, parseMoneyOrThrow } from './academyAdminUtils';
+import { ClassCreditUsageAdminService } from './ClassCreditUsageAdminService';
+import { ClassPassAdminService } from './ClassPassAdminService';
 
 /**
  * Cursos: una clase con días fijos (ej. martes y jueves 18:00).
@@ -69,6 +71,8 @@ export const describeWeekdays = (weekdays: number[]) =>
 
 export class ClassSeriesAdminService {
   private readonly validation = new AcademyAdminValidationService();
+  private readonly creditUsageService = new ClassCreditUsageAdminService();
+  private readonly classPassService = new ClassPassAdminService();
 
   // ---------------------------------------------------------------------------
   // Fechas
@@ -686,6 +690,160 @@ export class ClassSeriesAdminService {
     });
 
     return { series: await this.getById(clubId, String(seriesId)), kept };
+  }
+
+  /**
+   * Cuota del mes de un alumno del curso.
+   *
+   * Se cobra como un pack con las clases del curso en ese mes: al marcar presente se usa
+   * una clase sola. Las clases de ese mes que ya estaban pagadas o cubiertas no se cuentan,
+   * y las que ya tienen presente se cubren apenas se crea.
+   * Con preview: true solo calcula, sin crear nada.
+   */
+  async monthPass(
+    clubId: number,
+    seriesId: string,
+    memberId: string,
+    actorUserId: number,
+    input: { month: string; preview?: boolean }
+  ) {
+    const month = String(input.month || '').trim();
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw fieldError('Elegí el mes.', 'month');
+
+    const series = await prisma.classSeries.findFirst({ where: { id: String(seriesId), clubId } });
+    if (!series) throw notFound('Curso no encontrado.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    const member = await prisma.classSeriesMember.findFirst({
+      where: { id: String(memberId), seriesId: series.id, clubId },
+      include: { studentClient: { select: { id: true, name: true, userId: true } } },
+    });
+    if (!member) throw notFound('Ese alumno no está en el curso.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+
+    const timeZone = await this.resolveTimeZone(clubId);
+    const monthStart = `${month}-01`;
+    const [year, monthNumber] = month.split('-').map(Number);
+    const nextMonthStart = monthNumber === 12 ? `${year + 1}-01-01` : `${year}-${String(monthNumber + 1).padStart(2, '0')}-01`;
+    const monthEnd = addDaysToKey(nextMonthStart, -1);
+    const monthLabel = new Date(`${monthStart}T12:00:00Z`).toLocaleDateString('es-AR', { month: 'long', timeZone: 'UTC' });
+
+    // Vence una semana después de fin de mes, para poder marcar presente tarde.
+    const expiresAt = fromZonedTime(`${addDaysToKey(nextMonthStart, 7)}T00:00:00`, timeZone);
+    if (expiresAt.getTime() <= Date.now()) throw fieldError('Ese mes ya pasó.', 'month');
+
+    const joinedKey = this.localDateKey(member.joinedAt, timeZone);
+    const leftKey = member.leftAt ? this.localDateKey(member.leftAt, timeZone) : null;
+    const fromKey = joinedKey > monthStart ? joinedKey : monthStart;
+    const toKey = leftKey && leftKey < monthEnd ? leftKey : monthEnd;
+    const occurrences =
+      fromKey <= toKey
+        ? this.occurrences(
+            {
+              weekdays: series.weekdays,
+              startTime: series.startTime,
+              durationMinutes: series.durationMinutes,
+              startsOn: toDateKey(series.startsOn),
+              endsOn: series.endsOn ? toDateKey(series.endsOn) : null,
+            },
+            fromKey,
+            toKey,
+            timeZone
+          )
+        : [];
+
+    const monthRange = {
+      gte: fromZonedTime(`${monthStart}T00:00:00`, timeZone),
+      lt: fromZonedTime(`${nextMonthStart}T00:00:00`, timeZone),
+    };
+    const enrollments = await prisma.classEnrollment.findMany({
+      where: { seriesMemberId: member.id, classSession: { startsAt: monthRange } },
+      select: {
+        id: true,
+        enrollmentStatus: true,
+        attendanceStatus: true,
+        paymentStatus: true,
+        classSession: { select: { status: true, startsAt: true } },
+      },
+    });
+    // Fechas ya generadas: se cobra la clase solo si el alumno la tiene activa y sin pagar
+    // (no se cobran fechas salteadas, canceladas ni ya pagadas). Fechas que todavía no se
+    // generaron: se cuentan según los días del curso.
+    const generatedUntilKey = series.generatedUntil ? toDateKey(series.generatedUntil) : null;
+    const chargeableByDate = new Map<string, boolean>();
+    for (const row of enrollments) {
+      const key = this.localDateKey(row.classSession.startsAt, timeZone);
+      const chargeable =
+        row.enrollmentStatus === 'ENROLLED' && row.paymentStatus === 'UNPAID' && row.classSession.status !== 'CANCELLED';
+      chargeableByDate.set(key, Boolean(chargeableByDate.get(key)) || chargeable);
+    }
+    const settled = enrollments.filter((row) => row.paymentStatus !== 'UNPAID').length;
+    const classes = occurrences.filter((occurrence) =>
+      generatedUntilKey && occurrence.date <= generatedUntilKey
+        ? Boolean(chargeableByDate.get(occurrence.date))
+        : true
+    ).length;
+    const pricePerClass = series.pricePerStudent == null ? null : Number(series.pricePerStudent);
+    const total = pricePerClass == null ? null : Number((pricePerClass * classes).toFixed(2));
+
+    const existing = await prisma.classPass.findFirst({
+      where: { clubId, seriesMemberId: member.id, coversMonth: month, status: { not: 'CANCELLED' } },
+      select: { id: true },
+    });
+
+    const summary = {
+      month,
+      monthLabel,
+      classes,
+      settled,
+      pricePerClass,
+      total,
+      expiresAt: expiresAt.toISOString(),
+      existingPassId: existing?.id ?? null,
+    };
+    if (input.preview) return { ...summary, pass: null, applied: 0 };
+
+    if (existing) throw conflict(`Ya cobraste ${monthLabel} a ${member.studentClient.name}.`, ErrorCodes.INVALID_INPUT);
+    if (classes <= 0) throw fieldError(`No tiene clases para cobrar en ${monthLabel}.`, 'month');
+    await this.validation.assertUserBelongsToClub(clubId, actorUserId);
+
+    const created = await prisma.classPass.create({
+      data: {
+        clubId,
+        ownerClientId: member.billingResponsibleClientId ?? member.studentClient.id,
+        beneficiaryClientId: member.studentClient.id,
+        beneficiaryUserId: member.studentClient.userId ?? null,
+        packageName: `Curso ${describeWeekdays(series.weekdays)} ${series.startTime} · ${monthLabel}`,
+        priceAtPurchase: total && total > 0 ? total : null,
+        totalCredits: classes,
+        usedCredits: 0,
+        remainingCredits: classes,
+        expiresAt,
+        teacherId: series.teacherId,
+        status: 'ACTIVE',
+        seriesMemberId: member.id,
+        coversMonth: month,
+        createdByUserId: Number(actorUserId),
+      },
+      select: { id: true },
+    });
+
+    // Clases de ese mes que ya tienen presente y siguen sin pagar: se cubren ya.
+    const attendedUnpaid = enrollments.filter(
+      (row) => row.attendanceStatus === 'ATTENDED' && row.paymentStatus === 'UNPAID' && row.enrollmentStatus === 'ENROLLED'
+    );
+    let applied = 0;
+    for (const row of attendedUnpaid) {
+      try {
+        await this.creditUsageService.create(clubId, created.id, actorUserId, {
+          classEnrollmentId: row.id,
+          creditsUsed: 1,
+          reason: 'ATTENDANCE',
+        });
+        applied += 1;
+      } catch {
+        // La clase tiene una cuenta con movimientos: queda para revisar a mano.
+      }
+    }
+
+    return { ...summary, pass: await this.classPassService.getById(clubId, created.id), applied };
   }
 
   /** Job del scheduler: mantiene generadas las próximas semanas de todos los cursos activos. */
