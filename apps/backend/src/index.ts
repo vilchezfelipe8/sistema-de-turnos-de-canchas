@@ -8,6 +8,7 @@ import { featureFlags } from './config/featureFlags';
 import { PendingBookingAutoCancelService } from './services/PendingBookingAutoCancelService';
 import { BookingReminderService } from './services/BookingReminderService';
 import { FiscalCertExpiryChecker } from './services/FiscalCertExpiryChecker';
+import { ClassSeriesAdminService } from './services/academy/ClassSeriesAdminService';
 import { BookingService } from './services/BookingService';
 import { BookingRepository } from './repositories/BookingRepository';
 import { CourtRepository } from './repositories/CourtRepository';
@@ -214,6 +215,20 @@ const checkFiscalCertExpiry = async () => {
   }
 };
 
+const classSeriesService = new ClassSeriesAdminService();
+const CLASS_SERIES_EXTEND_INTERVAL_MS = 60 * 60 * 1000;
+
+// Cursos: mantiene generadas las clases de las próximas semanas.
+const extendClassSeries = async () => {
+  try {
+    await classSeriesService.extendAll();
+    metricsService.recordSchedulerRun('class_series_extend', 'success');
+  } catch (error) {
+    console.error('❌ Error generando clases de cursos:', error);
+    metricsService.recordSchedulerRun('class_series_extend', 'error');
+  }
+};
+
 const startScheduler = async () => {
   await completePastBookings();
   await processPendingBookingPolicies();
@@ -235,6 +250,11 @@ const startScheduler = async () => {
   setInterval(async () => {
     await checkFiscalCertExpiry();
   }, CERT_EXPIRY_CHECK_INTERVAL_MS);
+
+  await extendClassSeries();
+  setInterval(async () => {
+    await extendClassSeries();
+  }, CLASS_SERIES_EXTEND_INTERVAL_MS);
 
   console.log('⏰ Scheduler de reservas iniciado');
 };

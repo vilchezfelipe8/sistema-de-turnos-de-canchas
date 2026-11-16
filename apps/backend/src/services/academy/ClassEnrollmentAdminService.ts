@@ -28,6 +28,8 @@ type ClassEnrollmentSummary = {
   studentClientId: string;
   studentUserId: number | null;
   billingResponsibleClientId: string | null;
+  /** Anotado por estar en el curso. Null = anotado solo a esta clase. */
+  seriesMemberId: string | null;
   snapshotName: string;
   snapshotEmail: string | null;
   snapshotPhone: string | null;
@@ -156,6 +158,7 @@ export class ClassEnrollmentAdminService {
       studentClientId: String(row.studentClientId),
       studentUserId: Number.isFinite(Number(row.studentUserId)) ? Number(row.studentUserId) : null,
       billingResponsibleClientId: row.billingResponsibleClientId ? String(row.billingResponsibleClientId) : null,
+      seriesMemberId: row.seriesMemberId ? String(row.seriesMemberId) : null,
       snapshotName: String(row.snapshotName || '').trim(),
       snapshotEmail: normalizeOptionalString(row.snapshotEmail),
       snapshotPhone: normalizeOptionalString(row.snapshotPhone),

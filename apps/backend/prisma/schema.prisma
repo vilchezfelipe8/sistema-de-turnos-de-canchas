@@ -740,6 +740,8 @@ model Club {
   classSessions ClassSession[]
   classEnrollments ClassEnrollment[]
   classPasses ClassPass[]
+  classSeries ClassSeries[]
+  classSeriesMembers ClassSeriesMember[]
   classCreditUsages ClassCreditUsage[]
   memberCategories MemberCategory[]
   clubMembers ClubMember[]
@@ -851,6 +853,7 @@ model Court {
   fixedBookings FixedBooking[]
   priceRules    CourtPriceRule[]
   classSessions ClassSession[]
+  classSeries ClassSeries[]
   courtBlocks   CourtBlock[]
 
   @@index([clubId])
@@ -918,6 +921,7 @@ model ActivityType {
   fixedBookings          FixedBooking[]
   discountTargets        DiscountPolicyTarget[]
   classSessions          ClassSession[]
+  classSeries            ClassSeries[]
   classPasses            ClassPass[]
   formats                ActivityFormat[]
   subscriptionEntitlements SubscriptionPlanEntitlement[]
@@ -1020,6 +1024,8 @@ model Client {
   outgoingClientRelationships ClientRelationship[] @relation("ClientRelationshipFromClient")
   incomingClientRelationships ClientRelationship[] @relation("ClientRelationshipToClient")
   studentClassEnrollments ClassEnrollment[] @relation("ClassEnrollmentStudentClient")
+  classSeriesMemberships ClassSeriesMember[] @relation("ClassSeriesMemberStudentClient")
+  classSeriesPaidMemberships ClassSeriesMember[] @relation("ClassSeriesMemberBillingClient")
   billingResponsibleClassEnrollments ClassEnrollment[] @relation("ClassEnrollmentBillingResponsibleClient")
   ownedClassPasses ClassPass[] @relation("ClassPassOwnerClient")
   beneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryClient")
@@ -1165,6 +1171,7 @@ model Teacher {
 
   classSessions ClassSession[]
   classPasses   ClassPass[]
+  classSeries   ClassSeries[]
 
   @@index([clubId, isActive, displayName])
   @@index([clientId])
@@ -1235,7 +1242,13 @@ model ClassSession {
   createdAt    DateTime @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 
+  // Clase generada por un curso (días fijos). Null = clase suelta.
+  seriesId String?
+  series   ClassSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+
   enrollments ClassEnrollment[]
+
+  @@index([seriesId, startsAt])
 
   @@index([clubId, startsAt])
   @@index([clubId, status])
@@ -1283,12 +1296,91 @@ model ClassEnrollment {
 
   creditUsages ClassCreditUsage[]
 
+  // Inscripción creada por estar anotado al curso. Null = anotado solo a esta clase.
+  seriesMemberId String?
+  seriesMember   ClassSeriesMember? @relation(fields: [seriesMemberId], references: [id], onDelete: SetNull)
+
+  @@index([seriesMemberId])
   @@index([clubId, classSessionId])
   @@index([clubId, studentClientId])
   @@index([clubId, billingResponsibleClientId])
   @@index([classSessionId, enrollmentStatus])
   @@index([classSessionId, attendanceStatus])
   @@index([classSessionId, paymentStatus])
+}
+
+enum ClassSeriesStatus {
+  ACTIVE
+  ENDED
+}
+
+// Curso: clase que se repite en días fijos. Genera las ClassSession de las próximas semanas
+// y anota a sus alumnos en cada una. Las fechas y la hora son del huso del club.
+model ClassSeries {
+  id        String @id @default(cuid())
+  clubId    Int
+  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  teacherId String
+  teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Restrict)
+
+  activityTypeId Int?
+  activityType   ActivityType? @relation(fields: [activityTypeId], references: [id], onDelete: SetNull)
+
+  courtId Int?
+  court   Court? @relation(fields: [courtId], references: [id], onDelete: SetNull)
+
+  classType       ClassSessionType
+  weekdays        Int[]   // 0 = domingo … 6 = sábado
+  startTime       String  // "HH:MM"
+  durationMinutes Int
+  capacity        Int
+  pricePerStudent Decimal? @db.Decimal(10, 2)
+  level           String?
+  description     String?
+
+  startsOn       DateTime  @db.Date
+  endsOn         DateTime? @db.Date
+  generatedUntil DateTime? @db.Date
+  status         ClassSeriesStatus @default(ACTIVE)
+
+  createdByUserId Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  sessions ClassSession[]
+  members  ClassSeriesMember[]
+
+  @@index([clubId, status])
+  @@index([teacherId])
+}
+
+// Alumno anotado al curso: queda en todas las clases desde joinedAt hasta leftAt.
+model ClassSeriesMember {
+  id       String @id @default(cuid())
+  clubId   Int
+  club     Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  seriesId String
+  series   ClassSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  studentClientId String
+  studentClient   Client @relation("ClassSeriesMemberStudentClient", fields: [studentClientId], references: [id], onDelete: Restrict)
+
+  billingResponsibleClientId String?
+  billingResponsibleClient   Client? @relation("ClassSeriesMemberBillingClient", fields: [billingResponsibleClientId], references: [id], onDelete: SetNull)
+
+  joinedAt DateTime  @default(now()) @db.Timestamptz(3)
+  leftAt   DateTime? @db.Timestamptz(3)
+  notes    String?
+
+  createdByUserId Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  enrollments ClassEnrollment[]
+
+  @@index([seriesId, leftAt])
+  @@index([clubId, studentClientId])
 }
 
 model ClassPass {

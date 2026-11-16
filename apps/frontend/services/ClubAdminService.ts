@@ -197,6 +197,68 @@ export type AdminClassSession = {
   updatedAt: string;
   /** Alumnos anotados; viene solo en el listado. */
   enrolledCount?: number;
+  /** Curso al que pertenece (días fijos). Null = clase suelta. */
+  seriesId?: string | null;
+  series?: { id: string; weekdays: number[]; startTime: string; status: string } | null;
+};
+
+export type AdminClassSeries = {
+  id: string;
+  teacherId: string;
+  teacher: { id: string; displayName: string } | null;
+  activityTypeId: number | null;
+  activityType: { id: number; name: string } | null;
+  courtId: number | null;
+  court: { id: number; name: string } | null;
+  classType: AdminClassSessionType;
+  weekdays: number[];
+  weekdaysLabel: string;
+  startTime: string;
+  durationMinutes: number;
+  capacity: number;
+  pricePerStudent: number | null;
+  level: string | null;
+  description: string | null;
+  startsOn: string;
+  endsOn: string | null;
+  status: 'ACTIVE' | 'ENDED';
+  members?: Array<{
+    id: string;
+    studentClientId: string;
+    studentName: string;
+    studentPhone: string | null;
+    billingResponsibleClientId: string | null;
+    billingResponsibleName: string | null;
+    joinedAt: string;
+    notes: string | null;
+  }>;
+  activeMembersCount?: number;
+};
+
+export type AdminClassSeriesInput = {
+  teacherId: string;
+  activityTypeId?: number | null;
+  courtId?: number | null;
+  weekdays: number[];
+  startTime: string;
+  durationMinutes: number;
+  capacity: number;
+  pricePerStudent?: number | null;
+  level?: string | null;
+  description?: string | null;
+  startsOn: string;
+  endsOn?: string | null;
+  /** Crear igual, salteando las fechas con la cancha ocupada. */
+  skipConflicts?: boolean;
+};
+
+export type AdminClassSeriesConflict = { date: string; startsAt: string; reason: string };
+
+export type AdminClassSeriesSaveResult = {
+  series: AdminClassSeries;
+  created: number;
+  skipped: AdminClassSeriesConflict[];
+  kept?: number;
 };
 
 export type AdminClassEnrollmentStatus = 'ENROLLED' | 'WAITLISTED' | 'CANCELLED';
@@ -216,6 +278,8 @@ export type AdminClassEnrollment = {
   studentClientId: string;
   studentUserId: number | null;
   billingResponsibleClientId: string | null;
+  /** Anotado por estar en el curso. Null = anotado solo a esta clase. */
+  seriesMemberId?: string | null;
   snapshotName: string;
   snapshotEmail: string | null;
   snapshotPhone: string | null;
@@ -1547,6 +1611,66 @@ export class ClubAdminService {
     if (!res.ok) {
       throw await parseApiErrorResponse(res, 'Error al actualizar estado del profesor');
     }
+    return res.json();
+  }
+
+  static async getClassSeries(slug: string, id: string): Promise<AdminClassSeries> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series/${id}`, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al cargar el curso');
+    return res.json();
+  }
+
+  static async createClassSeries(slug: string, data: AdminClassSeriesInput): Promise<AdminClassSeriesSaveResult> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al crear el curso');
+    return res.json();
+  }
+
+  static async updateClassSeries(slug: string, id: string, data: AdminClassSeriesInput): Promise<AdminClassSeriesSaveResult> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al guardar el curso');
+    return res.json();
+  }
+
+  static async endClassSeries(slug: string, id: string): Promise<{ series: AdminClassSeries; kept: number }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series/${id}/end`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al terminar el curso');
+    return res.json();
+  }
+
+  static async addClassSeriesMember(
+    slug: string,
+    id: string,
+    data: { studentClientId: string; billingResponsibleClientId?: string | null; notes?: string | null }
+  ): Promise<{ series: AdminClassSeries; enrolled: number; full: string[] }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series/${id}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al anotar al curso');
+    return res.json();
+  }
+
+  static async removeClassSeriesMember(slug: string, id: string, memberId: string): Promise<{ series: AdminClassSeries; kept: number }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series/${id}/members/${memberId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al sacar del curso');
     return res.json();
   }
 

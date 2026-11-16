@@ -53,6 +53,9 @@ type ClassSessionSummary = {
   createdByUser: { id: number; email: string; firstName: string | null; lastName: string | null } | null;
   createdAt: string;
   updatedAt: string;
+  /** Curso al que pertenece (clase con días fijos). Null = clase suelta. */
+  seriesId: string | null;
+  series: { id: string; weekdays: number[]; startTime: string; status: string } | null;
   /** Alumnos anotados (sin contar en espera ni cancelados). Solo viene en el listado. */
   enrolledCount?: number;
 };
@@ -106,6 +109,15 @@ export class ClassSessionAdminService {
             email: String(row.createdByUser.email || '').trim(),
             firstName: normalizeOptionalString(row.createdByUser.firstName),
             lastName: normalizeOptionalString(row.createdByUser.lastName),
+          }
+        : null,
+      seriesId: row.seriesId ? String(row.seriesId) : null,
+      series: row.series
+        ? {
+            id: String(row.series.id),
+            weekdays: Array.isArray(row.series.weekdays) ? row.series.weekdays.map(Number) : [],
+            startTime: String(row.series.startTime),
+            status: String(row.series.status),
           }
         : null,
       createdAt: new Date(row.createdAt).toISOString(),
@@ -237,6 +249,7 @@ export class ClassSessionAdminService {
         court: { select: { id: true, name: true } },
         activityType: { select: { id: true, name: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+        series: { select: { id: true, weekdays: true, startTime: true, status: true } },
         _count: { select: { enrollments: { where: { enrollmentStatus: 'ENROLLED' } } } },
       },
       orderBy: [{ startsAt: 'asc' }, { createdAt: 'desc' }],
@@ -252,6 +265,7 @@ export class ClassSessionAdminService {
         court: { select: { id: true, name: true } },
         activityType: { select: { id: true, name: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+        series: { select: { id: true, weekdays: true, startTime: true, status: true } },
       },
     });
     if (!row) {
@@ -272,6 +286,7 @@ export class ClassSessionAdminService {
         court: { select: { id: true, name: true } },
         activityType: { select: { id: true, name: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+        series: { select: { id: true, weekdays: true, startTime: true, status: true } },
       },
     });
     return this.mapRow(created);
@@ -337,6 +352,7 @@ export class ClassSessionAdminService {
         court: { select: { id: true, name: true } },
         activityType: { select: { id: true, name: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+        series: { select: { id: true, weekdays: true, startTime: true, status: true } },
       },
     });
     return this.mapRow(updated);
@@ -361,6 +377,7 @@ export class ClassSessionAdminService {
         court: { select: { id: true, name: true } },
         activityType: { select: { id: true, name: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+        series: { select: { id: true, weekdays: true, startTime: true, status: true } },
       },
     });
     return this.mapRow(updated);

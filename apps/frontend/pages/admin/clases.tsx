@@ -41,6 +41,8 @@ import {
   type AdminClassEnrollmentStatus,
   type AdminClassPass,
   type AdminClassPaymentStatus,
+  type AdminClassSeriesConflict,
+  type AdminClassSeriesInput,
   type AdminClassSession,
   type AdminClassSessionStatus,
   type AdminClassSessionType,
@@ -285,21 +287,29 @@ const classWeekLabel = (weekStart: Date) => {
   return `Semana del lunes ${label}`;
 };
 
-const shiftLocalInputDays = (value: string, days: number) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  date.setDate(date.getDate() + days);
-  return toLocalDateTimeInputValue(date);
-};
-
 const CLASS_DURATION_CHOICES = [30, 45, 60, 90, 120];
 
-const CLASS_REPEAT_CHOICES: Array<{ value: number; label: string }> = [
-  { value: 1, label: 'Solo esta vez' },
-  { value: 4, label: '4 semanas' },
-  { value: 8, label: '8 semanas' },
-  { value: 12, label: '12 semanas' },
+// Lunes primero: así se lee una semana de clases.
+const WEEKDAY_CHOICES: Array<{ value: number; label: string; long: string }> = [
+  { value: 1, label: 'Lun', long: 'lunes' },
+  { value: 2, label: 'Mar', long: 'martes' },
+  { value: 3, label: 'Mié', long: 'miércoles' },
+  { value: 4, label: 'Jue', long: 'jueves' },
+  { value: 5, label: 'Vie', long: 'viernes' },
+  { value: 6, label: 'Sáb', long: 'sábados' },
+  { value: 0, label: 'Dom', long: 'domingos' },
 ];
+
+const weekdaysLabel = (weekdays: number[], long = false) =>
+  WEEKDAY_CHOICES.filter((day) => weekdays.includes(day.value))
+    .map((day) => (long ? day.long : day.label.toLowerCase()))
+    .join(', ')
+    .replace(/, ([^,]*)$/, ' y $1');
+
+const weekdayOfDateKey = (dateKey: string) => new Date(`${dateKey}T12:00:00`).getDay();
+
+const formatDateKeyLabel = (dateKey: string) =>
+  new Date(`${dateKey}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
 
 const durationChoiceLabel = (minutes: number) => {
   if (minutes < 60) return `${minutes} min`;
@@ -855,7 +865,16 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ClassStatusFilter>('active');
-  const [classRepeatWeeks, setClassRepeatWeeks] = useState(1);
+  // Curso: la clase se repite todas las semanas en los días elegidos.
+  const [classWeekly, setClassWeekly] = useState(false);
+  const [classWeekdays, setClassWeekdays] = useState<number[]>([]);
+  const [classEndsOn, setClassEndsOn] = useState('');
+  const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
+  const [seriesConflicts, setSeriesConflicts] = useState<AdminClassSeriesConflict[] | null>(null);
+  const [seriesEndConfirm, setSeriesEndConfirm] = useState<AdminClassSession | null>(null);
+  const [seriesBusy, setSeriesBusy] = useState(false);
+  const [enrollToSeries, setEnrollToSeries] = useState(true);
+  const [enrollmentRemoveConfirm, setEnrollmentRemoveConfirm] = useState<AdminClassEnrollment | null>(null);
   const [classFormMoreOpen, setClassFormMoreOpen] = useState(false);
   const [classCancelConfirm, setClassCancelConfirm] = useState<AdminClassSession | null>(null);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
@@ -1241,7 +1260,11 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     setFormError('');
     setFieldErrors({});
     setEditingClassId(null);
-    setClassRepeatWeeks(1);
+    setEditingSeriesId(null);
+    setClassWeekly(false);
+    setClassWeekdays([]);
+    setClassEndsOn('');
+    setSeriesConflicts(null);
     setClassFormMoreOpen(false);
   }, []);
 
@@ -1308,6 +1331,68 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     [clubSlug]
   );
 
+  const openSeriesEditModal = useCallback(
+    async (seriesId: string) => {
+      if (!clubSlug) return;
+      try {
+        setSubmitting(true);
+        resetClassForm();
+        const series = await ClubAdminService.getClassSeries(clubSlug, seriesId);
+        const startsAt = `${series.startsOn}T${series.startTime}`;
+        const endsAt = toLocalDateTimeInputValue(addMinutes(new Date(startsAt), series.durationMinutes));
+        setEditingSeriesId(series.id);
+        setClassWeekly(true);
+        setClassWeekdays(series.weekdays);
+        setClassEndsOn(series.endsOn || '');
+        setForm({
+          ...buildEmptyClassForm(),
+          teacherId: series.teacherId,
+          classType: series.classType,
+          activityTypeId: series.activityTypeId ? String(series.activityTypeId) : '',
+          courtId: series.courtId ? String(series.courtId) : '',
+          startsAt,
+          endsAt,
+          capacity: String(series.capacity || ''),
+          pricePerStudent: series.pricePerStudent == null ? '' : String(series.pricePerStudent),
+          level: series.level || '',
+          description: series.description || '',
+        });
+        setModalOpen(true);
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'openSeriesEditModal' }, error);
+        setFeedback({ tone: 'error', message: extractErrorMessage(error, 'No se pudo cargar el curso.') });
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [clubSlug, resetClassForm]
+  );
+
+  const endSeries = useCallback(
+    async (classSession: AdminClassSession) => {
+      if (!clubSlug || !classSession.seriesId || seriesBusy) return;
+      try {
+        setSeriesBusy(true);
+        const result = await ClubAdminService.endClassSeries(clubSlug, classSession.seriesId);
+        setSeriesEndConfirm(null);
+        await loadClassSessions();
+        const kept = Number(result?.kept || 0);
+        showAdminToast(
+          kept > 0
+            ? `Curso terminado. ${kept === 1 ? 'Quedó 1 clase' : `Quedaron ${kept} clases`} con pagos o asistencia.`
+            : 'Curso terminado. Se sacaron las clases que venían.'
+        );
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'endSeries' }, error);
+        setFeedback({ tone: 'error', message: extractErrorMessage(error, 'No se pudo terminar el curso.') });
+      } finally {
+        setSeriesBusy(false);
+      }
+    },
+    [clubSlug, loadClassSessions, seriesBusy]
+  );
+
   const closeModal = useCallback(() => {
     if (submitting) return;
     setModalOpen(false);
@@ -1326,6 +1411,66 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       capacity: nextType === 'INDIVIDUAL' ? '1' : prev.capacity === '1' || !prev.capacity ? '2' : prev.capacity,
     }));
   }, []);
+
+  // Curso: se guarda una vez y el servidor genera las clases de las próximas semanas.
+  const submitSeries = async (skipConflicts: boolean) => {
+    if (!clubSlug) return;
+    if (classWeekdays.length === 0) {
+      setFormError('Elegí qué días se da.');
+      setFieldErrors({ weekdays: 'Elegí al menos un día.' });
+      return;
+    }
+    const parsedPrice = parseOptionalPositiveNumber(form.pricePerStudent);
+    const payload: AdminClassSeriesInput = {
+      teacherId: form.teacherId,
+      activityTypeId: form.activityTypeId ? Number(form.activityTypeId) : null,
+      courtId: form.courtId ? Number(form.courtId) : null,
+      weekdays: classWeekdays,
+      startTime: form.startsAt.slice(11, 16),
+      durationMinutes: durationFromForm(form),
+      capacity: form.classType === 'INDIVIDUAL' ? 1 : Number(form.capacity),
+      pricePerStudent: Number.isNaN(parsedPrice) ? null : parsedPrice,
+      level: normalizeOptionalText(form.level),
+      description: normalizeOptionalText(form.description),
+      startsOn: form.startsAt.slice(0, 10),
+      endsOn: classEndsOn || null,
+      skipConflicts,
+    };
+    try {
+      setSubmitting(true);
+      setFormError('');
+      setFieldErrors({});
+      setSeriesConflicts(null);
+      const result = editingSeriesId
+        ? await ClubAdminService.updateClassSeries(clubSlug, editingSeriesId, payload)
+        : await ClubAdminService.createClassSeries(clubSlug, payload);
+      const created = Number(result?.created || 0);
+      const skipped = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+      const kept = Number(result?.kept || 0);
+      const parts = [
+        editingSeriesId
+          ? 'Curso actualizado.'
+          : `Curso creado: ${created === 1 ? '1 clase' : `${created} clases`} en las próximas semanas.`,
+      ];
+      if (skipped) parts.push(`${skipped === 1 ? '1 fecha salteada' : `${skipped} fechas salteadas`}.`);
+      if (kept) parts.push(`${kept === 1 ? '1 clase con pagos o asistencia quedó' : `${kept} clases con pagos o asistencia quedaron`} como estaba.`);
+      showAdminToast(parts.join(' '));
+      closeModalImmediately();
+      await loadClassSessions();
+      setFeedback(null);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
+    } catch (error) {
+      reportUiError({ area: 'AdminClassesPage', action: 'submitSeries' }, error);
+      const conflicts = normalizeApiError(error).meta?.conflicts;
+      if (Array.isArray(conflicts) && conflicts.length) {
+        setSeriesConflicts(conflicts as AdminClassSeriesConflict[]);
+      }
+      setFieldErrors(getApiFieldErrors(error));
+      setFormError(extractErrorMessage(error, 'No se pudo guardar el curso.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const submitForm = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1366,6 +1511,11 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       return;
     }
 
+    if (classWeekly || editingSeriesId) {
+      await submitSeries(false);
+      return;
+    }
+
     try {
       setSubmitting(true);
       setFormError('');
@@ -1394,29 +1544,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         await ClubAdminService.updateClassSession(clubSlug, editingClassId, payload);
         showAdminToast('Clase actualizada.');
       } else {
-        // "Se repite": se crea una clase por semana, mismo día y hora.
-        const weeks = Math.max(1, classRepeatWeeks);
-        const failed: string[] = [];
-        let created = 0;
-        for (let week = 0; week < weeks; week += 1) {
-          const startsAt = localInputToIso(shiftLocalInputDays(form.startsAt, week * 7));
-          const endsAt = localInputToIso(shiftLocalInputDays(form.endsAt, week * 7));
-          try {
-            await ClubAdminService.createClassSession(clubSlug, { ...payload, startsAt, endsAt });
-            created += 1;
-          } catch (error) {
-            if (weeks === 1) throw error;
-            failed.push(`${formatClassDay(startsAt)} (${extractErrorMessage(error, 'no se pudo')})`);
-          }
-        }
-        if (created === 0) {
-          setFormError(`No se pudo crear ninguna clase. ${failed[0] || ''}`.trim());
-          return;
-        }
-        showAdminToast(created === 1 ? 'Clase creada.' : `Se crearon ${created} clases.`);
-        if (failed.length) {
-          partialError = `No se pudieron crear ${failed.length === 1 ? '1 clase' : `${failed.length} clases`}: ${failed.join(' · ')}`;
-        }
+        await ClubAdminService.createClassSession(clubSlug, payload);
+        showAdminToast('Clase creada.');
       }
 
       closeModalImmediately();
@@ -1452,6 +1581,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
   const openEnrollmentCreateModal = useCallback(() => {
     resetEnrollmentForm();
+    setEnrollToSeries(true);
     setNewStudentPhone('');
     setEnrollmentOtherPayer(false);
     setEnrollmentDrawerTab('summary');
@@ -1646,6 +1776,34 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     studentUserSearchTransform
   );
 
+  const selectedClassInActiveSeries = Boolean(selectedClass?.seriesId && selectedClass.series?.status === 'ACTIVE');
+  const enrollmentGoesToSeries = selectedClassInActiveSeries && enrollToSeries;
+
+  const removeEnrollmentFromSeries = useCallback(
+    async (enrollment: AdminClassEnrollment) => {
+      if (!clubSlug || !selectedClass?.seriesId || !enrollment.seriesMemberId || seriesBusy) return;
+      try {
+        setSeriesBusy(true);
+        const result = await ClubAdminService.removeClassSeriesMember(clubSlug, selectedClass.seriesId, enrollment.seriesMemberId);
+        setEnrollmentRemoveConfirm(null);
+        await loadEnrollments(selectedClass.id);
+        const kept = Number(result?.kept || 0);
+        showAdminToast(
+          kept > 0
+            ? `Sacado del curso. ${kept === 1 ? 'Queda en 1 clase' : `Queda en ${kept} clases`} con pagos o asistencia.`
+            : 'Sacado del curso.'
+        );
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'removeEnrollmentFromSeries' }, error);
+        setFeedback({ tone: 'error', message: extractErrorMessage(error, 'No se pudo sacar al alumno del curso.') });
+      } finally {
+        setSeriesBusy(false);
+      }
+    },
+    [clubSlug, loadEnrollments, selectedClass, seriesBusy]
+  );
+
   const submitEnrollmentForm = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!clubSlug || !selectedClass || enrollmentSubmitting) return;
@@ -1691,13 +1849,29 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           studentClientId = String(created?.id || created?.client?.id || '');
           if (!studentClientId) throw new Error('No se pudo crear el cliente.');
         }
-        await ClubAdminService.createClassEnrollment(clubSlug, selectedClass.id, {
-          studentClientId,
-          studentUserId: enrollmentForm.selectedStudentUser?.userId ?? enrollmentForm.selectedStudent?.userId ?? null,
-          billingResponsibleClientId: enrollmentOtherPayer ? enrollmentForm.selectedResponsible?.clientId ?? null : null,
-          notes: normalizeOptionalText(enrollmentForm.notes),
-        });
-        showAdminToast(pendingNewStudent ? 'Cliente creado y anotado.' : 'Alumno anotado.');
+        const billingResponsibleClientId = enrollmentOtherPayer ? enrollmentForm.selectedResponsible?.clientId ?? null : null;
+        if (enrollmentGoesToSeries && selectedClass.seriesId) {
+          const result = await ClubAdminService.addClassSeriesMember(clubSlug, selectedClass.seriesId, {
+            studentClientId,
+            billingResponsibleClientId,
+            notes: normalizeOptionalText(enrollmentForm.notes),
+          });
+          const enrolled = Number(result?.enrolled || 0);
+          const full = Array.isArray(result?.full) ? result.full.length : 0;
+          showAdminToast(
+            `Anotado al curso: ${enrolled === 1 ? '1 clase' : `${enrolled} clases`}.${
+              full ? ` ${full === 1 ? '1 clase estaba llena' : `${full} clases estaban llenas`}.` : ''
+            }`
+          );
+        } else {
+          await ClubAdminService.createClassEnrollment(clubSlug, selectedClass.id, {
+            studentClientId,
+            studentUserId: enrollmentForm.selectedStudentUser?.userId ?? enrollmentForm.selectedStudent?.userId ?? null,
+            billingResponsibleClientId,
+            notes: normalizeOptionalText(enrollmentForm.notes),
+          });
+          showAdminToast(pendingNewStudent ? 'Cliente creado y anotado.' : 'Alumno anotado.');
+        }
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
       }
 
@@ -2077,16 +2251,21 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     CLASS_DURATION_CHOICES.includes(durationMinutes) || durationMinutes <= 0
       ? CLASS_DURATION_CHOICES
       : [...CLASS_DURATION_CHOICES, durationMinutes].sort((a, b) => a - b);
-  const repeatHint = (() => {
-    if (editingClassId || classRepeatWeeks <= 1 || !formDate) return '';
-    const start = new Date(form.startsAt);
-    if (Number.isNaN(start.getTime())) return '';
-    const weekday = start.toLocaleDateString('es-AR', { weekday: 'long' });
-    const last = new Date(start);
-    last.setDate(last.getDate() + (classRepeatWeeks - 1) * 7);
-    const lastLabel = last.toLocaleDateString('es-AR', { day: 'numeric', month: 'long' });
-    return `Se crean ${classRepeatWeeks} clases: todos los ${weekday} a las ${formTime}, hasta el ${lastLabel}.`;
+  const weeklyHint = (() => {
+    if (!classWeekly) return 'Una sola fecha. Para clases de todas las semanas, elegí "Todas las semanas".';
+    if (classWeekdays.length === 0 || !formTime) return 'Elegí qué días se da.';
+    const until = classEndsOn
+      ? `hasta el ${new Date(`${classEndsOn}T12:00:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' })}`
+      : 'hasta que lo termines';
+    return `Todos los ${weekdaysLabel(classWeekdays, true)} a las ${formTime}, ${until}. Anotás a cada alumno una vez y queda en todas las clases.`;
   })();
+  const toggleClassWeekday = (day: number) =>
+    setClassWeekdays((prev) => (prev.includes(day) ? prev.filter((value) => value !== day) : [...prev, day]));
+  const chooseWeekly = (weekly: boolean) => {
+    setClassWeekly(weekly);
+    setSeriesConflicts(null);
+    if (weekly && classWeekdays.length === 0 && formDate) setClassWeekdays([weekdayOfDateKey(formDate)]);
+  };
   const classFormContent = (
     <form id="class-session-form" onSubmit={submitForm} className="space-y-6">
       {formError && <AdminInlineError>{formError}</AdminInlineError>}
@@ -2135,7 +2314,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       <FormBlock title="¿Cuándo?" error={fieldErrors.startsAt || fieldErrors.endsAt}>
         <div className="grid grid-cols-2 gap-3 sm:max-w-[360px]">
           <label className="space-y-1">
-            <span className="text-[12px] text-p-text-muted">Día</span>
+            <span className="text-[12px] text-p-text-muted">{classWeekly ? 'Empieza el' : 'Día'}</span>
             <input
               type="date"
               value={formDate}
@@ -2178,18 +2357,65 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       </FormBlock>
 
       {!editingClassId && (
-        <FormBlock title="¿Se repite todas las semanas?" hint={repeatHint}>
-          <div className="flex flex-wrap gap-2">
-            {CLASS_REPEAT_CHOICES.map((choice) => (
-              <ChoiceChip
-                key={choice.value}
-                active={classRepeatWeeks === choice.value}
-                onClick={() => setClassRepeatWeeks(choice.value)}
-              >
-                {choice.label}
+        <FormBlock title="¿Se repite?" hint={weeklyHint} error={fieldErrors.weekdays}>
+          {!editingSeriesId && (
+            <div className="flex flex-wrap gap-2">
+              <ChoiceChip active={!classWeekly} onClick={() => chooseWeekly(false)}>
+                Solo una vez
               </ChoiceChip>
-            ))}
-          </div>
+              <ChoiceChip active={classWeekly} onClick={() => chooseWeekly(true)}>
+                Todas las semanas
+              </ChoiceChip>
+            </div>
+          )}
+          {classWeekly && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {WEEKDAY_CHOICES.map((day) => (
+                  <ChoiceChip
+                    key={day.value}
+                    active={classWeekdays.includes(day.value)}
+                    onClick={() => toggleClassWeekday(day.value)}
+                  >
+                    {day.label}
+                  </ChoiceChip>
+                ))}
+              </div>
+              <label className="block space-y-1 sm:max-w-[200px]">
+                <span className="text-[12px] text-p-text-muted">Hasta (opcional)</span>
+                <input
+                  type="date"
+                  value={classEndsOn}
+                  min={formDate || undefined}
+                  onChange={(event) => setClassEndsOn(event.target.value)}
+                  className={fieldInputClass}
+                />
+              </label>
+            </div>
+          )}
+          {seriesConflicts && seriesConflicts.length > 0 && (
+            <div className="space-y-2 rounded-xl border border-p-border bg-p-surface-2 px-3 py-3">
+              <p className="text-[13px] font-semibold text-p-text">
+                {seriesConflicts.length === 1 ? 'Esta fecha choca' : `Estas ${seriesConflicts.length} fechas chocan`} con algo en la cancha:
+              </p>
+              <ul className="space-y-0.5 text-[12px] text-p-text-secondary">
+                {seriesConflicts.slice(0, 6).map((conflict) => (
+                  <li key={conflict.date}>
+                    {formatDateKeyLabel(conflict.date)} · {conflict.reason}
+                  </li>
+                ))}
+                {seriesConflicts.length > 6 && <li>y {seriesConflicts.length - 6} más</li>}
+              </ul>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => void submitSeries(true)}
+                className="text-[13px] font-semibold text-p-text underline underline-offset-2 disabled:opacity-50"
+              >
+                Crear igual, sin esas fechas
+              </button>
+            </div>
+          )}
         </FormBlock>
       )}
 
@@ -2263,23 +2489,6 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         </button>
         {classFormMoreOpen && (
           <div className="mt-4 space-y-4">
-            <div className="grid gap-2">
-              <CheckboxField
-                label="Se ve en la app: los jugadores pueden anotarse solos"
-                checked={form.visibility === 'PUBLIC'}
-                onChange={(checked) => setForm((prev) => ({ ...prev, visibility: checked ? 'PUBLIC' : 'PRIVATE' }))}
-              />
-              <CheckboxField
-                label="Aprobar a cada uno antes de anotarlo"
-                checked={form.requiresApproval}
-                onChange={(checked) => setForm((prev) => ({ ...prev, requiresApproval: checked }))}
-              />
-              <CheckboxField
-                label="Cobrar antes de anotar"
-                checked={form.requiresPaymentToEnroll}
-                onChange={(checked) => setForm((prev) => ({ ...prev, requiresPaymentToEnroll: checked }))}
-              />
-            </div>
             <Field
               label="Nivel (opcional)"
               value={form.level}
@@ -2618,14 +2827,41 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 <UserPlus size={14} />
                 Agregar alumno
               </button>
-              <button
-                type="button"
-                onClick={() => void openEditModal(selectedClass.id)}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
-              >
-                <Pencil size={14} />
-                Editar
-              </button>
+              {selectedClass.seriesId && selectedClass.series?.status === 'ACTIVE' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void openSeriesEditModal(selectedClass.seriesId as string)}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+                  >
+                    <Pencil size={14} />
+                    Editar curso
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void openEditModal(selectedClass.id)}
+                    className="inline-flex h-9 items-center justify-center rounded-lg px-2 text-sm font-semibold text-p-text-muted transition hover:text-p-text hover:underline underline-offset-2"
+                  >
+                    Solo esta fecha
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSeriesEndConfirm(selectedClass)}
+                    className="inline-flex h-9 items-center justify-center rounded-lg px-2 text-sm font-semibold text-[var(--error-fg)] transition hover:underline underline-offset-2"
+                  >
+                    Terminar curso
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void openEditModal(selectedClass.id)}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+                >
+                  <Pencil size={14} />
+                  Editar
+                </button>
+              )}
             </div>
           ) : null
         }
@@ -2645,7 +2881,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             enrollmentsLoading={enrollmentsLoading}
             activeTabId={classDrawerTab}
             onManageEnrollment={openEnrollmentEditModal}
-            onCancelEnrollment={(row) => void cancelEnrollment(row)}
+            onCancelEnrollment={(row) => {
+              if (row.seriesMemberId && selectedClass.seriesId) setEnrollmentRemoveConfirm(row);
+              else void cancelEnrollment(row);
+            }}
             enrollmentStatusBusyId={enrollmentStatusBusyId}
             quickAttendanceBusyId={quickAttendanceBusyId}
             quickCreditBusyEnrollmentId={quickCreditBusyEnrollmentId}
@@ -2660,8 +2899,14 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       <AdminDrawer
         open={modalOpen}
         onClose={closeModal}
-        title={editingClassId ? 'Editar clase' : 'Nueva clase'}
-        subtitle={editingClassId ? 'Cambiá lo que necesites.' : 'Quién la da, cuándo y para cuántos.'}
+        title={editingSeriesId ? 'Editar curso' : editingClassId ? 'Editar esta fecha' : classWeekly ? 'Nuevo curso' : 'Nueva clase'}
+        subtitle={
+          editingSeriesId
+            ? 'Los cambios se aplican a las clases que vienen.'
+            : editingClassId
+              ? 'Cambiá lo que necesites.'
+              : 'Quién la da, cuándo y para cuántos.'
+        }
         size="lg"
         footer={
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -2680,11 +2925,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             >
               {submitting
                 ? 'Guardando...'
-                : editingClassId
-                  ? 'Guardar cambios'
-                  : classRepeatWeeks > 1
-                    ? `Crear ${classRepeatWeeks} clases`
-                    : 'Crear clase'}
+                : editingSeriesId
+                  ? 'Guardar curso'
+                  : editingClassId
+                    ? 'Guardar cambios'
+                    : classWeekly
+                      ? 'Crear curso'
+                      : 'Crear clase'}
             </button>
           </div>
         }
@@ -2792,6 +3039,25 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   helper="Si no está cargado, escribí el nombre completo y elegí la opción para crearlo."
                 />
               )}
+
+              {!editingEnrollmentId && selectedClassInActiveSeries ? (
+                <div className="space-y-1.5">
+                  <span className="text-[12px] text-p-text-muted">¿A qué lo anotás?</span>
+                  <div className="flex flex-wrap gap-2">
+                    <ChoiceChip active={enrollToSeries} onClick={() => setEnrollToSeries(true)}>
+                      A todo el curso
+                    </ChoiceChip>
+                    <ChoiceChip active={!enrollToSeries} onClick={() => setEnrollToSeries(false)}>
+                      Solo a esta clase
+                    </ChoiceChip>
+                  </div>
+                  <p className="text-[12px] text-p-text-muted">
+                    {enrollToSeries
+                      ? `Queda en todas las clases que vienen (${weekdaysLabel(selectedClass?.series?.weekdays || [])} ${selectedClass?.series?.startTime || ''}).`
+                      : 'Solo para esta fecha, por ejemplo para recuperar una clase.'}
+                  </p>
+                </div>
+              ) : null}
 
               {!editingEnrollmentId &&
               enrollmentForm.selectedStudent?.kind === 'newClientSuggestion' &&
@@ -3418,6 +3684,51 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       />
 
       <AdminAppModal
+        show={Boolean(seriesEndConfirm)}
+        onClose={() => {
+          if (!seriesBusy) setSeriesEndConfirm(null);
+        }}
+        title="¿Terminar este curso?"
+        message={
+          seriesEndConfirm?.series ? (
+            <p>
+              Se sacan las clases que vienen ({weekdaysLabel(seriesEndConfirm.series.weekdays)} {seriesEndConfirm.series.startTime}) y
+              la cancha queda libre. Las clases pasadas y las que tienen pagos o asistencia quedan como están.
+            </p>
+          ) : null
+        }
+        cancelText="No, volver"
+        confirmText={seriesBusy ? 'Terminando...' : 'Sí, terminar curso'}
+        confirmDisabled={seriesBusy}
+        isWarning
+        onConfirm={() => {
+          if (seriesEndConfirm) void endSeries(seriesEndConfirm);
+        }}
+      />
+
+      <AdminAppModal
+        show={Boolean(enrollmentRemoveConfirm)}
+        onClose={() => {
+          if (!seriesBusy) setEnrollmentRemoveConfirm(null);
+        }}
+        onCancel={() => {
+          const target = enrollmentRemoveConfirm;
+          if (!target || seriesBusy) return;
+          setEnrollmentRemoveConfirm(null);
+          void cancelEnrollment(target);
+        }}
+        title={`¿Sacar a ${enrollmentRemoveConfirm?.snapshotName || 'este alumno'}?`}
+        message={<p>Está anotado al curso. Podés sacarlo solo de esta clase o de todas las que vienen.</p>}
+        cancelText="Solo esta clase"
+        confirmText={seriesBusy ? 'Sacando...' : 'Sacar del curso'}
+        confirmDisabled={seriesBusy}
+        isWarning
+        onConfirm={() => {
+          if (enrollmentRemoveConfirm) void removeEnrollmentFromSeries(enrollmentRemoveConfirm);
+        }}
+      />
+
+      <AdminAppModal
         show={Boolean(creditUsageConfirmState)}
         onClose={() => {
           if (!creditUsageBusyPassId) setCreditUsageConfirmState(null);
@@ -3721,7 +4032,9 @@ function ClassSessionDrawerContent({
                 selectedClass.classType === 'GROUP' ? `Grupal, hasta ${selectedClass.capacity}` : 'Individual',
                 selectedClass.level,
                 selectedClass.pricePerStudent != null ? `${formatCurrency(selectedClass.pricePerStudent)} por alumno` : 'Sin precio',
-                selectedClass.visibility === 'PUBLIC' ? 'Se ve en la app' : 'Solo la anotás vos',
+                selectedClass.series
+                  ? `Curso: ${weekdaysLabel(selectedClass.series.weekdays)} ${selectedClass.series.startTime}${selectedClass.series.status === 'ENDED' ? ' (terminado)' : ''}`
+                  : null,
               ]
                 .filter(Boolean)
                 .join(' · ')}
