@@ -1314,6 +1314,12 @@ enum ClassSeriesStatus {
   ENDED
 }
 
+enum ClassSeriesMemberStatus {
+  PENDING  // pidió lugar desde la app y espera que el club lo acepte
+  ACTIVE
+  REJECTED
+}
+
 // Curso: clase que se repite en días fijos. Genera las ClassSession de las próximas semanas
 // y anota a sus alumnos en cada una. Las fechas y la hora son del huso del club.
 model ClassSeries {
@@ -1343,6 +1349,10 @@ model ClassSeries {
   endsOn         DateTime? @db.Date
   generatedUntil DateTime? @db.Date
   status         ClassSeriesStatus @default(ACTIVE)
+  // PUBLIC: se ve en la app del club y los jugadores se anotan solos.
+  visibility       ClassSessionVisibility @default(PRIVATE)
+  // Los que se anotan desde la app quedan esperando hasta que el club los acepte.
+  requiresApproval Boolean @default(false)
 
   createdByUserId Int
   createdAt DateTime @default(now()) @db.Timestamptz(3)
@@ -1369,6 +1379,9 @@ model ClassSeriesMember {
   billingResponsibleClientId String?
   billingResponsibleClient   Client? @relation("ClassSeriesMemberBillingClient", fields: [billingResponsibleClientId], references: [id], onDelete: SetNull)
 
+  status   ClassSeriesMemberStatus @default(ACTIVE)
+  // Usuario que se anotó solo desde la app (null = lo anotó el club).
+  requestedByUserId Int?
   joinedAt DateTime  @default(now()) @db.Timestamptz(3)
   leftAt   DateTime? @db.Timestamptz(3)
   notes    String?

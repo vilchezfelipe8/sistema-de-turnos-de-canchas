@@ -28,6 +28,7 @@ import { fetchClubBasics, resolveRequestOrigin } from '../../utils/serverClubLoo
 import BusyLabel from '../../components/ui/BusyLabel';
 import Skeleton, { SkeletonText } from '../../components/ui/Skeleton';
 import Modal from '../../components/ui/Modal';
+import ClubCoursesPanel from '../../components/club/ClubCoursesPanel';
 
 type ClubPageProps = { appSlug: string | null; appName: string | null };
 
@@ -187,6 +188,16 @@ const PAGE_CSS = `
   .cl-review-cta { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; min-height:44px; margin-top:14px; padding:0 16px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); border-radius:12px; color:var(--accent-fg); font-family:inherit; font-size:13px; font-weight:800; cursor:pointer; transition:border-color .15s; }
   .cl-review-cta:hover:not(:disabled) { border-color:var(--accent-border); }
   .cl-review-cta:disabled { opacity:.6; cursor:not-allowed; }
+  a.cl-review-cta { text-decoration:none; }
+  /* Cursos */
+  .cl-course-when { font-size:12px; font-weight:700; color:var(--text-secondary); white-space:nowrap; }
+  .cl-course-desc { margin-top:4px; color:var(--text-muted); }
+  .cl-course-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:12px; min-height:32px; }
+  .cl-course-state { font-size:12px; font-weight:700; color:var(--text-muted); }
+  .cl-course-state.is-in { color:var(--accent-fg); }
+  .cl-course-link { background:none; border:none; padding:6px 0; font-family:inherit; font-size:12px; font-weight:700; color:var(--text-secondary); text-decoration:underline; cursor:pointer; }
+  .cl-course-link:disabled { opacity:.6; cursor:not-allowed; }
+  .cl-course-spots { margin:8px 0 0; font-size:12px; font-weight:600; color:var(--text-muted); text-align:center; }
   .cl-feedback { padding:10px 16px; border-radius:12px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); font-size:12px; font-weight:700; color:var(--accent-fg); margin-top:12px; }
   /* Contenido del modal de reseña (el modal en sí: pique.css .p-modal-*) */
   .cl-review-stars { display:flex; gap:8px; }
@@ -705,6 +716,14 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
                 )}
               </div>
             </section>
+
+            {/* Cursos que el club publica en la app: anotarse o pedir lugar */}
+            <ClubCoursesPanel
+              slug={slug}
+              loggedIn={Boolean(user?.id)}
+              loginHref={`/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`}
+              onNotice={showAppNotice}
+            />
 
             {/* Reseñas: lo que opinan y, si podés, el acceso a dejar la tuya */}
             {showReviewsPanel && (

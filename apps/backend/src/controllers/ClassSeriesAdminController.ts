@@ -38,6 +38,8 @@ const seriesBodySchema = z.object({
   ).optional(),
   // true: crear igual, salteando las fechas en las que la cancha está ocupada.
   skipConflicts: z.boolean().optional(),
+  visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
+  requiresApproval: z.boolean().optional(),
 });
 
 const memberBodySchema = z.object({
@@ -160,6 +162,32 @@ export class ClassSeriesAdminController {
       return res.status(parsed.data.preview ? 200 : 201).json(result);
     } catch (error) {
       return sendAppError(res, error, 'No se pudo cobrar el mes.');
+    }
+  };
+
+  approveMember = async (req: Request & { clubId?: number }, res: Response) => {
+    try {
+      const result = await this.service.approveMember(
+        this.resolveClubId(req),
+        this.resolveId(req.params.id, 'Curso'),
+        this.resolveId(req.params.memberId, 'Alumno')
+      );
+      return res.json(result);
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo aceptar el pedido.');
+    }
+  };
+
+  rejectMember = async (req: Request & { clubId?: number }, res: Response) => {
+    try {
+      const result = await this.service.rejectMember(
+        this.resolveClubId(req),
+        this.resolveId(req.params.id, 'Curso'),
+        this.resolveId(req.params.memberId, 'Alumno')
+      );
+      return res.json(result);
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo rechazar el pedido.');
     }
   };
 

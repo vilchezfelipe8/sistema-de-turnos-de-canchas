@@ -67,6 +67,23 @@ export type ClubFavorite = {
   club: Club;
 };
 
+export type ClubCourse = {
+  id: string;
+  activity: string | null;
+  teacher: string | null;
+  weekdays: number[];
+  weekdaysLabel: string;
+  startTime: string;
+  durationMinutes: number;
+  level: string | null;
+  description: string | null;
+  pricePerClass: number | null;
+  spotsLeft: number;
+  requiresApproval: boolean;
+  /** Estado del jugador logueado en el curso. */
+  myStatus: 'PENDING' | 'ACTIVE' | null;
+};
+
 export class ClubService {
   static async getClubById(id: number): Promise<Club> {
     const response = await fetch(`${apiBase()}/clubs/${id}`);
@@ -176,5 +193,32 @@ export class ClubService {
       throw new Error(error.error || 'No se pudo quitar favorito');
     }
     return response.json();
+  }
+
+  static async getClubCourses(slug: string): Promise<ClubCourse[]> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/courses`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudieron cargar los cursos');
+    }
+    return res.json();
+  }
+
+  static async joinClubCourse(slug: string, id: string): Promise<{ status: 'PENDING' | 'ACTIVE'; enrolled: number }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/courses/${id}/join`, { method: 'POST' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo anotarte');
+    }
+    return res.json();
+  }
+
+  static async leaveClubCourse(slug: string, id: string): Promise<{ kept: number }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/courses/${id}/join`, { method: 'DELETE' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo bajarte del curso');
+    }
+    return res.json();
   }
 }

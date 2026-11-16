@@ -199,7 +199,15 @@ export type AdminClassSession = {
   enrolledCount?: number;
   /** Curso al que pertenece (días fijos). Null = clase suelta. */
   seriesId?: string | null;
-  series?: { id: string; weekdays: number[]; startTime: string; status: string } | null;
+  series?: {
+    id: string;
+    weekdays: number[];
+    startTime: string;
+    status: string;
+    visibility?: 'PUBLIC' | 'PRIVATE';
+    /** Jugadores que pidieron lugar desde la app y esperan respuesta. */
+    pendingRequests?: number;
+  } | null;
 };
 
 export type AdminClassSeries = {
@@ -222,8 +230,13 @@ export type AdminClassSeries = {
   startsOn: string;
   endsOn: string | null;
   status: 'ACTIVE' | 'ENDED';
+  visibility: 'PUBLIC' | 'PRIVATE';
+  requiresApproval: boolean;
   members?: Array<{
     id: string;
+    /** PENDING = pidió lugar desde la app y espera respuesta. */
+    status: 'PENDING' | 'ACTIVE' | 'REJECTED';
+    fromApp: boolean;
     studentClientId: string;
     studentName: string;
     studentPhone: string | null;
@@ -250,6 +263,10 @@ export type AdminClassSeriesInput = {
   endsOn?: string | null;
   /** Crear igual, salteando las fechas con la cancha ocupada. */
   skipConflicts?: boolean;
+  /** PUBLIC: los jugadores lo ven en la app y se anotan solos. */
+  visibility?: 'PUBLIC' | 'PRIVATE';
+  /** Solo con PUBLIC: el club acepta a cada uno antes de sumarlo. */
+  requiresApproval?: boolean;
 };
 
 /** Clase del pack usada (o devuelta) al marcar o sacar el presente. */
@@ -1694,6 +1711,24 @@ export class ClubAdminService {
       body: JSON.stringify(data)
     });
     if (!res.ok) throw await parseApiErrorResponse(res, 'Error al cobrar el mes');
+    return res.json();
+  }
+
+  static async approveClassSeriesMember(slug: string, id: string, memberId: string): Promise<{ series: AdminClassSeries; enrolled: number; full: string[] }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series/${id}/members/${memberId}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al aceptar el pedido');
+    return res.json();
+  }
+
+  static async rejectClassSeriesMember(slug: string, id: string, memberId: string): Promise<{ series: AdminClassSeries }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series/${id}/members/${memberId}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al rechazar el pedido');
     return res.json();
   }
 

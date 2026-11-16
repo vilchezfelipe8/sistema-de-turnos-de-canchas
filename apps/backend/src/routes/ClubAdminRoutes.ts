@@ -689,6 +689,20 @@ router.delete('/:slug/admin/class-series/:id/members/:memberId',
     classSeriesAdminController.removeMember
 );
 
+router.post('/:slug/admin/class-series/:id/members/:memberId/approve',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.approveMember
+);
+
+router.post('/:slug/admin/class-series/:id/members/:memberId/reject',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.rejectMember
+);
+
 router.post('/:slug/admin/class-series/:id/members/:memberId/month-pass',
     authMiddleware,
     verifyClubAccess,

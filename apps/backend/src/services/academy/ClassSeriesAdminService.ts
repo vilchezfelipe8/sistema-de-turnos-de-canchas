@@ -6,6 +6,7 @@ import { AcademyAdminValidationService } from './AcademyAdminValidation';
 import { normalizeOptionalString, parseMoneyOrThrow } from './academyAdminUtils';
 import { ClassCreditUsageAdminService } from './ClassCreditUsageAdminService';
 import { ClassPassAdminService } from './ClassPassAdminService';
+import { PersonService } from '../PersonService';
 
 /**
  * Cursos: una clase con días fijos (ej. martes y jueves 18:00).
@@ -40,6 +41,10 @@ export type ClassSeriesInput = {
   description?: string | null;
   startsOn: string;
   endsOn?: string | null;
+  /** PUBLIC: se ve en la app del club y los jugadores se anotan solos. */
+  visibility?: 'PUBLIC' | 'PRIVATE';
+  /** Los que se anotan desde la app esperan que el club los acepte. */
+  requiresApproval?: boolean;
 };
 
 export type ClassSeriesConflict = { date: string; startsAt: string; reason: string };
@@ -73,6 +78,7 @@ export class ClassSeriesAdminService {
   private readonly validation = new AcademyAdminValidationService();
   private readonly creditUsageService = new ClassCreditUsageAdminService();
   private readonly classPassService = new ClassPassAdminService();
+  private readonly personService = new PersonService();
 
   // ---------------------------------------------------------------------------
   // Fechas
@@ -164,6 +170,8 @@ export class ClassSeriesAdminService {
       description: normalizeOptionalString(input.description),
       startsOn,
       endsOn,
+      visibility: (input.visibility === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE') as 'PUBLIC' | 'PRIVATE',
+      requiresApproval: input.visibility === 'PUBLIC' ? Boolean(input.requiresApproval) : false,
     };
   }
 
@@ -243,7 +251,7 @@ export class ClassSeriesAdminService {
       where: { id: seriesId },
       include: {
         members: {
-          where: { leftAt: null },
+          where: { leftAt: null, status: 'ACTIVE' },
           orderBy: { joinedAt: 'asc' },
           include: { studentClient: { select: { id: true, name: true, email: true, phone: true, userId: true } } },
         },
@@ -424,9 +432,13 @@ export class ClassSeriesAdminService {
             billingResponsibleName: member.billingResponsibleClient?.name ?? null,
             joinedAt: new Date(member.joinedAt).toISOString(),
             notes: member.notes ?? null,
+            status: String(member.status || 'ACTIVE'),
+            fromApp: member.requestedByUserId != null,
           }))
         : undefined,
       activeMembersCount: row._count?.members ?? undefined,
+      visibility: String(row.visibility || 'PRIVATE'),
+      requiresApproval: Boolean(row.requiresApproval),
     };
   }
 
@@ -440,7 +452,7 @@ export class ClassSeriesAdminService {
     const timeZone = await this.resolveTimeZone(clubId);
     const rows = await prisma.classSeries.findMany({
       where: { clubId },
-      include: { ...this.seriesInclude, _count: { select: { members: { where: { leftAt: null } } } } },
+      include: { ...this.seriesInclude, _count: { select: { members: { where: { leftAt: null, status: 'ACTIVE' } } } } },
       orderBy: [{ status: 'asc' }, { startTime: 'asc' }],
     });
     return rows.map((row) => this.mapSeries(row, timeZone));
@@ -453,7 +465,7 @@ export class ClassSeriesAdminService {
       include: {
         ...this.seriesInclude,
         members: {
-          where: { leftAt: null },
+          where: { leftAt: null, status: { in: ['ACTIVE', 'PENDING'] } },
           orderBy: { joinedAt: 'asc' },
           include: {
             studentClient: { select: { id: true, name: true, phone: true } },
@@ -589,12 +601,48 @@ export class ClassSeriesAdminService {
     return { series: await this.getById(clubId, existing.id), kept };
   }
 
+  /** Anota al alumno en las clases futuras del curso que tienen lugar. */
+  private async enrollMemberInFutureTx(tx: Tx, series: any, member: any) {
+    const sessions = await tx.classSession.findMany({
+      where: { seriesId: series.id, startsAt: { gt: new Date() }, status: { in: [...ACTIVE_SESSION_STATUSES] } },
+      select: {
+        id: true,
+        startsAt: true,
+        capacity: true,
+        enrollments: { where: { enrollmentStatus: { not: 'CANCELLED' } }, select: { studentClientId: true, enrollmentStatus: true } },
+      },
+      orderBy: { startsAt: 'asc' },
+    });
+
+    let enrolled = 0;
+    const full: string[] = [];
+    for (const session of sessions) {
+      if (session.enrollments.some((row) => row.studentClientId === member.studentClient.id)) continue;
+      const taken = session.enrollments.filter((row) => row.enrollmentStatus === 'ENROLLED').length;
+      if (taken >= session.capacity) {
+        full.push(session.startsAt.toISOString());
+        continue;
+      }
+      await tx.classEnrollment.create({ data: this.enrollmentDataForMember(series, member, session.id) });
+      enrolled += 1;
+    }
+    return { enrolled, full };
+  }
+
+  private async assertRoomInSeries(series: { id: string; capacity: number }) {
+    const activeMembers = await prisma.classSeriesMember.count({ where: { seriesId: series.id, leftAt: null, status: 'ACTIVE' } });
+    if (activeMembers >= series.capacity) {
+      throw conflict('El curso está completo.', ErrorCodes.CLASS_SESSION_CAPACITY_EXCEEDED);
+    }
+  }
+
   /** Anota al alumno al curso: queda en todas las clases que vienen con lugar. */
   async addMember(
     clubId: number,
     seriesId: string,
     actorUserId: number,
-    input: { studentClientId: string; billingResponsibleClientId?: string | null; notes?: string | null }
+    input: { studentClientId: string; billingResponsibleClientId?: string | null; notes?: string | null },
+    options: { fromAppUserId?: number; pending?: boolean } = {}
   ) {
     const series = await prisma.classSeries.findFirst({ where: { id: String(seriesId), clubId } });
     if (!series) throw notFound('Curso no encontrado.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
@@ -604,18 +652,21 @@ export class ClassSeriesAdminService {
     const responsible = input.billingResponsibleClientId
       ? await this.validation.assertClientBelongsToClub(clubId, String(input.billingResponsibleClientId))
       : null;
-    await this.validation.assertUserBelongsToClub(clubId, actorUserId);
+    // Desde la app se anota el propio jugador, que no es del staff del club.
+    if (!options.fromAppUserId) await this.validation.assertUserBelongsToClub(clubId, actorUserId);
 
     const already = await prisma.classSeriesMember.findFirst({
-      where: { seriesId: series.id, studentClientId: student.id, leftAt: null },
-      select: { id: true },
+      where: { seriesId: series.id, studentClientId: student.id, leftAt: null, status: { in: ['ACTIVE', 'PENDING'] } },
+      select: { id: true, status: true },
     });
-    if (already) throw conflict(`${student.name} ya está en el curso.`, ErrorCodes.CLASS_SESSION_ENROLLMENT_CONFLICT);
-
-    const activeMembers = await prisma.classSeriesMember.count({ where: { seriesId: series.id, leftAt: null } });
-    if (activeMembers >= series.capacity) {
-      throw conflict('El curso está completo.', ErrorCodes.CLASS_SESSION_CAPACITY_EXCEEDED);
+    if (already) {
+      throw conflict(
+        already.status === 'PENDING' ? `${student.name} ya pidió lugar en el curso.` : `${student.name} ya está en el curso.`,
+        ErrorCodes.CLASS_SESSION_ENROLLMENT_CONFLICT
+      );
     }
+
+    await this.assertRoomInSeries(series);
 
     const result = await prisma.$transaction(
       async (tx) => {
@@ -627,34 +678,14 @@ export class ClassSeriesAdminService {
             billingResponsibleClientId: responsible?.id ?? null,
             notes: normalizeOptionalString(input.notes),
             createdByUserId: Number(actorUserId),
+            status: options.pending ? 'PENDING' : 'ACTIVE',
+            requestedByUserId: options.fromAppUserId ?? null,
           },
           include: { studentClient: { select: { id: true, name: true, email: true, phone: true, userId: true } } },
         });
-
-        const sessions = await tx.classSession.findMany({
-          where: { seriesId: series.id, startsAt: { gt: new Date() }, status: { in: [...ACTIVE_SESSION_STATUSES] } },
-          select: {
-            id: true,
-            startsAt: true,
-            capacity: true,
-            enrollments: { where: { enrollmentStatus: { not: 'CANCELLED' } }, select: { studentClientId: true, enrollmentStatus: true } },
-          },
-          orderBy: { startsAt: 'asc' },
-        });
-
-        let enrolled = 0;
-        const full: string[] = [];
-        for (const session of sessions) {
-          if (session.enrollments.some((row) => row.studentClientId === student.id)) continue;
-          const taken = session.enrollments.filter((row) => row.enrollmentStatus === 'ENROLLED').length;
-          if (taken >= session.capacity) {
-            full.push(session.startsAt.toISOString());
-            continue;
-          }
-          await tx.classEnrollment.create({ data: this.enrollmentDataForMember(series, member, session.id) });
-          enrolled += 1;
-        }
-        return { memberId: member.id, enrolled, full };
+        if (options.pending) return { memberId: member.id, enrolled: 0, full: [] as string[] };
+        const enrolled = await this.enrollMemberInFutureTx(tx, series, member);
+        return { memberId: member.id, ...enrolled };
       },
       { timeout: 30000 }
     );
@@ -662,17 +693,132 @@ export class ClassSeriesAdminService {
     return { series: await this.getById(clubId, series.id), ...result };
   }
 
+  /** Acepta un pedido de la app: pasa a estar en el curso y en las clases que vienen. */
+  async approveMember(clubId: number, seriesId: string, memberId: string) {
+    const series = await prisma.classSeries.findFirst({ where: { id: String(seriesId), clubId } });
+    if (!series) throw notFound('Curso no encontrado.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    if (series.status !== 'ACTIVE') throw badRequest('El curso ya terminó.', ErrorCodes.INVALID_INPUT);
+    const pending = await prisma.classSeriesMember.findFirst({
+      where: { id: String(memberId), seriesId: series.id, clubId, leftAt: null, status: 'PENDING' },
+      select: { id: true },
+    });
+    if (!pending) throw notFound('Ese pedido ya no está.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    await this.assertRoomInSeries(series);
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const member = await tx.classSeriesMember.update({
+          where: { id: pending.id },
+          data: { status: 'ACTIVE', joinedAt: new Date() },
+          include: { studentClient: { select: { id: true, name: true, email: true, phone: true, userId: true } } },
+        });
+        return this.enrollMemberInFutureTx(tx, series, member);
+      },
+      { timeout: 30000 }
+    );
+    return { series: await this.getById(clubId, series.id), ...result };
+  }
+
+  /** Rechaza un pedido de la app. */
+  async rejectMember(clubId: number, seriesId: string, memberId: string) {
+    const updated = await prisma.classSeriesMember.updateMany({
+      where: { id: String(memberId), seriesId: String(seriesId), clubId, leftAt: null, status: 'PENDING' },
+      data: { status: 'REJECTED', leftAt: new Date() },
+    });
+    if (updated.count !== 1) throw notFound('Ese pedido ya no está.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    return { series: await this.getById(clubId, String(seriesId)) };
+  }
+
+  // ---------------------------------------------------------------------------
+  // App del jugador
+  // ---------------------------------------------------------------------------
+
+  /** Cursos que el club muestra en la app, con el estado del jugador si está logueado. */
+  async listPublic(clubId: number, userId?: number | null) {
+    const rows = await prisma.classSeries.findMany({
+      where: { clubId, status: 'ACTIVE', visibility: 'PUBLIC' },
+      include: {
+        teacher: { select: { displayName: true } },
+        activityType: { select: { name: true } },
+        _count: { select: { members: { where: { leftAt: null, status: 'ACTIVE' } } } },
+      },
+      orderBy: [{ startTime: 'asc' }],
+    });
+    const client = userId ? await prisma.client.findFirst({ where: { clubId, userId: Number(userId) }, select: { id: true } }) : null;
+    const mine = client
+      ? await prisma.classSeriesMember.findMany({
+          where: { studentClientId: client.id, seriesId: { in: rows.map((row) => row.id) }, leftAt: null },
+          select: { seriesId: true, status: true },
+        })
+      : [];
+    const myStatus = new Map(mine.map((row) => [row.seriesId, String(row.status)]));
+    return rows.map((row) => ({
+      id: row.id,
+      activity: row.activityType?.name ?? null,
+      teacher: row.teacher?.displayName ?? null,
+      weekdays: row.weekdays,
+      weekdaysLabel: describeWeekdays(row.weekdays),
+      startTime: row.startTime,
+      durationMinutes: row.durationMinutes,
+      level: row.level,
+      description: row.description,
+      pricePerClass: row.pricePerStudent == null ? null : Number(row.pricePerStudent),
+      spotsLeft: Math.max(0, row.capacity - (row._count?.members ?? 0)),
+      requiresApproval: row.requiresApproval,
+      myStatus: (myStatus.get(row.id) as 'ACTIVE' | 'PENDING' | undefined) ?? null,
+    }));
+  }
+
+  private async assertPublicSeries(clubId: number, seriesId: string) {
+    const series = await prisma.classSeries.findFirst({
+      where: { id: String(seriesId), clubId, status: 'ACTIVE', visibility: 'PUBLIC' },
+      select: { id: true, requiresApproval: true },
+    });
+    if (!series) throw notFound('Ese curso no está disponible.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    return series;
+  }
+
+  /** El jugador se anota desde la app. Si el curso pide aprobación, queda esperando. */
+  async joinFromApp(clubId: number, seriesId: string, userId: number) {
+    const series = await this.assertPublicSeries(clubId, seriesId);
+    const client = await this.personService.ensureClientForUser(clubId, userId, { source: 'SELF_BOOKING' });
+    const result = await this.addMember(
+      clubId,
+      series.id,
+      userId,
+      { studentClientId: String(client.id) },
+      { fromAppUserId: userId, pending: series.requiresApproval }
+    );
+    return { status: series.requiresApproval ? ('PENDING' as const) : ('ACTIVE' as const), enrolled: result.enrolled };
+  }
+
+  /** El jugador se baja del curso (o cancela su pedido). */
+  async leaveFromApp(clubId: number, seriesId: string, userId: number) {
+    await this.assertPublicSeries(clubId, seriesId);
+    const client = await prisma.client.findFirst({ where: { clubId, userId: Number(userId) }, select: { id: true } });
+    const member = client
+      ? await prisma.classSeriesMember.findFirst({
+          where: { seriesId: String(seriesId), studentClientId: client.id, leftAt: null, status: { in: ['ACTIVE', 'PENDING'] } },
+          select: { id: true },
+        })
+      : null;
+    if (!member) throw notFound('No estás en este curso.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    const result = await this.removeMember(clubId, String(seriesId), member.id);
+    return { kept: result.kept };
+  }
+
   /** Saca al alumno del curso: deja de estar en las clases que vienen (las pasadas quedan). */
   async removeMember(clubId: number, seriesId: string, memberId: string) {
     const member = await prisma.classSeriesMember.findFirst({
       where: { id: String(memberId), seriesId: String(seriesId), clubId, leftAt: null },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!member) throw notFound('Ese alumno no está en el curso.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
 
     const kept = await prisma.$transaction(async (tx) => {
       const now = new Date();
       await tx.classSeriesMember.update({ where: { id: member.id }, data: { leftAt: now } });
+      if (member.status === 'PENDING') return 0;
       const future = await tx.classEnrollment.findMany({
         where: { seriesMemberId: member.id, enrollmentStatus: { not: 'CANCELLED' }, classSession: { startsAt: { gt: now } } },
         select: { id: true, attendanceStatus: true, paymentStatus: true, paidAmount: true, _count: { select: { creditUsages: true } } },
