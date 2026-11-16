@@ -269,6 +269,16 @@ export type AdminClassSeriesInput = {
   requiresApproval?: boolean;
 };
 
+/** Pedido de lugar en un curso, hecho por un jugador desde la app. */
+export type AdminClassSeriesRequest = {
+  memberId: string;
+  seriesId: string;
+  seriesLabel: string;
+  studentName: string;
+  studentPhone: string | null;
+  requestedAt: string;
+};
+
 /** Clase del pack usada (o devuelta) al marcar o sacar el presente. */
 export type AdminAttendanceCredit = { classPassId: string; packageName: string; remainingCredits: number };
 
@@ -1711,6 +1721,14 @@ export class ClubAdminService {
       body: JSON.stringify(data)
     });
     if (!res.ok) throw await parseApiErrorResponse(res, 'Error al cobrar el mes');
+    return res.json();
+  }
+
+  static async getClassSeriesRequests(slug: string): Promise<AdminClassSeriesRequest[]> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-series-requests`, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw await parseApiErrorResponse(res, 'Error al cargar los pedidos');
     return res.json();
   }
 

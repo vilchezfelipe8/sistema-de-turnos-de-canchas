@@ -11,14 +11,20 @@ type Props = {
   /** Hay sesión iniciada: puede anotarse. */
   loggedIn: boolean;
   loginHref: string;
-  onNotice: (message: string, tone?: Tone) => void;
+  /** Si no se pasa, usa el aviso general de la app. */
+  onNotice?: (message: string, tone?: Tone) => void;
+};
+
+const defaultNotice = (message: string, tone: Tone = 'info') => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('app:notice', { detail: { message, tone } }));
 };
 
 const formatPrice = (value: number) =>
   new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value);
 
 /** Cursos que el club muestra en la app: el jugador se anota (o pide lugar) y se baja. */
-export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice }: Props) {
+export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice = defaultNotice }: Props) {
   const [courses, setCourses] = useState<ClubCourse[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
 

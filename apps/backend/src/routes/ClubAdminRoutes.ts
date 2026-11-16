@@ -647,6 +647,14 @@ router.get('/:slug/admin/class-series',
     classSeriesAdminController.list
 );
 
+// Pedidos de lugar en cursos que llegaron desde la app.
+router.get('/:slug/admin/class-series-requests',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.listRequests
+);
+
 router.get('/:slug/admin/class-series/:id',
     authMiddleware,
     verifyClubAccess,

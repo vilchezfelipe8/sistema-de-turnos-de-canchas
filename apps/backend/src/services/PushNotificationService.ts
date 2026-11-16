@@ -6,7 +6,15 @@ import { OUTBOX_TYPES, OutboxService } from './OutboxService';
 // Avisos push web (Web Push + VAPID). Se encolan en el outbox (en la misma transacción que el evento)
 // y los envía el worker con reintentos. Si las claves VAPID no están configuradas, no se envía nada.
 
-export type PushKind = 'INVITATION' | 'INVITATION_RESPONSE' | 'BOOKING_REMINDER' | 'BOOKING_CANCELLED' | 'BOOKING_CONFIRMED';
+export type PushKind =
+    | 'INVITATION'
+    | 'INVITATION_RESPONSE'
+    | 'BOOKING_REMINDER'
+    | 'BOOKING_CANCELLED'
+    | 'BOOKING_CONFIRMED'
+    // Cursos: al club cuando alguien se anota o pide lugar; al jugador cuando el club responde.
+    | 'COURSE_REQUEST'
+    | 'COURSE_ANSWER';
 
 export type PushAction = { action: string; title: string; url: string };
 
@@ -201,7 +209,7 @@ export class PushNotificationService {
     // Se encola en la misma transacción que el evento (si la transacción se revierte, no hay aviso).
     async enqueue(
         client: DbClient,
-        input: { clubId: number; userId: number; kind: PushKind; content: PushContent; aggregateId?: string }
+        input: { clubId: number; userId: number; kind: PushKind; content: PushContent; aggregateId?: string; aggregateType?: string }
     ) {
         if (!Number.isInteger(input.userId) || input.userId <= 0) return;
         const payload: PushOutboxPayload = { userId: input.userId, kind: input.kind, ...input.content };
@@ -209,7 +217,7 @@ export class PushNotificationService {
             {
                 clubId: input.clubId,
                 type: OUTBOX_TYPES.PUSH_SEND,
-                aggregateType: 'Booking',
+                aggregateType: input.aggregateType || 'Booking',
                 aggregateId: input.aggregateId,
                 payload: payload as unknown as Record<string, unknown>
             },
@@ -219,7 +227,7 @@ export class PushNotificationService {
 
     private async isAllowedByPreferences(userId: number, kind: PushKind) {
         // Cambios de estado de la reserva hechos por el club: siempre se avisan.
-        if (kind === 'BOOKING_CANCELLED' || kind === 'BOOKING_CONFIRMED') return true;
+        if (kind === 'BOOKING_CANCELLED' || kind === 'BOOKING_CONFIRMED' || kind === 'COURSE_ANSWER') return true;
         const preferences = await prisma.userNotificationPreference.findUnique({ where: { userId } });
         if (!preferences) return true;
         if (kind === 'INVITATION') return preferences.invitations;

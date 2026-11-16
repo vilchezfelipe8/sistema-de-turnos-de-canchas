@@ -7,6 +7,7 @@ import { normalizeOptionalString, parseMoneyOrThrow } from './academyAdminUtils'
 import { ClassCreditUsageAdminService } from './ClassCreditUsageAdminService';
 import { ClassPassAdminService } from './ClassPassAdminService';
 import { PersonService } from '../PersonService';
+import { pushNotificationService } from '../PushNotificationService';
 
 /**
  * Cursos: una clase con días fijos (ej. martes y jueves 18:00).
@@ -716,6 +717,7 @@ export class ClassSeriesAdminService {
       },
       { timeout: 30000 }
     );
+    await this.notifyPlayer(clubId, series.id, pending.id, true);
     return { series: await this.getById(clubId, series.id), ...result };
   }
 
@@ -726,7 +728,118 @@ export class ClassSeriesAdminService {
       data: { status: 'REJECTED', leftAt: new Date() },
     });
     if (updated.count !== 1) throw notFound('Ese pedido ya no está.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    await this.notifyPlayer(clubId, String(seriesId), String(memberId), false);
     return { series: await this.getById(clubId, String(seriesId)) };
+  }
+
+  /** Pedidos de lugar que esperan respuesta, de todos los cursos del club. */
+  async listRequests(clubId: number) {
+    const rows = await prisma.classSeriesMember.findMany({
+      where: { clubId, leftAt: null, status: 'PENDING', series: { status: 'ACTIVE' } },
+      include: {
+        studentClient: { select: { name: true, phone: true } },
+        series: { select: { id: true, weekdays: true, startTime: true, activityType: { select: { name: true } } } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((row) => ({
+      memberId: row.id,
+      seriesId: row.seriesId,
+      seriesLabel: this.courseLabel(row.series),
+      studentName: row.studentClient?.name || 'Jugador',
+      studentPhone: row.studentClient?.phone || null,
+      requestedAt: row.createdAt.toISOString(),
+    }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Avisos (push). Nunca frenan la acción: si fallan, se registra y sigue.
+  // ---------------------------------------------------------------------------
+
+  private courseLabel(series: { weekdays: number[]; startTime: string; activityType?: { name: string } | null }) {
+    return `${series.activityType?.name || 'Curso'} ${describeWeekdays(series.weekdays)} ${series.startTime}`;
+  }
+
+  private async notifyStaff(
+    clubId: number,
+    seriesId: string,
+    actorUserId: number,
+    event: 'REQUEST' | 'JOINED' | 'LEFT' | 'CANCELLED_REQUEST',
+    playerName: string
+  ) {
+    try {
+      const series = await prisma.classSeries.findUnique({
+        where: { id: seriesId },
+        select: { weekdays: true, startTime: true, activityType: { select: { name: true } } },
+      });
+      if (!series) return;
+      const label = this.courseLabel(series);
+      const content =
+        event === 'REQUEST'
+          ? { title: `${playerName} pidió lugar en un curso`, body: `${label}. Tocá para aceptarlo o rechazarlo.`, url: '/admin/academia?tab=clases&pedidos=1' }
+          : event === 'JOINED'
+            ? { title: `${playerName} se anotó a un curso`, body: `${label}. Ya está en las clases que vienen.`, url: '/admin/academia?tab=clases' }
+            : event === 'LEFT'
+              ? { title: `${playerName} se bajó de un curso`, body: `${label}. Ya no está en las clases que vienen.`, url: '/admin/academia?tab=clases' }
+              : { title: `${playerName} canceló su pedido`, body: `${label}.`, url: '/admin/academia?tab=clases' };
+      const staff = await prisma.membership.findMany({
+        where: { clubId, role: { in: ['OWNER', 'ADMIN', 'STAFF'] }, userId: { not: actorUserId } },
+        select: { userId: true },
+      });
+      for (const row of staff) {
+        await pushNotificationService.enqueue(prisma, {
+          clubId,
+          userId: row.userId,
+          kind: 'COURSE_REQUEST',
+          aggregateType: 'ClassSeries',
+          aggregateId: seriesId,
+          content: { ...content, tag: `course-${seriesId}-${event.toLowerCase()}` },
+        });
+      }
+    } catch (error) {
+      console.error('[academia] No se pudo avisar al club del curso', error);
+    }
+  }
+
+  private async notifyPlayer(clubId: number, seriesId: string, memberId: string, accepted: boolean) {
+    try {
+      const member = await prisma.classSeriesMember.findUnique({
+        where: { id: memberId },
+        select: {
+          requestedByUserId: true,
+          studentClient: { select: { userId: true } },
+          series: {
+            select: {
+              weekdays: true,
+              startTime: true,
+              activityType: { select: { name: true } },
+              club: { select: { name: true, slug: true } },
+            },
+          },
+        },
+      });
+      const userId = member?.requestedByUserId ?? member?.studentClient?.userId ?? null;
+      if (!member || !userId) return;
+      const label = this.courseLabel(member.series);
+      const clubName = member.series.club?.name || 'El club';
+      await pushNotificationService.enqueue(prisma, {
+        clubId,
+        userId,
+        kind: 'COURSE_ANSWER',
+        aggregateType: 'ClassSeries',
+        aggregateId: seriesId,
+        content: accepted
+          ? { title: `${clubName} te sumó al curso ✅`, body: `${label}. Ya estás en las clases que vienen.`, url: '/perfil#mis-cursos', tag: `course-${seriesId}` }
+          : {
+              title: `${clubName} no pudo sumarte al curso`,
+              body: `${label}. Mirá otros horarios en la página del club.`,
+              url: member.series.club?.slug ? `/club/${member.series.club.slug}` : '/complejos',
+              tag: `course-${seriesId}`,
+            },
+      });
+    } catch (error) {
+      console.error('[academia] No se pudo avisar al jugador del curso', error);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -789,6 +902,7 @@ export class ClassSeriesAdminService {
       { studentClientId: String(client.id) },
       { fromAppUserId: userId, pending: series.requiresApproval }
     );
+    await this.notifyStaff(clubId, series.id, userId, series.requiresApproval ? 'REQUEST' : 'JOINED', client.name);
     return { status: series.requiresApproval ? ('PENDING' as const) : ('ACTIVE' as const), enrolled: result.enrolled };
   }
 
@@ -799,12 +913,83 @@ export class ClassSeriesAdminService {
     const member = client
       ? await prisma.classSeriesMember.findFirst({
           where: { seriesId: String(seriesId), studentClientId: client.id, leftAt: null, status: { in: ['ACTIVE', 'PENDING'] } },
-          select: { id: true },
+          select: { id: true, status: true, studentClient: { select: { name: true } } },
         })
       : null;
     if (!member) throw notFound('No estás en este curso.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
     const result = await this.removeMember(clubId, String(seriesId), member.id);
+    await this.notifyStaff(
+      clubId,
+      String(seriesId),
+      userId,
+      member.status === 'PENDING' ? 'CANCELLED_REQUEST' : 'LEFT',
+      member.studentClient?.name || 'Un jugador'
+    );
     return { kept: result.kept };
+  }
+
+  /** Cursos del jugador en todos sus clubes, con las próximas clases. */
+  async listMine(userId: number) {
+    const members = await prisma.classSeriesMember.findMany({
+      where: {
+        leftAt: null,
+        status: { in: ['ACTIVE', 'PENDING'] },
+        studentClient: { userId: Number(userId) },
+        series: { status: 'ACTIVE' },
+      },
+      include: {
+        series: {
+          select: {
+            id: true,
+            weekdays: true,
+            startTime: true,
+            durationMinutes: true,
+            level: true,
+            visibility: true,
+            activityType: { select: { name: true } },
+            teacher: { select: { displayName: true } },
+            court: { select: { name: true } },
+            club: { select: { name: true, slug: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    const now = new Date();
+    const upcoming = members.length
+      ? await prisma.classEnrollment.findMany({
+          where: {
+            seriesMemberId: { in: members.map((member) => member.id) },
+            enrollmentStatus: 'ENROLLED',
+            classSession: { startsAt: { gt: now }, status: { not: 'CANCELLED' } },
+          },
+          select: { seriesMemberId: true, classSession: { select: { id: true, startsAt: true } } },
+          orderBy: { classSession: { startsAt: 'asc' } },
+        })
+      : [];
+    const nextByMember = new Map<string, string[]>();
+    for (const row of upcoming) {
+      const key = String(row.seriesMemberId);
+      const list = nextByMember.get(key) || [];
+      if (list.length < 3) list.push(row.classSession.startsAt.toISOString());
+      nextByMember.set(key, list);
+    }
+    return members.map((member) => ({
+      id: member.series.id,
+      status: member.status as 'ACTIVE' | 'PENDING',
+      clubName: member.series.club?.name || '',
+      clubSlug: member.series.club?.slug || '',
+      activity: member.series.activityType?.name ?? null,
+      teacher: member.series.teacher?.displayName ?? null,
+      court: member.series.court?.name ?? null,
+      weekdaysLabel: describeWeekdays(member.series.weekdays),
+      startTime: member.series.startTime,
+      durationMinutes: member.series.durationMinutes,
+      level: member.series.level,
+      // Solo se puede bajar solo de los cursos que el club publica en la app; los otros los maneja el club.
+      canLeave: member.series.visibility === 'PUBLIC',
+      nextClasses: nextByMember.get(member.id) || [],
+    }));
   }
 
   /** Saca al alumno del curso: deja de estar en las clases que vienen (las pasadas quedan). */

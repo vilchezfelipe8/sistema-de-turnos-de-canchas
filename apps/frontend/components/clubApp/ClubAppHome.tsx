@@ -13,6 +13,7 @@ import {
 import { BookingWindowService, type BookingWindowEvaluation } from '../../services/BookingWindowService';
 import { isAuthSessionInvalidatedError } from '../../utils/apiClient';
 import { reportUiError } from '../../utils/uiError';
+import ClubCoursesPanel from '../club/ClubCoursesPanel';
 
 // Inicio de la app instalada del club: el diseño de la web (encabezado del club, títulos con acento,
 // tarjetas de reserva) con lo justo para un socio: reservar, sus invitaciones y su próximo partido.
@@ -230,6 +231,9 @@ export default function ClubAppHome({ club, slug, user, loginHref }: Props) {
             )}
           </section>
         ) : null}
+
+        {/* Cursos que el club publica: anotarse o pedir lugar (no aparece si no hay) */}
+        <ClubCoursesPanel slug={slug} loggedIn={Boolean(user?.id)} loginHref={loginHref} />
       </div>
     </>
   );

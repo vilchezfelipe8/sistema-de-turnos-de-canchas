@@ -84,6 +84,23 @@ export type ClubCourse = {
   myStatus: 'PENDING' | 'ACTIVE' | null;
 };
 
+/** Curso del jugador (en cualquiera de sus clubes), con las próximas clases. */
+export type MyCourse = {
+  id: string;
+  status: 'ACTIVE' | 'PENDING';
+  clubName: string;
+  clubSlug: string;
+  activity: string | null;
+  teacher: string | null;
+  court: string | null;
+  weekdaysLabel: string;
+  startTime: string;
+  durationMinutes: number;
+  level: string | null;
+  canLeave: boolean;
+  nextClasses: string[];
+};
+
 export class ClubService {
   static async getClubById(id: number): Promise<Club> {
     const response = await fetch(`${apiBase()}/clubs/${id}`);
@@ -200,6 +217,15 @@ export class ClubService {
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
       throw new Error(error.error || 'No se pudieron cargar los cursos');
+    }
+    return res.json();
+  }
+
+  static async getMyCourses(): Promise<MyCourse[]> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/courses/me`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudieron cargar tus cursos');
     }
     return res.json();
   }

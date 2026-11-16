@@ -165,6 +165,14 @@ export class ClassSeriesAdminController {
     }
   };
 
+  listRequests = async (req: Request & { clubId?: number }, res: Response) => {
+    try {
+      return res.json(await this.service.listRequests(this.resolveClubId(req)));
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudieron cargar los pedidos.');
+    }
+  };
+
   approveMember = async (req: Request & { clubId?: number }, res: Response) => {
     try {
       const result = await this.service.approveMember(

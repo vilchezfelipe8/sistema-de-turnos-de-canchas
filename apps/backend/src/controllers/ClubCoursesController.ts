@@ -26,6 +26,16 @@ export class ClubCoursesController {
     }
   };
 
+  mine = async (req: Request, res: Response) => {
+    try {
+      const userId = this.userId(req);
+      if (!userId) throw validationError('Iniciá sesión.', { user: 'Usuario inválido.' });
+      return res.json(await this.service.listMine(userId));
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudieron cargar tus cursos.');
+    }
+  };
+
   join = async (req: Request, res: Response) => {
     try {
       const userId = this.userId(req);

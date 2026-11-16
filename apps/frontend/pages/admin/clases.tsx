@@ -43,7 +43,7 @@ import {
   type AdminClassPaymentStatus,
   type AdminClassSeriesConflict,
   type AdminClassSeriesMonthPass,
-  type AdminClassSeries,
+  type AdminClassSeriesRequest,
   type AdminClassSeriesInput,
   type AdminClassSession,
   type AdminClassSessionStatus,
@@ -900,11 +900,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   // Curso en la app: los jugadores lo ven en la página del club y se anotan solos.
   const [classVisibleInApp, setClassVisibleInApp] = useState(false);
   const [classRequiresApproval, setClassRequiresApproval] = useState(false);
-  // Pedidos de lugar que llegaron desde la app para el curso de la clase abierta.
-  const [seriesRequests, setSeriesRequests] = useState<{
-    seriesId: string;
-    members: NonNullable<AdminClassSeries['members']>;
-  } | null>(null);
+  // Pedidos de lugar que llegaron desde la app (todos los cursos) y el modal para responderlos.
+  const [seriesRequests, setSeriesRequests] = useState<AdminClassSeriesRequest[]>([]);
+  // null = cerrado; { seriesId: null } = todos los cursos; con id = solo ese curso.
+  const [seriesRequestsModal, setSeriesRequestsModal] = useState<{ seriesId: string | null } | null>(null);
   const [seriesRequestBusyId, setSeriesRequestBusyId] = useState<string | null>(null);
   const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
   const [seriesConflicts, setSeriesConflicts] = useState<AdminClassSeriesConflict[] | null>(null);
@@ -1440,37 +1439,56 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     [clubSlug, loadClassSessions, seriesBusy]
   );
 
-  const openSeriesRequests = useCallback(
-    async (seriesId: string) => {
-      if (!clubSlug) return;
-      try {
-        setSeriesBusy(true);
-        const series = await ClubAdminService.getClassSeries(clubSlug, seriesId);
-        setSeriesRequests({ seriesId, members: (series.members || []).filter((member) => member.status === 'PENDING') });
-      } catch (error) {
-        reportUiError({ area: 'AdminClassesPage', action: 'openSeriesRequests' }, error);
-        setFeedback({ tone: 'error', message: extractErrorMessage(error, 'No se pudieron cargar los pedidos.') });
-      } finally {
-        setSeriesBusy(false);
-      }
-    },
-    [clubSlug]
+  const loadSeriesRequests = useCallback(async () => {
+    if (!clubSlug) return [] as AdminClassSeriesRequest[];
+    try {
+      const rows = await ClubAdminService.getClassSeriesRequests(clubSlug);
+      setSeriesRequests(rows);
+      return rows;
+    } catch (error) {
+      reportUiError({ area: 'AdminClassesPage', action: 'loadSeriesRequests' }, error);
+      return [] as AdminClassSeriesRequest[];
+    }
+  }, [clubSlug]);
+
+  // Al entrar (o desde el aviso push, con ?pedidos=1) se cargan los pedidos; si hay, se abren solos.
+  useEffect(() => {
+    if (!clubSlug) return;
+    let cancelled = false;
+    void loadSeriesRequests().then((rows) => {
+      if (cancelled || typeof window === 'undefined') return;
+      const wantsRequests = new URLSearchParams(window.location.search).get('pedidos') === '1';
+      if (wantsRequests && rows.length > 0) setSeriesRequestsModal({ seriesId: null });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clubSlug, loadSeriesRequests]);
+
+  const visibleSeriesRequests = useMemo(
+    () =>
+      seriesRequestsModal?.seriesId
+        ? seriesRequests.filter((row) => row.seriesId === seriesRequestsModal.seriesId)
+        : seriesRequests,
+    [seriesRequests, seriesRequestsModal]
   );
 
   const answerSeriesRequest = useCallback(
-    async (memberId: string, accept: boolean) => {
-      if (!clubSlug || !seriesRequests || seriesRequestBusyId) return;
-      const member = seriesRequests.members.find((row) => row.id === memberId);
+    async (request: AdminClassSeriesRequest, accept: boolean) => {
+      if (!clubSlug || seriesRequestBusyId) return;
       try {
-        setSeriesRequestBusyId(memberId);
+        setSeriesRequestBusyId(request.memberId);
         const result = accept
-          ? await ClubAdminService.approveClassSeriesMember(clubSlug, seriesRequests.seriesId, memberId)
-          : await ClubAdminService.rejectClassSeriesMember(clubSlug, seriesRequests.seriesId, memberId);
-        const pending = (result.series.members || []).filter((row) => row.status === 'PENDING');
-        setSeriesRequests(pending.length > 0 ? { seriesId: seriesRequests.seriesId, members: pending } : null);
+          ? await ClubAdminService.approveClassSeriesMember(clubSlug, request.seriesId, request.memberId)
+          : await ClubAdminService.rejectClassSeriesMember(clubSlug, request.seriesId, request.memberId);
+        const rows = await loadSeriesRequests();
+        const left = seriesRequestsModal?.seriesId
+          ? rows.filter((row) => row.seriesId === seriesRequestsModal.seriesId)
+          : rows;
+        if (left.length === 0) setSeriesRequestsModal(null);
         await loadClassSessions();
         if (selectedClassId) await loadEnrollments(selectedClassId);
-        const name = member?.studentName || 'El jugador';
+        const name = request.studentName || 'El jugador';
         if (accept) {
           const full = 'full' in result && Array.isArray(result.full) ? result.full.length : 0;
           showAdminToast(
@@ -1489,7 +1507,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setSeriesRequestBusyId(null);
       }
     },
-    [clubSlug, loadClassSessions, loadEnrollments, selectedClassId, seriesRequestBusyId, seriesRequests]
+    [clubSlug, loadClassSessions, loadEnrollments, loadSeriesRequests, selectedClassId, seriesRequestBusyId, seriesRequestsModal]
   );
 
   const closeModal = useCallback(() => {
@@ -2852,6 +2870,24 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         </AdminFeedbackBanner>
       )}
 
+      {seriesRequests.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-p-accent bg-p-surface px-4 py-3">
+          <p className="text-[13px] text-p-text">
+            <span className="font-semibold">
+              {seriesRequests.length === 1 ? '1 jugador pidió lugar' : `${seriesRequests.length} jugadores pidieron lugar`}
+            </span>{' '}
+            en cursos desde la app.
+          </p>
+          <button
+            type="button"
+            onClick={() => setSeriesRequestsModal({ seriesId: null })}
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800"
+          >
+            Ver pedidos
+          </button>
+        </div>
+      )}
+
       {summary.total > 0 && (
         <p className="text-[14px] text-p-text-secondary">
           <span className="font-semibold text-p-text">
@@ -3022,7 +3058,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                     <button
                       type="button"
                       disabled={seriesBusy}
-                      onClick={() => void openSeriesRequests(selectedClass.seriesId as string)}
+                      onClick={() => setSeriesRequestsModal({ seriesId: selectedClass.seriesId as string })}
                       className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-accent bg-p-surface px-3 text-sm font-semibold text-p-accent transition hover:bg-p-surface-2"
                     >
                       Pedidos ({selectedClass.series?.pendingRequests})
@@ -3935,30 +3971,33 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       />
 
       <AdminAppModal
-        show={Boolean(seriesRequests)}
+        show={Boolean(seriesRequestsModal)}
         onClose={() => {
-          if (!seriesRequestBusyId) setSeriesRequests(null);
+          if (!seriesRequestBusyId) setSeriesRequestsModal(null);
         }}
-        title="Pedidos para sumarse al curso"
+        title={seriesRequestsModal?.seriesId ? 'Pedidos para sumarse al curso' : 'Pedidos para sumarse a cursos'}
         message={
-          seriesRequests && seriesRequests.members.length > 0 ? (
+          visibleSeriesRequests.length > 0 ? (
             <div className="space-y-2">
               <p>Lo pidieron desde la app. Al aceptar, quedan anotados en las clases que vienen.</p>
               <ul className="space-y-2">
-                {seriesRequests.members.map((member) => (
+                {visibleSeriesRequests.map((member) => (
                   <li
-                    key={member.id}
+                    key={member.memberId}
                     className="flex items-center justify-between gap-3 rounded-xl border border-p-border bg-p-surface-2 px-3 py-2"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-[13px] font-semibold text-p-text">{member.studentName}</p>
-                      {member.studentPhone && <p className="text-[12px] text-p-text-muted">{member.studentPhone}</p>}
+                      <p className="text-[12px] text-p-text-muted">
+                        {seriesRequestsModal?.seriesId ? null : <>{member.seriesLabel}</>}
+                        {member.studentPhone ? <>{seriesRequestsModal?.seriesId ? '' : ' · '}{member.studentPhone}</> : null}
+                      </p>
                     </div>
                     <div className="flex shrink-0 gap-1.5">
                       <button
                         type="button"
                         disabled={Boolean(seriesRequestBusyId)}
-                        onClick={() => void answerSeriesRequest(member.id, false)}
+                        onClick={() => void answerSeriesRequest(member, false)}
                         className="h-8 rounded-lg px-2 text-[12px] font-semibold text-[var(--error-fg)] transition hover:underline underline-offset-2 disabled:opacity-60"
                       >
                         Rechazar
@@ -3966,10 +4005,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                       <button
                         type="button"
                         disabled={Boolean(seriesRequestBusyId)}
-                        onClick={() => void answerSeriesRequest(member.id, true)}
+                        onClick={() => void answerSeriesRequest(member, true)}
                         className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
                       >
-                        {seriesRequestBusyId === member.id ? 'Aceptando...' : 'Aceptar'}
+                        {seriesRequestBusyId === member.memberId ? 'Un momento...' : 'Aceptar'}
                       </button>
                     </div>
                   </li>
@@ -3981,7 +4020,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           )
         }
         confirmText="Listo"
-        onConfirm={() => setSeriesRequests(null)}
+        onConfirm={() => setSeriesRequestsModal(null)}
       />
 
       <AdminAppModal
