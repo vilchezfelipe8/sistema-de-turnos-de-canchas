@@ -1300,7 +1300,16 @@ export class SubscriptionService {
           },
         });
       } else if (pass.expiresAt && pass.expiresAt > startInstant) {
-        await tx.classPass.update({ where: { id: pass.id }, data: { expiresAt: new Date(pass.expiresAt.getTime() + shiftMs) } });
+        // Pase en curso: se estira el vencimiento y el rango del nombre ("del 15/11 al 14/12") lo acompaña.
+        const expiresAt = new Date(pass.expiresAt.getTime() + shiftMs);
+        const coversTo = new Date(expiresAt.getTime() - 8 * 86_400_000);
+        await tx.classPass.update({
+          where: { id: pass.id },
+          data: {
+            expiresAt,
+            packageName: pass.packageName.replace(/ al \d{2}\/\d{2}$/, ` al ${fmt(coversTo)}`),
+          },
+        });
       }
     }
   }
