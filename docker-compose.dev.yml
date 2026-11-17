@@ -1,0 +1,119 @@
+# Entorno de desarrollo local: un solo grupo "pique-dev" en Docker Desktop.
+# Play en Docker Desktop (o `docker compose -f docker-compose.dev.yml up -d`) levanta todo:
+#   Front  http://localhost:3001
+#   API    http://localhost:3000
+#   DB     127.0.0.1:5432  (sistema_turnos_dev)
+#   Redis  127.0.0.1:6379
+#
+# Todos los servicios comparten la red del servicio `postgres` (network_mode: service:postgres),
+# así apps/backend/.env y next.config.js siguen usando 127.0.0.1 sin cambios.
+# El código se monta desde el disco (hot reload por polling); node_modules y .next viven
+# en volúmenes del contenedor para no pisar los de Windows.
+name: pique-dev
+
+x-node-dev: &node-dev
+  image: pique-dev-node
+  network_mode: service:postgres
+  restart: unless-stopped
+  environment:
+    TZ: America/Argentina/Buenos_Aires
+    CHOKIDAR_USEPOLLING: "true"
+    WATCHPACK_POLLING: "true"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"   # postgres
+      - "127.0.0.1:6379:6379"   # redis
+      - "127.0.0.1:3000:3000"   # api
+      - "3001:3001"             # front (también accesible desde la red local)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    network_mode: service:postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - redis-data:/data
+
+  backend:
+    <<: *node-dev
+    # Solo backend construye la imagen; frontend reutiliza pique-dev-node.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM node:24-bookworm-slim
+        RUN apt-get update \
+            && apt-get install -y --no-install-recommends openssl ca-certificates \
+            && rm -rf /var/lib/apt/lists/*
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+      redis:
+        condition: service_started
+    volumes:
+      - ./apps/backend:/app
+      - backend-node-modules:/app/node_modules
+    command:
+      - sh
+      - -c
+      - |
+        h=$$(sha1sum package-lock.json | cut -d' ' -f1)
+        if [ "$$h" != "$$(cat node_modules/.lockhash 2>/dev/null)" ]; then
+          echo '[pique-dev] instalando dependencias del backend...'
+          npm install --no-save --no-audit --no-fund && echo "$$h" > node_modules/.lockhash
+        fi
+        npx prisma generate
+        npx prisma migrate deploy
+        exec npx nodemon --legacy-watch --watch src --ext ts,json \
+          --exec 'node --no-experimental-strip-types --require ts-node/register src/index.ts'
+
+  frontend:
+    <<: *node-dev
+    working_dir: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+      backend:
+        condition: service_started
+    volumes:
+      - ./apps/frontend:/app
+      - frontend-node-modules:/app/node_modules
+      - frontend-next:/app/.next
+    command:
+      - sh
+      - -c
+      - |
+        h=$$(sha1sum package-lock.json | cut -d' ' -f1)
+        if [ "$$h" != "$$(cat node_modules/.lockhash 2>/dev/null)" ]; then
+          echo '[pique-dev] instalando dependencias del frontend...'
+          npm install --no-save --no-audit --no-fund && echo "$$h" > node_modules/.lockhash
+        fi
+        exec node node_modules/next/dist/bin/next dev -p 3001 -H 0.0.0.0
+
+volumes:
+  # Volumen existente con sistema_turnos_dev (antes lo usaba el contenedor sistema-postgres).
+  postgres_data:
+    external: true
+  redis-data:
+  backend-node-modules:
+  frontend-node-modules:
+  frontend-next:
