@@ -31,6 +31,10 @@ const primaryButtonClass =
 
 const formatDay = (key: string | null) => (key ? `${key.slice(8, 10)}/${key.slice(5, 7)}/${key.slice(0, 4)}` : '—');
 const formatShortDay = (key: string) => `${key.slice(8, 10)}/${key.slice(5, 7)}`;
+const localTodayKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
 
 const STATUS_TONE: Record<string, string> = {
   ACTIVE: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
@@ -71,6 +75,11 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
   const [pauseEnd, setPauseEnd] = useState('');
   const [pauseReason, setPauseReason] = useState('');
   const [pauseError, setPauseError] = useState('');
+  const [endPauseTarget, setEndPauseTarget] = useState<{
+    subscription: ClientSubscription;
+    pause: ClientSubscription['pauses'][number];
+  } | null>(null);
+  const [endPauseError, setEndPauseError] = useState('');
   const [drawerAccountId, setDrawerAccountId] = useState<string | null>(null);
   const [drawerTitle, setDrawerTitle] = useState('');
   const [showClosed, setShowClosed] = useState(false);
@@ -201,6 +210,26 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
     }
   };
 
+  const endPauseStarted = endPauseTarget ? endPauseTarget.pause.startDate < localTodayKey() : false;
+
+  const handleEndPause = async () => {
+    if (!endPauseTarget) return;
+    try {
+      setSubmitting(true);
+      setEndPauseError('');
+      await SubscriptionAdminService.endPause(clubSlug, endPauseTarget.subscription.id, endPauseTarget.pause.id);
+      setEndPauseTarget(null);
+      showAdminToast(endPauseStarted ? 'Pausa terminada. El plan volvió a estar activo.' : 'Pausa anulada.');
+      await load();
+      onChanged?.();
+    } catch (err) {
+      reportUiError({ area: 'ClientSubscriptionsPanel', action: 'endPause' }, err);
+      setEndPauseError(extractErrorMessage(err, 'No se pudo terminar la pausa.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading && !rows.length && !plans.length) {
     return <p className="text-[12px] text-p-text-muted">Cargando planes...</p>;
   }
@@ -262,11 +291,33 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
                 {row.pendingAmount > 0 ? <> · Debe {formatMoney(row.pendingAmount)}</> : null}
               </p>
               {row.pauses.length ? (
-                <p className="text-[12px] text-p-text-muted">
-                  {row.pauses
-                    .map((pause) => `Pausa del ${formatShortDay(pause.startDate)} al ${formatShortDay(pause.endDate)}${pause.reason ? ` (${pause.reason})` : ''}`)
-                    .join(' · ')}
-                </p>
+                <ul className="space-y-1">
+                  {row.pauses.map((pause) => {
+                    const today = localTodayKey();
+                    const open = pause.endDate >= today && row.status !== 'CANCELLED' && row.status !== 'EXPIRED';
+                    return (
+                      <li key={pause.id} className="flex items-center justify-between gap-2 text-[12px] text-p-text-muted">
+                        <span>
+                          Pausa del {formatShortDay(pause.startDate)} al {formatShortDay(pause.endDate)}
+                          {pause.reason ? ` (${pause.reason})` : ''}
+                        </span>
+                        {open ? (
+                          <button
+                            type="button"
+                            className="shrink-0 text-[12px] font-semibold text-p-accent hover:underline disabled:opacity-50"
+                            disabled={submitting}
+                            onClick={() => {
+                              setEndPauseError('');
+                              setEndPauseTarget({ subscription: row, pause });
+                            }}
+                          >
+                            {pause.startDate < today ? 'Terminar hoy' : 'Anular'}
+                          </button>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
               ) : null}
 
               <ul className="divide-y divide-p-border border-t border-p-border">
@@ -438,6 +489,33 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
             Motivo (opcional)
             <input className={inputClass} value={pauseReason} onChange={(event) => setPauseReason(event.target.value)} placeholder="Ej: viaje, lesión" />
           </label>
+        </div>
+      </AdminModal>
+
+      <AdminModal
+        open={endPauseTarget !== null}
+        title={endPauseStarted ? 'Terminar la pausa hoy' : 'Anular la pausa'}
+        onClose={() => setEndPauseTarget(null)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button type="button" className={buttonClass} onClick={() => setEndPauseTarget(null)}>
+              Volver
+            </button>
+            <button type="button" className={primaryButtonClass} disabled={submitting} onClick={() => void handleEndPause()}>
+              {submitting ? 'Guardando...' : endPauseStarted ? 'Terminar pausa' : 'Anular pausa'}
+            </button>
+          </div>
+        }
+      >
+        <div className="grid gap-3">
+          {endPauseError ? <AdminFeedbackBanner tone="error" compact>{endPauseError}</AdminFeedbackBanner> : null}
+          <p className="text-[13px] leading-relaxed text-p-text-secondary">
+            {endPauseTarget
+            ? endPauseStarted
+              ? `La pausa queda del ${formatShortDay(endPauseTarget.pause.startDate)} hasta ayer y el plan vuelve a estar activo hoy. Las cuotas, el fin del plan y las clases se adelantan los días que no usó.`
+              : `Se borra la pausa del ${formatShortDay(endPauseTarget.pause.startDate)} al ${formatShortDay(endPauseTarget.pause.endDate)}, las fechas vuelven a como estaban y la pausa no cuenta para el límite del plan.`
+            : undefined}
+          </p>
         </div>
       </AdminModal>
 

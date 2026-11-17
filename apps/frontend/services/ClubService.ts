@@ -69,6 +69,8 @@ export type ClubFavorite = {
 
 export type ClubCourse = {
   id: string;
+  /** Nombre que puso el club. Sin nombre se muestra la actividad. */
+  name: string | null;
   activity: string | null;
   teacher: string | null;
   weekdays: number[];
@@ -82,8 +84,21 @@ export type ClubCourse = {
   requiresApproval: boolean;
   /** Se paga por Mercado Pago al anotarse. */
   requiresPayment: boolean;
-  /** Lo que se paga al anotarse: las clases que quedan del mes. */
-  signupPrice: { month: string; monthLabel: string; classes: number; pricePerClass: number; total: number } | null;
+  startsOn: string;
+  endsOn: string | null;
+  /** Todavía no arrancó. */
+  startsLater: boolean;
+  /** Lo que se paga al anotarse: las clases que quedan del mes que no cubre su plan. */
+  signupPrice: {
+    month: string;
+    monthLabel: string;
+    classes: number;
+    coveredByPlan: number;
+    pricePerClass: number;
+    total: number;
+  } | null;
+  /** Clases del mes que le cubre su plan (con sesión iniciada). */
+  planCoverage: { covered: number; classes: number; full: boolean } | null;
   /** Estado del jugador logueado en el curso. AWAITING_PAYMENT: tiene el lugar guardado mientras paga. */
   myStatus: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT' | null;
 };
@@ -94,6 +109,7 @@ export type MyCourse = {
   status: 'ACTIVE' | 'PENDING' | 'AWAITING_PAYMENT';
   clubName: string;
   clubSlug: string;
+  name: string | null;
   activity: string | null;
   teacher: string | null;
   court: string | null;
@@ -103,6 +119,36 @@ export type MyCourse = {
   level: string | null;
   canLeave: boolean;
   nextClasses: string[];
+};
+
+/** Plan del jugador ("Mis planes" del perfil). */
+export type MyPlan = {
+  id: string;
+  clubName: string;
+  clubSlug: string;
+  planName: string;
+  optionLabel: string;
+  billingType: 'RECURRING' | 'FIXED_TERM' | null;
+  status: 'ACTIVE' | 'PAST_DUE' | 'PAUSED';
+  hasOverdue: boolean;
+  beneficiaryName: string | null;
+  payerName: string | null;
+  isPayerOnly: boolean;
+  startDate: string;
+  endDate: string | null;
+  currentPeriodEnd: string;
+  paidThrough: string | null;
+  pendingAmount: number;
+  nextInstallment: { amount: number; dueDate: string; coversFrom: string; coversTo: string; isOverdue: boolean; payable: boolean } | null;
+  pause: { id: string; startDate: string; endDate: string; started: boolean } | null;
+  pauseMaxDays: number;
+  pauseMaxCount: number;
+  pausesUsed: number;
+  /** Puede pausarlo solo desde la app. */
+  canPause: boolean;
+  /** El club cobra online y hay una cuota con saldo. */
+  canPayOnline: boolean;
+  classes: Array<{ name: string; remaining: number; total: number; expiresAt: string | null }>;
 };
 
 export class ClubService {
@@ -225,6 +271,48 @@ export class ClubService {
     return res.json();
   }
 
+  /** Link de Mercado Pago para pagar la cuota pendiente del plan. */
+  static async payMyPlanInstallment(subscriptionId: string): Promise<{ initPoint: string; amount: number }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/subscriptions/me/${encodeURIComponent(subscriptionId)}/checkout`, { method: 'POST' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo armar el pago de la cuota');
+    }
+    return res.json();
+  }
+
+  static async pauseMyPlan(subscriptionId: string, body: { startDate?: string | null; endDate: string }): Promise<void> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/subscriptions/me/${encodeURIComponent(subscriptionId)}/pause`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo pausar el plan');
+    }
+  }
+
+  static async endMyPlanPause(subscriptionId: string, pauseId: string): Promise<void> {
+    const res = await fetchWithAuth(
+      `${apiBase()}/clubs/subscriptions/me/${encodeURIComponent(subscriptionId)}/pauses/${encodeURIComponent(pauseId)}/end`,
+      { method: 'POST' }
+    );
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo terminar la pausa');
+    }
+  }
+
+  static async getMyPlans(): Promise<MyPlan[]> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/subscriptions/me`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudieron cargar tus planes');
+    }
+    return res.json();
+  }
+
   static async getMyCourses(): Promise<MyCourse[]> {
     const res = await fetchWithAuth(`${apiBase()}/clubs/courses/me`);
     if (!res.ok) {
@@ -237,7 +325,7 @@ export class ClubService {
   static async joinClubCourse(
     slug: string,
     id: string
-  ): Promise<{ status: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT'; enrolled: number; initPoint: string | null }> {
+  ): Promise<{ status: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT'; enrolled: number; initPoint: string | null; coveredByPlan?: boolean }> {
     const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/courses/${id}/join`, { method: 'POST' });
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));

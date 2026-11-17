@@ -227,4 +227,21 @@ export class SubscriptionAdminController {
       return sendAppError(res, error, 'No se pudo pausar el plan.');
     }
   };
+
+  endPause = async (req: ClubRequest, res: Response) => {
+    try {
+      const clubId = this.resolveClubId(req);
+      const actorUserId = this.resolveActorUserId(req);
+      return res.json(
+        await subscriptionService.endPause(
+          clubId,
+          actorUserId,
+          this.resolveId(req.params.id, 'Plan del cliente'),
+          this.resolveId(req.params.pauseId, 'Pausa')
+        )
+      );
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo terminar la pausa.');
+    }
+  };
 }

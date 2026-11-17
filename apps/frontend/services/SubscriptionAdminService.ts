@@ -188,6 +188,14 @@ export const SubscriptionAdminService = {
       'No se pudo pausar el plan.'
     ),
 
+  /** Termina hoy una pausa en curso, o anula una que todavía no empezó. */
+  endPause: (slug: string, subscriptionId: string, pauseId: string) =>
+    request<ClientSubscription>(
+      `/clubs/${slug}/admin/subscriptions/${subscriptionId}/pauses/${pauseId}/end`,
+      { method: 'POST' },
+      'No se pudo terminar la pausa.'
+    ),
+
   cancel: (slug: string, subscriptionId: string, reason?: string | null) =>
     request<ClientSubscription>(
       `/clubs/${slug}/admin/subscriptions/${subscriptionId}/cancel`,

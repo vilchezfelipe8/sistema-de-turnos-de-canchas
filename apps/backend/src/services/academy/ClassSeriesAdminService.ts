@@ -43,6 +43,8 @@ export type ClassSeriesInput = {
   durationMinutes: number;
   capacity: number;
   pricePerStudent?: number | string | null;
+  /** Nombre que ve el jugador. Sin nombre se muestra la actividad. */
+  name?: string | null;
   level?: string | null;
   description?: string | null;
   startsOn: string;
@@ -180,6 +182,7 @@ export class ClassSeriesAdminService {
       durationMinutes,
       capacity,
       pricePerStudent: parseMoneyOrThrow(input.pricePerStudent, 'Precio por alumno'),
+      name: normalizeOptionalString(input.name),
       level: normalizeOptionalString(input.level),
       description: normalizeOptionalString(input.description),
       startsOn,
@@ -446,6 +449,7 @@ export class ClassSeriesAdminService {
       durationMinutes: Number(row.durationMinutes),
       capacity: Number(row.capacity),
       pricePerStudent: row.pricePerStudent == null ? null : Number(row.pricePerStudent),
+      name: row.name ?? null,
       level: row.level ?? null,
       description: row.description ?? null,
       startsOn,
@@ -900,12 +904,17 @@ export class ClassSeriesAdminService {
       : [];
     const myStatus = new Map(mine.map((row) => [row.seriesId, String(row.status)]));
     const timeZone = await this.resolveTimeZone(clubId);
-    const quotes = new Map<string, Awaited<ReturnType<ClassSeriesAdminService['signupQuote']>>>();
+    const today = this.todayKey(timeZone);
+    const quotes = new Map<string, ReturnType<ClassSeriesAdminService['applyPlanCoverage']>>();
     for (const row of rows) {
-      if (row.requiresPayment) quotes.set(row.id, await this.signupQuote(row, timeZone));
+      const quote = await this.signupQuote(row, timeZone);
+      // Con sesión: cuántas de esas clases ya le cubre un plan del club.
+      const credits = quote && client ? await this.planCreditsForMonth(row, client.id, quote.month, timeZone) : 0;
+      quotes.set(row.id, this.applyPlanCoverage(quote, credits));
     }
     return rows.map((row) => ({
       id: row.id,
+      name: row.name ?? null,
       activity: row.activityType?.name ?? null,
       teacher: row.teacher?.displayName ?? null,
       weekdays: row.weekdays,
@@ -918,8 +927,18 @@ export class ClassSeriesAdminService {
       spotsLeft: Math.max(0, row.capacity - (row._count?.members ?? 0)),
       requiresApproval: row.requiresApproval,
       requiresPayment: row.requiresPayment,
-      // Lo que paga hoy al anotarse: las clases que quedan del mes (o el mes que viene, si ya no quedan).
-      signupPrice: quotes.get(row.id) ?? null,
+      // Desde cuándo y hasta cuándo se da (para que no parezca que ya arrancó).
+      startsOn: toDateKey(row.startsOn),
+      endsOn: row.endsOn ? toDateKey(row.endsOn) : null,
+      startsLater: toDateKey(row.startsOn) > today,
+      // Lo que paga hoy al anotarse: las clases que quedan del mes (o el mes que viene), menos las que cubre su plan.
+      signupPrice: row.requiresPayment ? quotes.get(row.id) ?? null : null,
+      // Clases del mes que le cubre su plan (null sin sesión, sin precio o sin plan que sirva).
+      planCoverage: (() => {
+        const quote = quotes.get(row.id);
+        if (!quote || !quote.coveredByPlan) return null;
+        return { covered: quote.coveredByPlan, classes: quote.coveredByPlan + quote.classes, full: quote.classes === 0 };
+      })(),
       myStatus: (myStatus.get(row.id) as 'ACTIVE' | 'PENDING' | 'AWAITING_PAYMENT' | undefined) ?? null,
     }));
   }
@@ -936,7 +955,7 @@ export class ClassSeriesAdminService {
   async joinFromApp(clubId: number, seriesId: string, userId: number) {
     const series = await this.assertPublicSeries(clubId, seriesId);
     const client = await this.personService.ensureClientForUser(clubId, userId, { source: 'SELF_BOOKING' });
-    if (series.requiresPayment) return this.joinPaying(clubId, series, client.id, userId);
+    if (series.requiresPayment) return this.joinPaying(clubId, series, client.id, userId, client.name);
     const result = await this.addMember(
       clubId,
       series.id,
@@ -949,6 +968,7 @@ export class ClassSeriesAdminService {
       status: series.requiresApproval ? ('PENDING' as const) : ('ACTIVE' as const),
       enrolled: result.enrolled,
       initPoint: null as string | null,
+      coveredByPlan: false,
     };
   }
 
@@ -1055,23 +1075,36 @@ export class ClassSeriesAdminService {
   }
 
   /** Anotarse pagando: guarda el lugar, arma la cuota del mes y devuelve el link de Mercado Pago. */
-  private async joinPaying(clubId: number, series: any, studentClientId: string, userId: number) {
+  private async joinPaying(clubId: number, series: any, studentClientId: string, userId: number, studentName = 'Un jugador') {
+    const existing = await prisma.classSeriesMember.findFirst({
+      where: { seriesId: series.id, studentClientId, leftAt: null, status: 'AWAITING_PAYMENT' },
+      select: { id: true },
+    });
+
+    // Si su plan ya le da todas las clases del mes, se anota sin pagar (si no, pagaría dos veces).
+    if (!existing) {
+      const timeZone = await this.resolveTimeZone(clubId);
+      const quote = await this.signupQuote(series, timeZone);
+      const credits = quote ? await this.planCreditsForMonth(series, studentClientId, quote.month, timeZone) : 0;
+      if (quote && credits >= quote.classes) {
+        const result = await this.addMember(clubId, series.id, userId, { studentClientId }, { fromAppUserId: userId });
+        await this.notifyStaff(clubId, series.id, userId, 'JOINED', studentName);
+        return { status: 'ACTIVE' as const, enrolled: result.enrolled, initPoint: null as string | null, coveredByPlan: true };
+      }
+    }
+
     const accessToken = await this.paymentIntegrationService.getMercadoPagoAccessTokenForClub(clubId);
     if (!accessToken) {
       throw conflict('Este club todavía no cobra online. Escribile al club para anotarte.', ErrorCodes.PAYMENT_PROVIDER_NOT_CONFIGURED);
     }
 
-    const existing = await prisma.classSeriesMember.findFirst({
-      where: { seriesId: series.id, studentClientId, leftAt: null, status: 'AWAITING_PAYMENT' },
-      select: { id: true },
-    });
     if (existing) {
       const open = await prisma.onlinePaymentAttempt.findFirst({
         where: { classSeriesMemberId: existing.id, status: { in: ['CREATED', 'PENDING'] }, initPoint: { not: null } },
         orderBy: { createdAt: 'desc' },
         select: { initPoint: true },
       });
-      if (open?.initPoint) return { status: 'AWAITING_PAYMENT' as const, enrolled: 0, initPoint: open.initPoint };
+      if (open?.initPoint) return { status: 'AWAITING_PAYMENT' as const, enrolled: 0, initPoint: open.initPoint, coveredByPlan: false };
     }
 
     const spot = existing ? await this.loadPaidSpot(existing.id) : await this.reservePaidSpot(clubId, series, studentClientId, userId);
@@ -1086,7 +1119,7 @@ export class ClassSeriesAdminService {
         userId,
         accessToken,
       });
-      return { status: 'AWAITING_PAYMENT' as const, enrolled: 0, initPoint };
+      return { status: 'AWAITING_PAYMENT' as const, enrolled: 0, initPoint, coveredByPlan: false };
     } catch (error) {
       // Sin link de pago no tiene sentido guardar el lugar.
       await prisma.$transaction((tx) => this.releasePaidSpotTx(tx, spot.memberId));
@@ -1098,15 +1131,20 @@ export class ClassSeriesAdminService {
   async reservePaidSpot(clubId: number, series: any, studentClientId: string, userId: number) {
     await this.assertRoomInSeries(series);
     const timeZone = await this.resolveTimeZone(clubId);
-    const quote = await this.signupQuote(series, timeZone);
-    if (!quote) throw conflict('Este curso no tiene clases para cobrar por ahora.', ErrorCodes.INVALID_INPUT);
+    const baseQuote = await this.signupQuote(series, timeZone);
+    if (!baseQuote) throw conflict('Este curso no tiene clases para cobrar por ahora.', ErrorCodes.INVALID_INPUT);
+    const quote = this.applyPlanCoverage(
+      baseQuote,
+      await this.planCreditsForMonth(series, studentClientId, baseQuote.month, timeZone)
+    )!;
+    if (quote.classes <= 0) throw conflict('Tu plan ya cubre este curso: anotate sin pagar.', ErrorCodes.INVALID_INPUT);
     const student = await prisma.client.findFirst({
       where: { id: studentClientId, clubId },
       select: { id: true, userId: true },
     });
     if (!student) throw notFound('Cliente no encontrado.', ErrorCodes.CLIENT_NOT_FOUND);
 
-    const title = `Curso ${describeWeekdays(series.weekdays)} ${series.startTime} · ${quote.monthLabel}`;
+    const title = `${series.name || `Curso ${describeWeekdays(series.weekdays)} ${series.startTime}`} · ${quote.monthLabel}`;
     const created = await prisma.$transaction(async (tx) => {
       const member = await tx.classSeriesMember.create({
         data: {
@@ -1343,6 +1381,30 @@ export class ClassSeriesAdminService {
     return { released };
   }
 
+  /** Clases de plan que le quedan al alumno para este curso en el mes (YYYY-MM). */
+  private async planCreditsForMonth(
+    series: { clubId: number; activityTypeId: number | null; classType: string; teacherId: string },
+    studentClientId: string,
+    month: string,
+    timeZone: string
+  ) {
+    const [year, monthNumber] = month.split('-').map(Number);
+    const next = monthNumber === 12 ? `${year + 1}-01` : `${year}-${String(monthNumber + 1).padStart(2, '0')}`;
+    const rows = await this.planPassesForMonth(series.clubId, series, studentClientId, {
+      gte: fromZonedTime(`${month}-01T00:00:00`, timeZone),
+      lt: fromZonedTime(`${next}-01T00:00:00`, timeZone),
+    });
+    return rows.reduce((sum, row) => sum + Number(row.remainingCredits || 0), 0);
+  }
+
+  /** Descuenta de la cotización las clases que ya le da el plan: paga solo el resto. */
+  private applyPlanCoverage(quote: Awaited<ReturnType<ClassSeriesAdminService['signupQuote']>>, planCredits: number) {
+    if (!quote) return null;
+    const coveredByPlan = Math.min(quote.classes, Math.max(0, planCredits));
+    const classes = quote.classes - coveredByPlan;
+    return { ...quote, coveredByPlan, classes, total: Number((quote.pricePerClass * classes).toFixed(2)) };
+  }
+
   /** Packs de planes (clases incluidas) que le sirven al alumno para este curso en ese mes. */
   private async planPassesForMonth(
     clubId: number,
@@ -1389,6 +1451,7 @@ export class ClassSeriesAdminService {
             weekdays: true,
             startTime: true,
             durationMinutes: true,
+            name: true,
             level: true,
             visibility: true,
             activityType: { select: { name: true } },
@@ -1424,6 +1487,7 @@ export class ClassSeriesAdminService {
       status: member.status as 'ACTIVE' | 'PENDING' | 'AWAITING_PAYMENT',
       clubName: member.series.club?.name || '',
       clubSlug: member.series.club?.slug || '',
+      name: member.series.name ?? null,
       activity: member.series.activityType?.name ?? null,
       teacher: member.series.teacher?.displayName ?? null,
       court: member.series.court?.name ?? null,

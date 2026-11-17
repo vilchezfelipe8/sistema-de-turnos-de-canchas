@@ -1346,6 +1346,8 @@ model ClassSeries {
   durationMinutes Int
   capacity        Int
   pricePerStudent Decimal? @db.Decimal(10, 2)
+  // Nombre que ve el jugador (ej. "Escuelita de menores"). Sin nombre se muestra la actividad.
+  name            String?
   level           String?
   description     String?
 

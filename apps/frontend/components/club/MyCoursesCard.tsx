@@ -95,7 +95,7 @@ export default function MyCoursesCard() {
               <div className="mc-head">
                 <div>
                   <p className="mc-title">
-                    {course.activity || 'Curso'} · {course.weekdaysLabel} {course.startTime}
+                    {course.name || course.activity || 'Curso'} · {course.weekdaysLabel} {course.startTime}
                   </p>
                   <p className="mc-sub">{details.join(' · ')}</p>
                 </div>

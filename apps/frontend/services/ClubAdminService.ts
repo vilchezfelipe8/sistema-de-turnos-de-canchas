@@ -225,6 +225,7 @@ export type AdminClassSeries = {
   durationMinutes: number;
   capacity: number;
   pricePerStudent: number | null;
+  name: string | null;
   level: string | null;
   description: string | null;
   startsOn: string;
@@ -258,6 +259,8 @@ export type AdminClassSeriesInput = {
   durationMinutes: number;
   capacity: number;
   pricePerStudent?: number | null;
+  /** Nombre que ve el jugador. Sin nombre se muestra la actividad. */
+  name?: string | null;
   level?: string | null;
   description?: string | null;
   startsOn: string;

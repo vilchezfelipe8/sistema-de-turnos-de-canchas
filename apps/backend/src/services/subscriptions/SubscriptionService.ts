@@ -1115,7 +1115,7 @@ export class SubscriptionService {
           kind: 'PLAN_NOTICE',
           aggregateType: 'Subscription',
           aggregateId: input.subscriptionId,
-          content: { title: input.title, body: input.body, url: '/perfil', tag: `plan-${input.subscriptionId}-${input.dedupe}` },
+          content: { title: input.title, body: input.body, url: '/perfil#mis-planes', tag: `plan-${input.subscriptionId}-${input.dedupe}` },
         });
       }
       const phone = toDialablePhoneNumber(input.payer?.phone);
@@ -1203,55 +1203,8 @@ export class SubscriptionService {
       );
       if (overlaps) throw conflict('Ya hay una pausa en esas fechas.', ErrorCodes.INVALID_INPUT);
 
+      await this.shiftForPauseTx(tx, clubId, subscriptionId, subscription.installments, startDate, days);
       const shift = (key: string) => addDaysKey(key, days);
-      // Cuotas: las que empiezan durante o después de la pausa se corren enteras; la que está en
-      // curso se estira hasta cubrir los días pausados.
-      for (const row of subscription.installments) {
-        if (row.status === 'VOID' || row.kind !== 'PERIOD') continue;
-        const from = dateToKey(row.coversFrom);
-        const to = dateToKey(row.coversTo);
-        if (from >= startDate) {
-          await tx.subscriptionInstallment.update({
-            where: { id: row.id },
-            data: {
-              coversFrom: dateKeyToDate(shift(from)),
-              coversTo: dateKeyToDate(shift(to)),
-              dueDate: row.status === 'PENDING' ? dateKeyToDate(shift(dateToKey(row.dueDate))) : row.dueDate,
-            },
-          });
-        } else if (to >= startDate) {
-          await tx.subscriptionInstallment.update({ where: { id: row.id }, data: { coversTo: dateKeyToDate(shift(to)) } });
-        }
-      }
-
-      // Clases incluidas: los packs que no empezaron se corren; el del mes en curso vence más tarde.
-      const timeZone = await this.clubTimeZone(clubId, tx);
-      const startInstant = fromZonedTime(`${startDate}T00:00:00`, timeZone);
-      const shiftMs = days * 86_400_000;
-      const fmt = (date: Date) => {
-        const key = localDateKey(date, timeZone);
-        return `${key.slice(8, 10)}/${key.slice(5, 7)}`;
-      };
-      const passes = await tx.classPass.findMany({ where: { subscriptionId, status: 'ACTIVE' } });
-      for (const pass of passes) {
-        if (pass.validFrom && pass.validFrom >= startInstant) {
-          const validFrom = new Date(pass.validFrom.getTime() + shiftMs);
-          const expiresAt = pass.expiresAt ? new Date(pass.expiresAt.getTime() + shiftMs) : null;
-          const coversTo = expiresAt ? new Date(expiresAt.getTime() - 8 * 86_400_000) : null;
-          await tx.classPass.update({
-            where: { id: pass.id },
-            data: {
-              validFrom,
-              expiresAt,
-              packageName: coversTo
-                ? pass.packageName.replace(/del \d{2}\/\d{2} al \d{2}\/\d{2}$/, `del ${fmt(validFrom)} al ${fmt(coversTo)}`)
-                : pass.packageName,
-            },
-          });
-        } else if (pass.expiresAt && pass.expiresAt > startInstant) {
-          await tx.classPass.update({ where: { id: pass.id }, data: { expiresAt: new Date(pass.expiresAt.getTime() + shiftMs) } });
-        }
-      }
 
       await tx.subscriptionPause.create({
         data: {
@@ -1285,6 +1238,143 @@ export class SubscriptionService {
       });
       await this.syncMemberValidUntilTx(tx, clubId, subscription.clientId, actorUserId);
     });
+    return this.getSubscription(clubId, subscriptionId);
+  }
+
+  /**
+   * Corre las fechas del plan por una pausa que empieza en `startDate` (días > 0 al pausar,
+   * < 0 al acortar o anular una pausa: deshace exactamente el mismo corrimiento).
+   * Cuotas que empiezan en/después de la pausa se corren enteras; la que está en curso se estira
+   * (o se achica). Packs de clases: los que no empezaron se corren; el del mes en curso cambia
+   * su vencimiento.
+   */
+  private async shiftForPauseTx(
+    tx: Prisma.TransactionClient,
+    clubId: number,
+    subscriptionId: string,
+    installments: Array<{ id: string; status: string; kind: string; coversFrom: Date; coversTo: Date; dueDate: Date }>,
+    startDate: string,
+    days: number
+  ) {
+    if (!days) return;
+    const shift = (key: string) => addDaysKey(key, days);
+    for (const row of installments) {
+      if (row.status === 'VOID' || row.kind !== 'PERIOD') continue;
+      const from = dateToKey(row.coversFrom);
+      const to = dateToKey(row.coversTo);
+      if (from >= startDate) {
+        await tx.subscriptionInstallment.update({
+          where: { id: row.id },
+          data: {
+            coversFrom: dateKeyToDate(shift(from)),
+            coversTo: dateKeyToDate(shift(to)),
+            dueDate: row.status === 'PENDING' ? dateKeyToDate(shift(dateToKey(row.dueDate))) : row.dueDate,
+          },
+        });
+      } else if (to >= startDate) {
+        await tx.subscriptionInstallment.update({ where: { id: row.id }, data: { coversTo: dateKeyToDate(shift(to)) } });
+      }
+    }
+
+    const timeZone = await this.clubTimeZone(clubId, tx);
+    const startInstant = fromZonedTime(`${startDate}T00:00:00`, timeZone);
+    const shiftMs = days * 86_400_000;
+    const fmt = (date: Date) => {
+      const key = localDateKey(date, timeZone);
+      return `${key.slice(8, 10)}/${key.slice(5, 7)}`;
+    };
+    const passes = await tx.classPass.findMany({ where: { subscriptionId, status: 'ACTIVE' } });
+    for (const pass of passes) {
+      if (pass.validFrom && pass.validFrom >= startInstant) {
+        const validFrom = new Date(pass.validFrom.getTime() + shiftMs);
+        const expiresAt = pass.expiresAt ? new Date(pass.expiresAt.getTime() + shiftMs) : null;
+        const coversTo = expiresAt ? new Date(expiresAt.getTime() - 8 * 86_400_000) : null;
+        await tx.classPass.update({
+          where: { id: pass.id },
+          data: {
+            validFrom,
+            expiresAt,
+            packageName: coversTo
+              ? pass.packageName.replace(/del \d{2}\/\d{2} al \d{2}\/\d{2}$/, `del ${fmt(validFrom)} al ${fmt(coversTo)}`)
+              : pass.packageName,
+          },
+        });
+      } else if (pass.expiresAt && pass.expiresAt > startInstant) {
+        // Pase en curso: se estira el vencimiento y el rango del nombre ("del 15/11 al 14/12") lo acompaña.
+        const expiresAt = new Date(pass.expiresAt.getTime() + shiftMs);
+        const coversTo = new Date(expiresAt.getTime() - 8 * 86_400_000);
+        await tx.classPass.update({
+          where: { id: pass.id },
+          data: {
+            expiresAt,
+            packageName: pass.packageName.replace(/ al \d{2}\/\d{2}$/, ` al ${fmt(coversTo)}`),
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * Termina una pausa antes de tiempo o la anula.
+   * - Pausa en curso (empezó antes de hoy): termina ayer, el plan vuelve a ACTIVE hoy y las fechas
+   *   se adelantan los días que no se usaron.
+   * - Pausa que todavía no empezó (o empieza hoy): se borra, se deshace todo el corrimiento y se
+   *   devuelve la pausa al cupo del plan (sirve para corregir una carga equivocada).
+   */
+  async endPause(clubId: number, actorUserId: number, subscriptionId: string, pauseId: string) {
+    await prisma.$transaction(async (tx) => {
+      await acquireTransactionAdvisoryLock(tx, `subscription:${subscriptionId}`);
+      const subscription = await tx.subscription.findFirst({
+        where: { id: subscriptionId, clubId },
+        include: { pauses: true, installments: true },
+      });
+      if (!subscription) throw notFound('Plan del cliente no encontrado.', ErrorCodes.SUBSCRIPTION_NOT_FOUND);
+      if (subscription.status === 'CANCELLED' || subscription.status === 'EXPIRED') {
+        throw conflict('El plan ya terminó.', ErrorCodes.INVALID_INPUT);
+      }
+      const pause = subscription.pauses.find((row) => row.id === pauseId);
+      if (!pause) throw notFound('Pausa no encontrada.', ErrorCodes.INVALID_INPUT);
+      const today = await this.todayKey(clubId, tx);
+      const startDate = dateToKey(pause.startDate);
+      const endDate = dateToKey(pause.endDate);
+      if (endDate < today) throw conflict('Esa pausa ya terminó.', ErrorCodes.INVALID_INPUT);
+
+      const cancelled = startDate >= today;
+      const newEnd = cancelled ? null : addDaysKey(today, -1);
+      const days = cancelled ? diffDaysKey(startDate, endDate) + 1 : diffDaysKey(newEnd as string, endDate);
+      await this.shiftForPauseTx(tx, clubId, subscriptionId, subscription.installments, startDate, -days);
+
+      if (cancelled) {
+        await tx.subscriptionPause.delete({ where: { id: pause.id } });
+      } else {
+        await tx.subscriptionPause.update({ where: { id: pause.id }, data: { endDate: dateKeyToDate(newEnd as string) } });
+      }
+      const resumes = subscription.status === 'PAUSED';
+      await tx.subscription.update({
+        where: { id: subscriptionId },
+        data: {
+          pausesUsed: cancelled ? Math.max(0, subscription.pausesUsed - 1) : subscription.pausesUsed,
+          currentPeriodEnd: dateKeyToDate(addDaysKey(dateToKey(subscription.currentPeriodEnd), -days)),
+          endDate: subscription.endDate ? dateKeyToDate(addDaysKey(dateToKey(subscription.endDate), -days)) : null,
+          status: resumes ? 'ACTIVE' : subscription.status,
+        },
+      });
+      await tx.subscriptionHistory.create({
+        data: {
+          subscriptionId,
+          clubId,
+          action: cancelled ? 'PAUSE_CANCELLED' : 'PAUSE_ENDED',
+          fromStatus: subscription.status,
+          toStatus: resumes ? 'ACTIVE' : subscription.status,
+          detail: { startDate, endDate, newEndDate: newEnd, daysGivenBack: days } as Prisma.InputJsonValue,
+          changedByUserId: actorUserId,
+        },
+      });
+      await this.syncMemberValidUntilTx(tx, clubId, subscription.clientId, actorUserId);
+    });
+    // Si al volver quedó una cuota vencida, el job la pasa a mora como siempre.
+    const todayKey = await this.todayKey(clubId);
+    await prisma.$transaction((tx) => this.runLifecycleTx(tx, subscriptionId, todayKey)).catch(() => undefined);
     return this.getSubscription(clubId, subscriptionId);
   }
 
@@ -1499,6 +1589,108 @@ export class SubscriptionService {
       orderBy: [{ createdAt: 'desc' }],
     });
     return this.mapSubscriptions(clubId, rows);
+  }
+
+  // ── App del jugador ────────────────────────────────────────────────────
+
+  /**
+   * "Mis planes": los planes vigentes del jugador en todos sus clubes (los que usa y los que paga),
+   * con la próxima cuota y las clases incluidas que le quedan.
+   */
+  async listMine(userId: number) {
+    const rows = await prisma.subscription.findMany({
+      where: {
+        status: { in: ['ACTIVE', 'PAST_DUE', 'PAUSED'] },
+        OR: [{ client: { userId } }, { payerClient: { userId } }],
+      },
+      include: {
+        ...this.subscriptionInclude,
+        client: { select: { id: true, name: true, userId: true } },
+        payerClient: { select: { id: true, name: true, userId: true } },
+        club: { select: { name: true, slug: true } },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+    if (!rows.length) return [];
+
+    const byClub = new Map<number, typeof rows>();
+    for (const row of rows) byClub.set(row.clubId, [...(byClub.get(row.clubId) || []), row]);
+    const mapped = new Map<string, any>();
+    for (const [clubId, clubRows] of byClub) {
+      for (const item of await this.mapSubscriptions(clubId, clubRows)) mapped.set(item.id, item);
+    }
+
+    const now = new Date();
+    const passes = await prisma.classPass.findMany({
+      where: {
+        subscriptionId: { in: rows.map((row) => row.id) },
+        status: 'ACTIVE',
+        remainingCredits: { gt: 0 },
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+          { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
+        ],
+      },
+      orderBy: [{ validFrom: 'asc' }],
+      select: { subscriptionId: true, packageName: true, remainingCredits: true, totalCredits: true, expiresAt: true },
+    });
+
+    return rows.map((row) => {
+      const item = mapped.get(row.id);
+      // Lo paga para otro (hijo, etc.): no es quien toma las clases.
+      const isPayer = row.client.userId !== userId;
+      const pending = item.installments.filter((inst: any) => inst.status === 'PENDING');
+      const next = pending.sort((a: any, b: any) => a.dueDate.localeCompare(b.dueDate))[0] || null;
+      const today = localDateKey(now, DEFAULT_TIME_ZONE);
+      const pause = item.pauses.find((row: any) => row.endDate >= today) || null;
+      return {
+        id: row.id,
+        clubId: row.clubId,
+        clubName: row.club?.name || '',
+        clubSlug: row.club?.slug || '',
+        planName: item.planName,
+        optionLabel: item.optionLabel,
+        billingType: item.billingType,
+        status: item.status,
+        hasOverdue: item.hasOverdue,
+        // Lo paga otro (o lo paga para otro): se muestra para quién es.
+        beneficiaryName: row.client.id !== row.payerClient.id ? row.client.name : null,
+        payerName: row.client.id !== row.payerClient.id ? row.payerClient.name : null,
+        isPayerOnly: isPayer,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        currentPeriodEnd: item.currentPeriodEnd,
+        paidThrough: item.paidThrough,
+        pendingAmount: item.pendingAmount,
+        nextInstallment: next
+          ? {
+              amount: next.account ? next.account.remainingAmount : next.listAmount,
+              dueDate: next.dueDate,
+              coversFrom: next.coversFrom,
+              coversTo: next.coversTo,
+              isOverdue: next.isOverdue,
+              // Se puede pagar online: tiene cuenta abierta con saldo.
+              payable: Boolean(next.account && next.account.status === 'OPEN' && next.account.remainingAmount > 0),
+            }
+          : null,
+        // "Empezada" = ya usó algún día (empezó antes de hoy). Una que arranca hoy todavía se anula entera,
+        // igual que en endPause y en el panel del admin.
+        pause: pause ? { id: pause.id, startDate: pause.startDate, endDate: pause.endDate, started: pause.startDate < today } : null,
+        pauseMaxDays: item.pauseMaxDays,
+        pauseMaxCount: item.pauseMaxCount,
+        pausesUsed: item.pausesUsed,
+        // El jugador puede pausar solo: plan activo, que permita pausas, con cupo y sin otra pausa por venir.
+        canPause: item.status === 'ACTIVE' && item.pauseMaxCount > 0 && item.pauseMaxDays > 0 && item.pausesUsed < item.pauseMaxCount && !pause,
+        classes: passes
+          .filter((pass) => pass.subscriptionId === row.id)
+          .map((pass) => ({
+            name: pass.packageName,
+            remaining: pass.remainingCredits,
+            total: pass.totalCredits,
+            expiresAt: pass.expiresAt ? pass.expiresAt.toISOString() : null,
+          })),
+      };
+    });
   }
 }
 
