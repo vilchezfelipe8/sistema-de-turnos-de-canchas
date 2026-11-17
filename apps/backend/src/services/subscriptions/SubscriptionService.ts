@@ -1673,7 +1673,9 @@ export class SubscriptionService {
               payable: Boolean(next.account && next.account.status === 'OPEN' && next.account.remainingAmount > 0),
             }
           : null,
-        pause: pause ? { id: pause.id, startDate: pause.startDate, endDate: pause.endDate, started: pause.startDate <= today } : null,
+        // "Empezada" = ya usó algún día (empezó antes de hoy). Una que arranca hoy todavía se anula entera,
+        // igual que en endPause y en el panel del admin.
+        pause: pause ? { id: pause.id, startDate: pause.startDate, endDate: pause.endDate, started: pause.startDate < today } : null,
         pauseMaxDays: item.pauseMaxDays,
         pauseMaxCount: item.pauseMaxCount,
         pausesUsed: item.pausesUsed,
