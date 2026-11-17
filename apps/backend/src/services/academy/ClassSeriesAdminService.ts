@@ -1360,7 +1360,8 @@ export class ClassSeriesAdminService {
         remainingCredits: { gt: 0 },
         AND: [
           { OR: [{ validFrom: null }, { validFrom: { lt: monthRange.lt } }] },
-          { OR: [{ expiresAt: null }, { expiresAt: { gt: monthRange.gte > new Date() ? monthRange.gte : new Date() } }] },
+          // Los packs de plan vencen 8 días después de su período: la semana de gracia no cuenta como cobertura del mes.
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date(Math.max(monthRange.gte.getTime() + 8 * 86_400_000, Date.now())) } }] },
           { OR: [{ activityTypeId: null }, ...(series.activityTypeId ? [{ activityTypeId: series.activityTypeId }] : [])] },
           { OR: [{ classType: null }, { classType: series.classType as any }] },
           { OR: [{ teacherId: null }, { teacherId: series.teacherId }] },
