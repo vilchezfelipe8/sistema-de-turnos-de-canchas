@@ -14,6 +14,9 @@ export const NOTIFICATION_EVENT_TYPES = [
   'BOOKING_CANCELLED',
   'BOOKING_PENDING_WARNING',
   'ACCOUNT_VERIFICATION_CODE',
+  'SUBSCRIPTION_RENEWED',
+  'SUBSCRIPTION_PAST_DUE',
+  'SUBSCRIPTION_EXPIRING',
 ] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
 
@@ -73,7 +76,7 @@ export const WHATSAPP_TEMPLATE_CATEGORIES = [
 export type WhatsappTemplateCategory =
   (typeof WHATSAPP_TEMPLATE_CATEGORIES)[number];
 
-export const NOTIFICATION_REFERENCE_TYPES = ['BOOKING', 'USER'] as const;
+export const NOTIFICATION_REFERENCE_TYPES = ['BOOKING', 'USER', 'SUBSCRIPTION'] as const;
 export type NotificationReferenceType =
   (typeof NOTIFICATION_REFERENCE_TYPES)[number];
 

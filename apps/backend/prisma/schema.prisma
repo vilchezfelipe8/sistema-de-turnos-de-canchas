@@ -329,6 +329,9 @@ enum NotificationEventType {
   BOOKING_CANCELLED
   BOOKING_PENDING_WARNING
   ACCOUNT_VERIFICATION_CODE
+  SUBSCRIPTION_RENEWED
+  SUBSCRIPTION_PAST_DUE
+  SUBSCRIPTION_EXPIRING
 }
 
 enum WhatsappSenderMode {
@@ -2880,6 +2883,8 @@ model SubscriptionPlan {
   graceDays      Int      @default(5)
   pauseMaxDays   Int      @default(0)
   pauseMaxCount  Int      @default(0)
+  // Días de mora (después de la gracia) para suspender al socio. null = nunca.
+  suspendMemberAfterDays Int?
   grantsMemberCategoryId String?
   grantsMemberCategory   MemberCategory? @relation(fields: [grantsMemberCategoryId], references: [id], onDelete: SetNull)
   isActive       Boolean  @default(true)

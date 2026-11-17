@@ -14,7 +14,9 @@ export type PushKind =
     | 'BOOKING_CONFIRMED'
     // Cursos: al club cuando alguien se anota o pide lugar; al jugador cuando el club responde.
     | 'COURSE_REQUEST'
-    | 'COURSE_ANSWER';
+    | 'COURSE_ANSWER'
+    // Planes: cuota nueva, mora y fin de plazo.
+    | 'PLAN_NOTICE';
 
 export type PushAction = { action: string; title: string; url: string };
 
@@ -227,7 +229,7 @@ export class PushNotificationService {
 
     private async isAllowedByPreferences(userId: number, kind: PushKind) {
         // Cambios de estado de la reserva hechos por el club: siempre se avisan.
-        if (kind === 'BOOKING_CANCELLED' || kind === 'BOOKING_CONFIRMED' || kind === 'COURSE_ANSWER') return true;
+        if (kind === 'BOOKING_CANCELLED' || kind === 'BOOKING_CONFIRMED' || kind === 'COURSE_ANSWER' || kind === 'PLAN_NOTICE') return true;
         const preferences = await prisma.userNotificationPreference.findUnique({ where: { userId } });
         if (!preferences) return true;
         if (kind === 'INVITATION') return preferences.invitations;

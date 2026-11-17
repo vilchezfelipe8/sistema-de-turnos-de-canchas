@@ -47,6 +47,7 @@ type PlanDraft = {
   graceDays: string;
   pauseMaxDays: string;
   pauseMaxCount: string;
+  suspendMemberAfterDays: string;
   grantsMemberCategoryId: string;
   options: OptionDraft[];
   entitlements: EntitlementDraft[];
@@ -62,6 +63,7 @@ const emptyDraft = (): PlanDraft => ({
   graceDays: '5',
   pauseMaxDays: '0',
   pauseMaxCount: '0',
+  suspendMemberAfterDays: '',
   grantsMemberCategoryId: '',
   options: [{ label: 'Mensual', installmentsCount: '1', installmentPrice: '' }],
   entitlements: [],
@@ -77,6 +79,7 @@ const draftFromPlan = (plan: SubscriptionPlan): PlanDraft => ({
   graceDays: String(plan.graceDays),
   pauseMaxDays: String(plan.pauseMaxDays),
   pauseMaxCount: String(plan.pauseMaxCount),
+  suspendMemberAfterDays: plan.suspendMemberAfterDays ? String(plan.suspendMemberAfterDays) : '',
   grantsMemberCategoryId: plan.grantsMemberCategory?.id || '',
   options: plan.options
     .filter((option) => option.isActive)
@@ -107,6 +110,7 @@ const draftToInput = (draft: PlanDraft): SubscriptionPlanInput => ({
   graceDays: Number(draft.graceDays || 0),
   pauseMaxDays: Number(draft.pauseMaxDays || 0),
   pauseMaxCount: Number(draft.pauseMaxCount || 0),
+  suspendMemberAfterDays: draft.grantsMemberCategoryId && Number(draft.suspendMemberAfterDays) > 0 ? Number(draft.suspendMemberAfterDays) : null,
   grantsMemberCategoryId: draft.grantsMemberCategoryId || null,
   options: draft.options.map((option) => ({
     id: option.id || null,
@@ -395,6 +399,23 @@ export default function SettingsSubscriptionPlansSection() {
                 Pausas permitidas por plazo
                 <input type="number" min={0} max={12} className={inputClass} value={draft.pauseMaxCount} onChange={(e) => updateDraft({ pauseMaxCount: e.target.value })} />
               </label>
+              {draft.grantsMemberCategoryId ? (
+                <label className={labelClass}>
+                  Suspender socio tras días de mora
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    className={inputClass}
+                    value={draft.suspendMemberAfterDays}
+                    placeholder="Vacío = nunca"
+                    onChange={(e) => updateDraft({ suspendMemberAfterDays: e.target.value })}
+                  />
+                  <span className="block text-[11px] font-normal text-p-text-muted">
+                    Contados después de los días de gracia. Vuelve a activo solo cuando paga.
+                  </span>
+                </label>
+              ) : null}
             </div>
 
             <div className="space-y-2">

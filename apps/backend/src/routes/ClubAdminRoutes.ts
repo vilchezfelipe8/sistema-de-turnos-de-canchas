@@ -1339,6 +1339,13 @@ router.post('/:slug/admin/subscriptions',
     subscriptionAdminController.sell
 );
 
+router.post('/:slug/admin/subscriptions/:id/pause',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.pause
+);
+
 router.post('/:slug/admin/subscriptions/:id/cancel',
     authMiddleware,
     verifyClubAccess,

@@ -66,6 +66,11 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
   const [sellStartDate, setSellStartDate] = useState('');
   const [cancelTarget, setCancelTarget] = useState<ClientSubscription | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [pauseTarget, setPauseTarget] = useState<ClientSubscription | null>(null);
+  const [pauseStart, setPauseStart] = useState('');
+  const [pauseEnd, setPauseEnd] = useState('');
+  const [pauseReason, setPauseReason] = useState('');
+  const [pauseError, setPauseError] = useState('');
   const [drawerAccountId, setDrawerAccountId] = useState<string | null>(null);
   const [drawerTitle, setDrawerTitle] = useState('');
   const [showClosed, setShowClosed] = useState(false);
@@ -159,6 +164,43 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
     }
   };
 
+  const openPause = (row: ClientSubscription) => {
+    setPauseTarget(row);
+    setPauseStart('');
+    setPauseEnd('');
+    setPauseReason('');
+    setPauseError('');
+  };
+
+  const pauseDays = (() => {
+    if (!pauseEnd) return 0;
+    const start = pauseStart || new Date().toISOString().slice(0, 10);
+    const diff = Math.round((Date.parse(`${pauseEnd}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000) + 1;
+    return diff > 0 ? diff : 0;
+  })();
+
+  const handlePause = async () => {
+    if (!pauseTarget || !pauseEnd) return;
+    try {
+      setSubmitting(true);
+      setPauseError('');
+      await SubscriptionAdminService.pause(clubSlug, pauseTarget.id, {
+        startDate: pauseStart || null,
+        endDate: pauseEnd,
+        reason: pauseReason.trim() || null,
+      });
+      setPauseTarget(null);
+      showAdminToast('Plan pausado. Se corrieron las fechas de las cuotas y las clases.');
+      await load();
+      onChanged?.();
+    } catch (err) {
+      reportUiError({ area: 'ClientSubscriptionsPanel', action: 'pause' }, err);
+      setPauseError(extractErrorMessage(err, 'No se pudo pausar el plan.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading && !rows.length && !plans.length) {
     return <p className="text-[12px] text-p-text-muted">Cargando planes...</p>;
   }
@@ -219,6 +261,13 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
                 Al día hasta: <strong className="text-p-text">{row.paidThrough ? formatDay(row.paidThrough) : 'sin cuotas pagas'}</strong>
                 {row.pendingAmount > 0 ? <> · Debe {formatMoney(row.pendingAmount)}</> : null}
               </p>
+              {row.pauses.length ? (
+                <p className="text-[12px] text-p-text-muted">
+                  {row.pauses
+                    .map((pause) => `Pausa del ${formatShortDay(pause.startDate)} al ${formatShortDay(pause.endDate)}${pause.reason ? ` (${pause.reason})` : ''}`)
+                    .join(' · ')}
+                </p>
+              ) : null}
 
               <ul className="divide-y divide-p-border border-t border-p-border">
                 {row.installments.map((inst) => {
@@ -256,11 +305,24 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
                 })}
               </ul>
 
-              {canManage && row.status !== 'CANCELLED' && row.status !== 'EXPIRED' ? (
-                <div className="flex justify-end">
-                  <button type="button" className={buttonClass} disabled={submitting} onClick={() => setCancelTarget(row)}>
-                    Cancelar plan
-                  </button>
+              {row.status !== 'CANCELLED' && row.status !== 'EXPIRED' ? (
+                <div className="flex justify-end gap-2">
+                  {row.status === 'ACTIVE' && row.pauseMaxCount > 0 && row.pauseMaxDays > 0 ? (
+                    <button
+                      type="button"
+                      className={buttonClass}
+                      disabled={submitting || row.pausesUsed >= row.pauseMaxCount}
+                      title={row.pausesUsed >= row.pauseMaxCount ? 'Ya usó las pausas que permite el plan.' : undefined}
+                      onClick={() => openPause(row)}
+                    >
+                      Pausar
+                    </button>
+                  ) : null}
+                  {canManage ? (
+                    <button type="button" className={buttonClass} disabled={submitting} onClick={() => setCancelTarget(row)}>
+                      Cancelar plan
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -336,6 +398,45 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
           <label className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
             Fecha de inicio (vacío = hoy)
             <input type="date" className={inputClass} value={sellStartDate} onChange={(event) => setSellStartDate(event.target.value)} />
+          </label>
+        </div>
+      </AdminModal>
+
+      <AdminModal
+        open={pauseTarget !== null}
+        title="Pausar plan"
+        description={
+          pauseTarget
+            ? `Hasta ${pauseTarget.pauseMaxDays} días. Lleva ${pauseTarget.pausesUsed} de ${pauseTarget.pauseMaxCount} ${pauseTarget.pauseMaxCount === 1 ? 'pausa' : 'pausas'}. Las cuotas que vienen, el fin del plan y sus clases se corren los días de la pausa.`
+            : undefined
+        }
+        onClose={() => setPauseTarget(null)}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button type="button" className={buttonClass} onClick={() => setPauseTarget(null)}>
+              Volver
+            </button>
+            <button type="button" className={primaryButtonClass} disabled={submitting || !pauseEnd} onClick={() => void handlePause()}>
+              {submitting ? 'Guardando...' : pauseDays ? `Pausar ${pauseDays} ${pauseDays === 1 ? 'día' : 'días'}` : 'Pausar'}
+            </button>
+          </div>
+        }
+      >
+        <div className="grid gap-3">
+          {pauseError ? <AdminFeedbackBanner tone="error" compact>{pauseError}</AdminFeedbackBanner> : null}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
+              Desde (vacío = hoy)
+              <input type="date" className={inputClass} value={pauseStart} onChange={(event) => setPauseStart(event.target.value)} />
+            </label>
+            <label className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
+              Hasta
+              <input type="date" className={inputClass} value={pauseEnd} onChange={(event) => setPauseEnd(event.target.value)} />
+            </label>
+          </div>
+          <label className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
+            Motivo (opcional)
+            <input className={inputClass} value={pauseReason} onChange={(event) => setPauseReason(event.target.value)} placeholder="Ej: viaje, lesión" />
           </label>
         </div>
       </AdminModal>

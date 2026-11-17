@@ -39,6 +39,8 @@ export type SubscriptionPlan = {
   graceDays: number;
   pauseMaxDays: number;
   pauseMaxCount: number;
+  /** Días de mora (después de la gracia) para suspender al socio. null = nunca. */
+  suspendMemberAfterDays: number | null;
   grantsMemberCategory: { id: string; name: string } | null;
   isActive: boolean;
   sortOrder: number;
@@ -57,6 +59,7 @@ export type SubscriptionPlanInput = {
   graceDays?: number;
   pauseMaxDays?: number;
   pauseMaxCount?: number;
+  suspendMemberAfterDays?: number | null;
   grantsMemberCategoryId?: string | null;
   options: Array<{ id?: string | null; label: string; installmentsCount: number; installmentPrice: number; isActive?: boolean }>;
   entitlements?: Array<{
@@ -107,6 +110,9 @@ export type ClientSubscription = {
   pendingAmount: number;
   autoRenew: boolean;
   pausesUsed: number;
+  pauseMaxDays: number;
+  pauseMaxCount: number;
+  pauses: Array<{ id: string; startDate: string; endDate: string; reason: string | null }>;
   priceLocked: boolean;
   cancelledAt: string | null;
   cancelReason: string | null;
@@ -174,6 +180,13 @@ export const SubscriptionAdminService = {
     body: { clientId: string; payerClientId?: string | null; planId: string; optionId: string; startDate?: string | null; notes?: string | null }
   ) =>
     request<ClientSubscription>(`/clubs/${slug}/admin/subscriptions`, { method: 'POST', body: JSON.stringify(body) }, 'No se pudo vender el plan.'),
+
+  pause: (slug: string, subscriptionId: string, body: { startDate?: string | null; endDate: string; reason?: string | null }) =>
+    request<ClientSubscription>(
+      `/clubs/${slug}/admin/subscriptions/${subscriptionId}/pause`,
+      { method: 'POST', body: JSON.stringify(body) },
+      'No se pudo pausar el plan.'
+    ),
 
   cancel: (slug: string, subscriptionId: string, reason?: string | null) =>
     request<ClientSubscription>(
