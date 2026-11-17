@@ -369,6 +369,11 @@ export type AdminClassPass = {
   usedCredits: number;
   remainingCredits: number;
   expiresAt: string | null;
+  /** Desde cuándo vale (packs de un mes o de un plan). */
+  validFrom?: string | null;
+  subscriptionId?: string | null;
+  /** El plan del pack no está al día: sus clases están congeladas. */
+  onHold?: boolean;
   activityTypeId: number | null;
   classType: AdminClassSessionType | null;
   teacherId: string | null;

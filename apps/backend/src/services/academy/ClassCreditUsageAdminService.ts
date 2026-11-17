@@ -166,10 +166,24 @@ export class ClassCreditUsageAdminService {
         ],
       },
       orderBy: [{ expiresAt: { sort: 'asc', nulls: 'last' } }, { purchasedAt: 'asc' }],
-      select: { id: true },
+      select: { id: true, validFrom: true },
     });
+    // Primero el pack del mes de la clase (el de validFrom más reciente que ya empezó): las clases
+    // que sobraron del mes anterior quedan para la semana de gracia, no se comen las del mes nuevo.
+    // Después, los packs comprados sin mes, el que vence antes primero.
+    const ordered = candidates
+      .map((row, index) => ({ row, index }))
+      .sort((a, b) => {
+        const av = a.row.validFrom ? a.row.validFrom.getTime() : null;
+        const bv = b.row.validFrom ? b.row.validFrom.getTime() : null;
+        if (av !== null && bv !== null && av !== bv) return bv - av;
+        if (av !== null && bv === null) return -1;
+        if (av === null && bv !== null) return 1;
+        return a.index - b.index;
+      })
+      .map((item) => item.row);
 
-    for (const candidate of candidates) {
+    for (const candidate of ordered) {
       try {
         const usage = await this.create(clubId, candidate.id, actorUserId, {
           classEnrollmentId: String(enrollment.id),
@@ -299,8 +313,10 @@ export class ClassCreditUsageAdminService {
               usedCredits: true,
               remainingCredits: true,
               expiresAt: true,
+              validFrom: true,
               transferable: true,
               status: true,
+              subscription: { select: { status: true } },
             },
           }),
           tx.classEnrollment.findFirst({
@@ -319,6 +335,7 @@ export class ClassCreditUsageAdminService {
                   teacherId: true,
                   activityTypeId: true,
                   classType: true,
+                  startsAt: true,
                 },
               },
             },
@@ -340,6 +357,17 @@ export class ClassCreditUsageAdminService {
         });
         if (effectiveStatus !== 'ACTIVE') {
           throw badRequest('El pack no está disponible para consumir créditos.', ErrorCodes.CLASS_PASS_INVALID_STATUS);
+        }
+
+        if (classPass.subscription && !['ACTIVE', 'EXPIRED'].includes(String(classPass.subscription.status))) {
+          throw conflict(
+            'El plan de este pack no está al día: sus clases quedan congeladas hasta que pague.',
+            ErrorCodes.CLASS_PASS_INVALID_STATUS
+          );
+        }
+
+        if (classPass.validFrom && classEnrollment.classSession.startsAt < classPass.validFrom) {
+          throw badRequest('Este pack todavía no empezó a valer para la fecha de esta clase.', ErrorCodes.CLASS_PASS_INVALID_STATUS);
         }
 
         if (Number(classPass.totalCredits) !== Number(classPass.usedCredits) + Number(classPass.remainingCredits)) {

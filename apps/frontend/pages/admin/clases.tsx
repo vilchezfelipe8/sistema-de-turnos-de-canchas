@@ -577,6 +577,25 @@ const resolveClassPassAvailability = ({
     };
   }
 
+  if (classPass.onHold) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'El plan no está al día: sus clases quedan congeladas hasta que pague.',
+    };
+  }
+
+  if (classPass.validFrom && new Date(selectedClass.startsAt).getTime() < new Date(classPass.validFrom).getTime()) {
+    const from = new Date(classPass.validFrom);
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: `Este pack vale desde el ${from.toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' })}.`,
+    };
+  }
+
   if (enrollment.enrollmentStatus === 'CANCELLED' && !['LATE_CANCEL', 'NO_SHOW'].includes(reason)) {
     return {
       usable: false,
@@ -2348,6 +2367,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       return {
         label: `Pack: ${availableCredits === 1 ? 'queda 1 clase' : `quedan ${availableCredits} clases`}`,
         muted: false,
+        // Al marcar presente se usa solo: no es deuda.
+        covers: availableCredits > 0,
       };
     },
     [classPassesByStudent, classPassesLoading, selectedClass]
@@ -2368,13 +2389,16 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       collected += Number(row.paidAmount || 0);
       if (row.paymentStatus === 'PAID' || row.paymentStatus === 'COVERED_BY_CREDIT') {
         settled += 1;
+      } else if (row.paymentStatus === 'UNPAID' && !Number(row.paidAmount || 0) && compatiblePassSummary(row).covers) {
+        // Lo cubre un pack (curso o plan): se descuenta al marcar presente.
+        settled += 1;
       } else if (Number(row.priceAtEnrollment || 0) > 0) {
         owing += 1;
         owedAmount += Math.max(0, Number(row.priceAtEnrollment || 0) - Number(row.paidAmount || 0));
       }
     }
     return { settled, owing, owedAmount, collected };
-  }, [enrollments]);
+  }, [compatiblePassSummary, enrollments]);
   const editingEnrollmentPasses = editingEnrollment
     ? classPassesByStudent[editingEnrollment.studentClientId] || []
     : [];
@@ -4393,7 +4417,7 @@ function ClassSessionDrawerContent({
   quickCreditBusyEnrollmentId: string | null;
   onQuickSetAttendance: (row: AdminClassEnrollment, nextStatus: AdminClassAttendanceStatus) => void;
   onQuickUseCredit: (row: AdminClassEnrollment) => void;
-  getCreditSummary: (row: AdminClassEnrollment) => { label: string; muted: boolean };
+  getCreditSummary: (row: AdminClassEnrollment) => { label: string; muted: boolean; covers?: boolean };
   onAddEnrollment: () => void;
 }) {
   return (
@@ -4569,7 +4593,7 @@ function ClassEnrollmentListItem({
   onCancel,
 }: {
   enrollment: AdminClassEnrollment;
-  creditSummary: { label: string; muted: boolean };
+  creditSummary: { label: string; muted: boolean; covers?: boolean };
   busy: boolean;
   quickAttendanceBusy: boolean;
   quickCreditBusy: boolean;
@@ -4594,8 +4618,15 @@ function ClassEnrollmentListItem({
   const cancelled = enrollment.enrollmentStatus === 'CANCELLED';
   const attended = enrollment.attendanceStatus === 'ATTENDED';
   const owedAmount = Math.max(0, Number(enrollment.priceAtEnrollment || 0) - Number(enrollment.paidAmount || 0));
+  // Tiene un pack (del curso o de su plan) que se usa solo al marcar presente: no es deuda.
+  const coveredByPass =
+    !cancelled &&
+    enrollment.paymentStatus === 'UNPAID' &&
+    !Number(enrollment.paidAmount || 0) &&
+    Boolean(creditSummary.covers);
   const owes =
     !cancelled &&
+    !coveredByPass &&
     enrollment.paymentStatus !== 'PAID' &&
     enrollment.paymentStatus !== 'COVERED_BY_CREDIT' &&
     enrollment.paymentStatus !== 'REFUNDED' &&
@@ -4607,9 +4638,13 @@ function ClassEnrollmentListItem({
         ? 'Pagó'
         : enrollment.paymentStatus === 'REFUNDED'
           ? 'Se le devolvió'
-          : owes
-            ? `Debe ${formatCurrency(owedAmount)}`
-            : 'Sin cargo';
+          : coveredByPass
+            ? attended
+              ? 'Lo cubre el pack'
+              : 'Lo cubre el pack al marcar presente'
+            : owes
+              ? `Debe ${formatCurrency(owedAmount)}`
+              : 'Sin cargo';
   const showCreditHint = !creditSummary.muted && !creditAlreadyApplied && enrollment.paymentStatus !== 'PAID';
 
   return (
