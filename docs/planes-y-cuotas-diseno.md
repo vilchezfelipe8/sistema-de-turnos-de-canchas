@@ -230,9 +230,10 @@ es `SUBSCRIPTION_INSTALLMENT`, en la misma transacción:
   no quedan cuotas vencidas, vuelve a `ACTIVE`.
 - La cuenta se reabrió (devolución): la cuota vuelve a `PENDING`.
 - Se recalcula `ClubMember.validUntil` (ver "Al día").
-- Si el plan incluye créditos de clase, al pagarse la cuota se crea el `ClassPass`
-  del período (`expiresAt` = fin del período). Si se reabre, el pack se cancela si no
-  tiene créditos usados. Si ya tiene, queda y se registra en el historial.
+- Clases incluidas: al vender (y en cada renovación) se crea un `ClassPass` por mes cubierto
+  (`validFrom` = inicio del mes, `expiresAt` = fin del mes + 7 días). Solo se usan mientras la
+  suscripción está `ACTIVE` (o `EXPIRED`, por la semana de gracia); en mora quedan congeladas.
+  Cancelar anula los packs de meses que no empezaron y no se usaron.
 
 ### Al día y habilitación
 
@@ -254,7 +255,7 @@ los turnos del gimnasio y, más adelante, el molinete.
 
 ### Renovación y mora (job)
 
-Corre cada hora junto con las otras tareas del scheduler. Es idempotente
+`SubscriptionService.runLifecycle()`. Corre al iniciar y cada hora junto con las otras tareas del scheduler. Es idempotente
 (`@@unique([subscriptionId, sequence])`).
 
 - **RECURRING**: cuando faltan `renewLeadDays` (5) para `currentPeriodEnd` y `autoRenew`

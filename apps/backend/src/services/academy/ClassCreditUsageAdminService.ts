@@ -158,6 +158,8 @@ export class ClassCreditUsageAdminService {
           { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
           // Packs de un mes o de un período de plan: no se gastan en clases de antes de que empiecen.
           { OR: [{ validFrom: null }, { validFrom: { lte: session.startsAt } }] },
+          // Clases de un plan: solo mientras el plan esté al día (en mora quedan congeladas; un plazo fijo recién terminado conserva su semana de gracia).
+          { OR: [{ subscriptionId: null }, { subscription: { status: { in: ['ACTIVE', 'EXPIRED'] } } }] },
           { OR: [{ activityTypeId: null }, ...(session.activityTypeId ? [{ activityTypeId: session.activityTypeId }] : [])] },
           { OR: [{ classType: null }, { classType: session.classType }] },
           { OR: [{ teacherId: null }, { teacherId: session.teacherId }] },

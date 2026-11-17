@@ -9,6 +9,7 @@ import { PendingBookingAutoCancelService } from './services/PendingBookingAutoCa
 import { BookingReminderService } from './services/BookingReminderService';
 import { FiscalCertExpiryChecker } from './services/FiscalCertExpiryChecker';
 import { ClassSeriesAdminService } from './services/academy/ClassSeriesAdminService';
+import { subscriptionService } from './services/subscriptions/SubscriptionService';
 import { BookingService } from './services/BookingService';
 import { BookingRepository } from './repositories/BookingRepository';
 import { CourtRepository } from './repositories/CourtRepository';
@@ -255,6 +256,19 @@ const startScheduler = async () => {
   setInterval(async () => {
     await extendClassSeries();
   }, CLASS_SERIES_EXTEND_INTERVAL_MS);
+
+  // Planes: renueva los que se renuevan solos, vence los de plazo fijo y marca la mora.
+  const runSubscriptionLifecycle = async () => {
+    try {
+      await subscriptionService.runLifecycle();
+      metricsService.recordSchedulerRun('subscription_lifecycle', 'success');
+    } catch (error) {
+      console.error('❌ Error en renovación de planes:', error);
+      metricsService.recordSchedulerRun('subscription_lifecycle', 'error');
+    }
+  };
+  await runSubscriptionLifecycle();
+  setInterval(runSubscriptionLifecycle, 60 * 60 * 1000);
 
   // Cursos que se cobran al anotarse: suelta los lugares que no se pagaron a tiempo.
   setInterval(async () => {

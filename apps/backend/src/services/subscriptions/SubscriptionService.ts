@@ -9,7 +9,10 @@ import { generateDisplayCode } from '../../utils/displayCode';
 import { acquireTransactionAdvisoryLock } from '../../utils/advisoryLock';
 import {
   InstallmentState,
+  addDaysKey,
+  addMonthsKey,
   buildInitialSchedule,
+  buildRenewalInstallment,
   dateKeyToDate,
   dateToKey,
   hasOverdueInstallments,
@@ -539,64 +542,26 @@ export class SubscriptionService {
         });
       }
 
-      // Clases incluidas: son por mes. Un pack por cada mes que cubre el plan (no importa en cuántas
-      // cuotas se pague), que vale desde que empieza ese mes y vence una semana después de que termina.
-      // Al marcar presente se usa solo (como la cuota de un curso).
-      const creditEntitlements = plan.entitlements.filter(
-        (row) => row.kind === 'CLASS_CREDITS' && Number(row.creditsPerPeriod || 0) > 0
-      );
-      if (creditEntitlements.length) {
-        const timeZone = await this.clubTimeZone(clubId, tx);
-        const student = clients.find((row) => row.id === clientId);
-        const fmt = (key: string) => `${key.slice(8, 10)}/${key.slice(5, 7)}`;
-        const periods = schedule.installments.filter((item) => item.kind === 'PERIOD');
-        const coverageStart = periods.reduce((min, item) => (item.coversFrom < min ? item.coversFrom : min), periods[0]?.coversFrom || startDate);
-        const coverageEnd = periods.reduce((max, item) => (item.coversTo > max ? item.coversTo : max), periods[0]?.coversTo || startDate);
-        const addDaysKey = (key: string, days: number) => dateToKey(new Date(dateKeyToDate(key).getTime() + days * 86_400_000));
-        const addMonthsKey = (key: string, months: number) => {
-          const [y, m, d] = key.split('-').map(Number);
-          const total = y * 12 + (m - 1) + months;
-          const year = Math.floor(total / 12);
-          const month = (total % 12) + 1;
-          const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-          return `${year}-${String(month).padStart(2, '0')}-${String(Math.min(d, lastDay)).padStart(2, '0')}`;
-        };
-        const months: Array<{ coversFrom: string; coversTo: string }> = [];
-        for (let index = 0; index < 120; index += 1) {
-          const from = addMonthsKey(coverageStart, index);
-          if (from > coverageEnd) break;
-          const nextFrom = addMonthsKey(coverageStart, index + 1);
-          const to = addDaysKey(nextFrom, -1) < coverageEnd ? addDaysKey(nextFrom, -1) : coverageEnd;
-          months.push({ coversFrom: from, coversTo: to });
-        }
-        for (const row of months) {
-          const graceEnd = addDaysKey(row.coversTo, 8);
-          for (const entitlement of creditEntitlements) {
-            const credits = Number(entitlement.creditsPerPeriod);
-            await tx.classPass.create({
-              data: {
-                clubId,
-                ownerClientId: payerClientId,
-                beneficiaryClientId: clientId,
-                beneficiaryUserId: student?.userId ?? null,
-                packageName: `${plan.name} · ${entitlement.activityType?.name || 'clases'} del ${fmt(row.coversFrom)} al ${fmt(row.coversTo)}`,
-                priceAtPurchase: null,
-                totalCredits: credits,
-                usedCredits: 0,
-                remainingCredits: credits,
-                validFrom: fromZonedTime(`${row.coversFrom}T00:00:00`, timeZone),
-                expiresAt: fromZonedTime(`${graceEnd}T00:00:00`, timeZone),
-                activityTypeId: entitlement.activityTypeId,
-                classType: entitlement.classType ?? null,
-                status: 'ACTIVE',
-                subscriptionId: subscription.id,
-                notes: 'Incluido en el plan.',
-                createdByUserId: actorUserId,
-              },
-            });
-          }
-        }
-      }
+      // Clases incluidas: un pack por cada mes que cubre el plan (ver grantPlanClassPassesTx).
+      const periods = schedule.installments.filter((item) => item.kind === 'PERIOD');
+      await this.grantPlanClassPassesTx(tx, {
+        clubId,
+        subscriptionId: subscription.id,
+        planName: plan.name,
+        entitlements: plan.entitlements.map((row) => ({
+          kind: row.kind,
+          activityTypeId: row.activityTypeId,
+          activityTypeName: row.activityType?.name ?? null,
+          creditsPerPeriod: row.creditsPerPeriod,
+          classType: row.classType,
+        })),
+        ownerClientId: payerClientId,
+        beneficiaryClientId: clientId,
+        beneficiaryUserId: clients.find((row) => row.id === clientId)?.userId ?? null,
+        coverageStart: periods.reduce((min, item) => (item.coversFrom < min ? item.coversFrom : min), periods[0]?.coversFrom || startDate),
+        coverageEnd: periods.reduce((max, item) => (item.coversTo > max ? item.coversTo : max), periods[0]?.coversTo || startDate),
+        actorUserId,
+      });
 
       await tx.subscriptionHistory.create({
         data: {
@@ -765,6 +730,226 @@ export class SubscriptionService {
     }
 
     await this.syncMemberValidUntilTx(tx, subscription.clubId, subscription.clientId, null);
+  }
+
+  // Clases incluidas: son por mes. Un pack por cada mes de la cobertura (no importa en cuántas
+  // cuotas se pague), que vale desde que empieza ese mes y vence una semana después de que termina.
+  // Al marcar presente se usa solo (como la cuota de un curso).
+  private async grantPlanClassPassesTx(tx: TxClient, input: {
+    clubId: number;
+    subscriptionId: string;
+    planName: string;
+    entitlements: Array<{
+      kind: string;
+      activityTypeId: number;
+      activityTypeName: string | null;
+      creditsPerPeriod: number | null;
+      classType: string | null;
+    }>;
+    ownerClientId: string;
+    beneficiaryClientId: string;
+    beneficiaryUserId: number | null;
+    coverageStart: string;
+    coverageEnd: string;
+    actorUserId: number;
+  }) {
+    const creditEntitlements = input.entitlements.filter(
+      (row) => row.kind === 'CLASS_CREDITS' && Number(row.creditsPerPeriod || 0) > 0
+    );
+    if (!creditEntitlements.length) return 0;
+    const timeZone = await this.clubTimeZone(input.clubId, tx);
+    const fmt = (key: string) => `${key.slice(8, 10)}/${key.slice(5, 7)}`;
+    const months: Array<{ coversFrom: string; coversTo: string }> = [];
+    for (let index = 0; index < 120; index += 1) {
+      const from = addMonthsKey(input.coverageStart, index);
+      if (from > input.coverageEnd) break;
+      const lastDay = addDaysKey(addMonthsKey(input.coverageStart, index + 1), -1);
+      months.push({ coversFrom: from, coversTo: lastDay < input.coverageEnd ? lastDay : input.coverageEnd });
+    }
+    let created = 0;
+    for (const row of months) {
+      const graceEnd = addDaysKey(row.coversTo, 8);
+      for (const entitlement of creditEntitlements) {
+        const credits = Number(entitlement.creditsPerPeriod);
+        await tx.classPass.create({
+          data: {
+            clubId: input.clubId,
+            ownerClientId: input.ownerClientId,
+            beneficiaryClientId: input.beneficiaryClientId,
+            beneficiaryUserId: input.beneficiaryUserId,
+            packageName: `${input.planName} · ${entitlement.activityTypeName || 'clases'} del ${fmt(row.coversFrom)} al ${fmt(row.coversTo)}`,
+            priceAtPurchase: null,
+            totalCredits: credits,
+            usedCredits: 0,
+            remainingCredits: credits,
+            validFrom: fromZonedTime(`${row.coversFrom}T00:00:00`, timeZone),
+            expiresAt: fromZonedTime(`${graceEnd}T00:00:00`, timeZone),
+            activityTypeId: entitlement.activityTypeId,
+            classType: (entitlement.classType as any) ?? null,
+            status: 'ACTIVE',
+            subscriptionId: input.subscriptionId,
+            notes: 'Incluido en el plan.',
+            createdByUserId: input.actorUserId,
+          },
+        });
+        created += 1;
+      }
+    }
+    return created;
+  }
+
+  // ── Renovación, vencimiento y mora (job) ───────────────────────────────
+
+  /** Días antes del fin del período en que se genera la cuota del siguiente. */
+  static readonly RENEW_LEAD_DAYS = 5;
+
+  /**
+   * Corre cada hora desde el scheduler. Es idempotente:
+   * - RECURRING: faltando RENEW_LEAD_DAYS para el fin del período, crea la cuota del próximo
+   *   con el precio vigente de la forma de pago (y sus clases incluidas) y corre currentPeriodEnd.
+   * - FIXED_TERM: pasado endDate, queda EXPIRED (renovar es vender el plan de nuevo).
+   * - Mora: con una cuota vencida fuera de la gracia, pasa a PAST_DUE (al pagar vuelve sola a ACTIVE).
+   */
+  async runLifecycle() {
+    const result = { renewed: 0, expired: 0, pastDue: 0 };
+    const candidates = await prisma.subscription.findMany({
+      where: { status: { in: ['ACTIVE', 'PAST_DUE'] } },
+      select: { id: true, clubId: true },
+    });
+    const todayByClub = new Map<number, string>();
+    for (const candidate of candidates) {
+      if (!todayByClub.has(candidate.clubId)) todayByClub.set(candidate.clubId, await this.todayKey(candidate.clubId));
+      const today = todayByClub.get(candidate.clubId)!;
+      try {
+        const done = await prisma.$transaction((tx) => this.runLifecycleTx(tx, candidate.id, today));
+        result.renewed += done.renewed;
+        result.expired += done.expired ? 1 : 0;
+        result.pastDue += done.pastDue ? 1 : 0;
+      } catch (error) {
+        console.error(`❌ Error en el ciclo del plan ${candidate.id}:`, error);
+      }
+    }
+    return result;
+  }
+
+  private async runLifecycleTx(tx: TxClient, subscriptionId: string, today: string) {
+    const done = { renewed: 0, expired: false, pastDue: false };
+    await acquireTransactionAdvisoryLock(tx, `subscription:${subscriptionId}`);
+    const subscription = await tx.subscription.findUnique({
+      where: { id: subscriptionId },
+      include: {
+        plan: { include: { entitlements: { include: { activityType: { select: { name: true } } } } } },
+        option: true,
+        client: { select: { userId: true } },
+      },
+    });
+    if (!subscription || (subscription.status !== 'ACTIVE' && subscription.status !== 'PAST_DUE')) return done;
+    const snapshot = subscription.planSnapshot as unknown as PlanSnapshot;
+    let status = subscription.status as SubscriptionStatusValue;
+
+    if (subscription.plan.billingType === 'RECURRING' && subscription.autoRenew) {
+      let periodEnd = dateToKey(subscription.currentPeriodEnd);
+      const last = await tx.subscriptionInstallment.aggregate({ where: { subscriptionId }, _max: { sequence: true } });
+      let sequence = Number(last._max.sequence || 0);
+      // Si el job estuvo parado, se ponen al día todos los períodos que correspondan.
+      for (let guard = 0; guard < 24 && addDaysKey(periodEnd, -SubscriptionService.RENEW_LEAD_DAYS) <= today; guard += 1) {
+        sequence += 1;
+        const price = Number(subscription.option.installmentPrice) || Number(snapshot?.installmentPrice || 0);
+        const row = buildRenewalInstallment(
+          { periodMonths: subscription.plan.periodMonths, dueDayOfMonth: subscription.plan.dueDayOfMonth },
+          periodEnd,
+          sequence,
+          price
+        );
+        const installment = await tx.subscriptionInstallment.create({
+          data: {
+            clubId: subscription.clubId,
+            subscriptionId,
+            sequence: row.sequence,
+            kind: row.kind,
+            coversFrom: dateKeyToDate(row.coversFrom),
+            coversTo: dateKeyToDate(row.coversTo),
+            dueDate: dateKeyToDate(row.dueDate),
+            listAmount: new Prisma.Decimal(row.listAmount),
+          },
+        });
+        await this.createInstallmentAccountTx(tx, {
+          clubId: subscription.clubId,
+          installmentId: installment.id,
+          payerClientId: subscription.payerClientId,
+          description: this.installmentDescription(subscription.plan.name, row, 1),
+          amount: row.listAmount,
+          actorUserId: null,
+        });
+        await this.grantPlanClassPassesTx(tx, {
+          clubId: subscription.clubId,
+          subscriptionId,
+          planName: subscription.plan.name,
+          entitlements: subscription.plan.entitlements.map((item) => ({
+            kind: item.kind,
+            activityTypeId: item.activityTypeId,
+            activityTypeName: item.activityType?.name ?? null,
+            creditsPerPeriod: item.creditsPerPeriod,
+            classType: item.classType,
+          })),
+          ownerClientId: subscription.payerClientId,
+          beneficiaryClientId: subscription.clientId,
+          beneficiaryUserId: subscription.client?.userId ?? null,
+          coverageStart: row.coversFrom,
+          coverageEnd: row.coversTo,
+          actorUserId: subscription.createdByUserId,
+        });
+        await tx.subscriptionHistory.create({
+          data: {
+            subscriptionId,
+            clubId: subscription.clubId,
+            action: 'PERIOD_RENEWED',
+            detail: { sequence: row.sequence, coversFrom: row.coversFrom, coversTo: row.coversTo, amount: row.listAmount } as Prisma.InputJsonValue,
+          },
+        });
+        periodEnd = row.coversTo;
+        done.renewed += 1;
+      }
+      if (done.renewed) {
+        await tx.subscription.update({ where: { id: subscriptionId }, data: { currentPeriodEnd: dateKeyToDate(periodEnd) } });
+      }
+    }
+
+    if (subscription.plan.billingType === 'FIXED_TERM' && subscription.endDate && dateToKey(subscription.endDate) < today) {
+      await tx.subscription.update({ where: { id: subscriptionId }, data: { status: 'EXPIRED', autoRenew: false } });
+      await tx.subscriptionHistory.create({
+        data: {
+          subscriptionId,
+          clubId: subscription.clubId,
+          action: 'STATUS_CHANGED',
+          fromStatus: status,
+          toStatus: 'EXPIRED',
+          detail: { reason: 'Terminó el plazo' } as Prisma.InputJsonValue,
+        },
+      });
+      done.expired = true;
+      return done;
+    }
+
+    if (status === 'ACTIVE') {
+      const rows = await tx.subscriptionInstallment.findMany({ where: { subscriptionId } });
+      if (hasOverdueInstallments(rows.map(toInstallmentState), today, Number(snapshot?.graceDays ?? 0))) {
+        await tx.subscription.update({ where: { id: subscriptionId }, data: { status: 'PAST_DUE' } });
+        await tx.subscriptionHistory.create({
+          data: {
+            subscriptionId,
+            clubId: subscription.clubId,
+            action: 'STATUS_CHANGED',
+            fromStatus: 'ACTIVE',
+            toStatus: 'PAST_DUE',
+            detail: { reason: 'Cuota vencida' } as Prisma.InputJsonValue,
+          },
+        });
+        status = 'PAST_DUE';
+        done.pastDue = true;
+      }
+    }
+    return done;
   }
 
   // ── Cancelación ────────────────────────────────────────────────────────

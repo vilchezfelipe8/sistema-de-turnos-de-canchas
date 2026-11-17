@@ -1356,10 +1356,11 @@ export class ClassSeriesAdminService {
         beneficiaryClientId: studentClientId,
         status: 'ACTIVE',
         subscriptionId: { not: null },
+        subscription: { status: 'ACTIVE' },
         remainingCredits: { gt: 0 },
         AND: [
           { OR: [{ validFrom: null }, { validFrom: { lt: monthRange.lt } }] },
-          { OR: [{ expiresAt: null }, { expiresAt: { gt: monthRange.gte } }] },
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: monthRange.gte > new Date() ? monthRange.gte : new Date() } }] },
           { OR: [{ activityTypeId: null }, ...(series.activityTypeId ? [{ activityTypeId: series.activityTypeId }] : [])] },
           { OR: [{ classType: null }, { classType: series.classType as any }] },
           { OR: [{ teacherId: null }, { teacherId: series.teacherId }] },
