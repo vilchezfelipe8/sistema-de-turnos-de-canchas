@@ -41,6 +41,10 @@ import {
   type AdminClassEnrollmentStatus,
   type AdminClassPass,
   type AdminClassPaymentStatus,
+  type AdminClassSeriesConflict,
+  type AdminClassSeriesMonthPass,
+  type AdminClassSeriesRequest,
+  type AdminClassSeriesInput,
   type AdminClassSession,
   type AdminClassSessionStatus,
   type AdminClassSessionType,
@@ -285,21 +289,55 @@ const classWeekLabel = (weekStart: Date) => {
   return `Semana del lunes ${label}`;
 };
 
-const shiftLocalInputDays = (value: string, days: number) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  date.setDate(date.getDate() + days);
-  return toLocalDateTimeInputValue(date);
-};
-
 const CLASS_DURATION_CHOICES = [30, 45, 60, 90, 120];
 
-const CLASS_REPEAT_CHOICES: Array<{ value: number; label: string }> = [
-  { value: 1, label: 'Solo esta vez' },
-  { value: 4, label: '4 semanas' },
-  { value: 8, label: '8 semanas' },
-  { value: 12, label: '12 semanas' },
+// Lunes primero: así se lee una semana de clases.
+const WEEKDAY_CHOICES: Array<{ value: number; label: string; long: string }> = [
+  { value: 1, label: 'Lun', long: 'lunes' },
+  { value: 2, label: 'Mar', long: 'martes' },
+  { value: 3, label: 'Mié', long: 'miércoles' },
+  { value: 4, label: 'Jue', long: 'jueves' },
+  { value: 5, label: 'Vie', long: 'viernes' },
+  { value: 6, label: 'Sáb', long: 'sábados' },
+  { value: 0, label: 'Dom', long: 'domingos' },
 ];
+
+const weekdaysLabel = (weekdays: number[], long = false) =>
+  WEEKDAY_CHOICES.filter((day) => weekdays.includes(day.value))
+    .map((day) => (long ? day.long : day.label.toLowerCase()))
+    .join(', ')
+    .replace(/, ([^,]*)$/, ' y $1');
+
+const attendanceToast = (
+  status: string,
+  applied?: { packageName: string; remainingCredits: number } | null,
+  returned?: { packageName: string; remainingCredits: number } | null
+) => {
+  if (applied) {
+    return `Presente. Usó 1 clase de "${applied.packageName}" (${applied.remainingCredits === 1 ? 'queda 1' : `quedan ${applied.remainingCredits}`}).`;
+  }
+  if (returned) {
+    return `Se devolvió la clase a "${returned.packageName}" (${returned.remainingCredits === 1 ? 'queda 1' : `quedan ${returned.remainingCredits}`}).`;
+  }
+  return status === 'ATTENDED' ? 'Presente.' : 'Asistencia vuelta a pendiente.';
+};
+
+const monthKeyOf = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+
+const monthChoices = () => {
+  const now = new Date();
+  const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const label = (date: Date) => date.toLocaleDateString('es-AR', { month: 'long' });
+  return [
+    { value: monthKeyOf(now), label: label(now) },
+    { value: monthKeyOf(next), label: label(next) },
+  ];
+};
+
+const weekdayOfDateKey = (dateKey: string) => new Date(`${dateKey}T12:00:00`).getDay();
+
+const formatDateKeyLabel = (dateKey: string) =>
+  new Date(`${dateKey}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
 
 const durationChoiceLabel = (minutes: number) => {
   if (minutes < 60) return `${minutes} min`;
@@ -406,15 +444,15 @@ const academyFinancialLabel = (
 const creditUsageReasonLabel = (reason: AdminClassCreditUsageReason) => {
   switch (reason) {
     case 'ATTENDANCE':
-      return 'Asistencia';
+      return 'Presente';
     case 'LATE_CANCEL':
-      return 'Cancelación tardía';
+      return 'Avisó tarde';
     case 'NO_SHOW':
-      return 'No show';
+      return 'No vino';
     case 'MANUAL_ADJUSTMENT':
-      return 'Ajuste manual';
+      return 'A mano';
     case 'REFUND_REVERSAL':
-      return 'Reversión';
+      return 'Devuelta';
     default:
       return reason;
   }
@@ -499,7 +537,7 @@ const resolveClassPassAvailability = ({
       usable: false,
       effectiveStatus,
       reason,
-      disabledReason: 'Ese pack ya se consumió para esta inscripción.',
+      disabledReason: 'Ya se usó este pack para esta clase.',
     };
   }
 
@@ -508,7 +546,7 @@ const resolveClassPassAvailability = ({
       usable: false,
       effectiveStatus,
       reason,
-      disabledReason: 'El estado de pago actual ya no admite cubrir esta inscripción con crédito.',
+      disabledReason: 'Esta clase ya está pagada.',
     };
   }
 
@@ -517,7 +555,7 @@ const resolveClassPassAvailability = ({
       usable: false,
       effectiveStatus,
       reason,
-      disabledReason: 'La inscripción ya tiene una cuenta financiera abierta. Cobrá o revisá esa cuenta antes de usar crédito.',
+      disabledReason: 'Esta clase ya tiene un cobro empezado. Terminalo o revisalo antes de usar el pack.',
     };
   }
 
@@ -526,7 +564,7 @@ const resolveClassPassAvailability = ({
       usable: false,
       effectiveStatus,
       reason,
-      disabledReason: 'El pack no está disponible para consumir créditos.',
+      disabledReason: 'Este pack no tiene clases disponibles.',
     };
   }
 
@@ -539,12 +577,31 @@ const resolveClassPassAvailability = ({
     };
   }
 
+  if (classPass.onHold) {
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: 'El plan no está al día: sus clases quedan congeladas hasta que pague.',
+    };
+  }
+
+  if (classPass.validFrom && new Date(selectedClass.startsAt).getTime() < new Date(classPass.validFrom).getTime()) {
+    const from = new Date(classPass.validFrom);
+    return {
+      usable: false,
+      effectiveStatus,
+      reason,
+      disabledReason: `Este pack vale desde el ${from.toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' })}.`,
+    };
+  }
+
   if (enrollment.enrollmentStatus === 'CANCELLED' && !['LATE_CANCEL', 'NO_SHOW'].includes(reason)) {
     return {
       usable: false,
       effectiveStatus,
       reason,
-      disabledReason: 'Las inscripciones canceladas solo admiten crédito por cancelación tardía o no show.',
+      disabledReason: 'En una clase cancelada solo se usa el pack si avisó tarde o no vino.',
     };
   }
 
@@ -553,7 +610,7 @@ const resolveClassPassAvailability = ({
       usable: false,
       effectiveStatus,
       reason,
-      disabledReason: 'Este pack solo aplica al beneficiario configurado.',
+      disabledReason: 'Este pack es de otro alumno.',
     };
   }
 
@@ -748,17 +805,17 @@ const translateClassPassError = (error: unknown, fallback: string) => {
     case 'CLASS_PASS_INSUFFICIENT_CREDITS':
       return 'El pack ya no tiene saldo suficiente.';
     case 'CLASS_PASS_INVALID_STATUS':
-      return 'El pack ya no está disponible para consumir créditos.';
+      return 'Este pack ya no tiene clases disponibles.';
     case 'CLASS_PASS_ENROLLMENT_MISMATCH':
       return 'Ese pack no aplica a esta clase o a este alumno.';
     case 'CLASS_CREDIT_USAGE_CONFLICT':
-      return 'Ese crédito ya fue consumido o cambió mientras lo estabas registrando.';
+      return 'Esa clase del pack ya se usó o cambió recién. Actualizá y probá de nuevo.';
     case 'CLASS_ENROLLMENT_INVALID_STATUS':
-      return extractErrorMessage(normalized, 'La inscripción ya tiene una cuenta financiera o un estado que no admite crédito.');
+      return extractErrorMessage(normalized, 'Esta clase ya tiene un cobro y no se puede pagar con el pack.');
     case 'CLASS_PASS_NOT_FOUND':
       return 'El pack elegido ya no está disponible.';
     case 'INVALID_INPUT':
-      return extractErrorMessage(normalized, 'No se pudo consumir el crédito del pack.');
+      return extractErrorMessage(normalized, 'No se pudo usar la clase del pack.');
     default:
       return extractErrorMessage(normalized, fallback);
   }
@@ -768,7 +825,7 @@ const translateCreateClassPassError = (error: unknown, fallback: string) => {
   const normalized = normalizeApiError(error, fallback);
   switch (normalized.code) {
     case 'CLIENT_NOT_FOUND':
-      return 'El titular o beneficiario seleccionado ya no pertenece a este club.';
+      return 'Ese alumno o quien paga ya no es cliente del club.';
     case 'USER_NOT_FOUND':
       return 'La referencia de usuario del pack ya no está disponible.';
     case 'FORBIDDEN':
@@ -855,7 +912,33 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<ClassStatusFilter>('active');
-  const [classRepeatWeeks, setClassRepeatWeeks] = useState(1);
+  // Curso: la clase se repite todas las semanas en los días elegidos.
+  const [classWeekly, setClassWeekly] = useState(false);
+  const [classWeekdays, setClassWeekdays] = useState<number[]>([]);
+  const [classEndsOn, setClassEndsOn] = useState('');
+  // Curso en la app: los jugadores lo ven en la página del club y se anotan solos.
+  const [classVisibleInApp, setClassVisibleInApp] = useState(false);
+  const [classRequiresApproval, setClassRequiresApproval] = useState(false);
+  const [classRequiresPayment, setClassRequiresPayment] = useState(false);
+  // Pedidos de lugar que llegaron desde la app (todos los cursos) y el modal para responderlos.
+  const [seriesRequests, setSeriesRequests] = useState<AdminClassSeriesRequest[]>([]);
+  // null = cerrado; { seriesId: null } = todos los cursos; con id = solo ese curso.
+  const [seriesRequestsModal, setSeriesRequestsModal] = useState<{ seriesId: string | null } | null>(null);
+  const [seriesRequestBusyId, setSeriesRequestBusyId] = useState<string | null>(null);
+  const [editingSeriesId, setEditingSeriesId] = useState<string | null>(null);
+  const [seriesConflicts, setSeriesConflicts] = useState<AdminClassSeriesConflict[] | null>(null);
+  const [seriesEndConfirm, setSeriesEndConfirm] = useState<AdminClassSession | null>(null);
+  const [seriesBusy, setSeriesBusy] = useState(false);
+  const [enrollToSeries, setEnrollToSeries] = useState(true);
+  const [enrollmentRemoveConfirm, setEnrollmentRemoveConfirm] = useState<AdminClassEnrollment | null>(null);
+  // Cuota del mes de un alumno del curso.
+  const [monthPassMonth, setMonthPassMonth] = useState(() => monthKeyOf(new Date()));
+  const [monthPassPreview, setMonthPassPreview] = useState<AdminClassSeriesMonthPass | null>(null);
+  // El mes ya lo cubre un plan: el cobro de la cuota queda escondido salvo que lo pidan.
+  const [monthPassChargeAnyway, setMonthPassChargeAnyway] = useState(false);
+  const [monthPassLoading, setMonthPassLoading] = useState(false);
+  const [monthPassBusy, setMonthPassBusy] = useState(false);
+  const [monthPassError, setMonthPassError] = useState('');
   const [classFormMoreOpen, setClassFormMoreOpen] = useState(false);
   const [classCancelConfirm, setClassCancelConfirm] = useState<AdminClassSession | null>(null);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
@@ -1057,7 +1140,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         reportUiError({ area: 'AdminClassesPage', action: 'loadEnrollmentCreditUsages' }, error);
         setCreditUsagesByEnrollment((prev) => ({ ...prev, [enrollmentId]: [] }));
         setCreditUsageError(
-          translateClassPassError(error, 'No se pudieron cargar los consumos de crédito de esta inscripción.')
+          translateClassPassError(error, 'No se pudieron cargar los usos del pack.')
         );
       } finally {
         setCreditUsageLoading(false);
@@ -1241,7 +1324,14 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     setFormError('');
     setFieldErrors({});
     setEditingClassId(null);
-    setClassRepeatWeeks(1);
+    setEditingSeriesId(null);
+    setClassWeekly(false);
+    setClassWeekdays([]);
+    setClassEndsOn('');
+    setClassVisibleInApp(false);
+    setClassRequiresApproval(false);
+    setClassRequiresPayment(false);
+    setSeriesConflicts(null);
     setClassFormMoreOpen(false);
   }, []);
 
@@ -1308,6 +1398,142 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     [clubSlug]
   );
 
+  const openSeriesEditModal = useCallback(
+    async (seriesId: string) => {
+      if (!clubSlug) return;
+      try {
+        setSubmitting(true);
+        resetClassForm();
+        const series = await ClubAdminService.getClassSeries(clubSlug, seriesId);
+        const startsAt = `${series.startsOn}T${series.startTime}`;
+        const endsAt = toLocalDateTimeInputValue(addMinutes(new Date(startsAt), series.durationMinutes));
+        setEditingSeriesId(series.id);
+        setClassWeekly(true);
+        setClassWeekdays(series.weekdays);
+        setClassEndsOn(series.endsOn || '');
+        setClassVisibleInApp(series.visibility === 'PUBLIC');
+        setClassRequiresApproval(Boolean(series.requiresApproval));
+        setClassRequiresPayment(Boolean(series.requiresPayment));
+        setForm({
+          ...buildEmptyClassForm(),
+          teacherId: series.teacherId,
+          classType: series.classType,
+          activityTypeId: series.activityTypeId ? String(series.activityTypeId) : '',
+          courtId: series.courtId ? String(series.courtId) : '',
+          startsAt,
+          endsAt,
+          capacity: String(series.capacity || ''),
+          pricePerStudent: series.pricePerStudent == null ? '' : String(series.pricePerStudent),
+          level: series.level || '',
+          description: series.description || '',
+        });
+        setModalOpen(true);
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'openSeriesEditModal' }, error);
+        setFeedback({ tone: 'error', message: extractErrorMessage(error, 'No se pudo cargar el curso.') });
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [clubSlug, resetClassForm]
+  );
+
+  const endSeries = useCallback(
+    async (classSession: AdminClassSession) => {
+      if (!clubSlug || !classSession.seriesId || seriesBusy) return;
+      try {
+        setSeriesBusy(true);
+        const result = await ClubAdminService.endClassSeries(clubSlug, classSession.seriesId);
+        setSeriesEndConfirm(null);
+        await loadClassSessions();
+        const kept = Number(result?.kept || 0);
+        showAdminToast(
+          kept > 0
+            ? `Curso terminado. ${kept === 1 ? 'Quedó 1 clase' : `Quedaron ${kept} clases`} con pagos o asistencia.`
+            : 'Curso terminado. Se sacaron las clases que venían.'
+        );
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'endSeries' }, error);
+        setFeedback({ tone: 'error', message: extractErrorMessage(error, 'No se pudo terminar el curso.') });
+      } finally {
+        setSeriesBusy(false);
+      }
+    },
+    [clubSlug, loadClassSessions, seriesBusy]
+  );
+
+  const loadSeriesRequests = useCallback(async () => {
+    if (!clubSlug) return [] as AdminClassSeriesRequest[];
+    try {
+      const rows = await ClubAdminService.getClassSeriesRequests(clubSlug);
+      setSeriesRequests(rows);
+      return rows;
+    } catch (error) {
+      reportUiError({ area: 'AdminClassesPage', action: 'loadSeriesRequests' }, error);
+      return [] as AdminClassSeriesRequest[];
+    }
+  }, [clubSlug]);
+
+  // Al entrar (o desde el aviso push, con ?pedidos=1) se cargan los pedidos; si hay, se abren solos.
+  useEffect(() => {
+    if (!clubSlug) return;
+    let cancelled = false;
+    void loadSeriesRequests().then((rows) => {
+      if (cancelled || typeof window === 'undefined') return;
+      const wantsRequests = new URLSearchParams(window.location.search).get('pedidos') === '1';
+      if (wantsRequests && rows.length > 0) setSeriesRequestsModal({ seriesId: null });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [clubSlug, loadSeriesRequests]);
+
+  const visibleSeriesRequests = useMemo(
+    () =>
+      seriesRequestsModal?.seriesId
+        ? seriesRequests.filter((row) => row.seriesId === seriesRequestsModal.seriesId)
+        : seriesRequests,
+    [seriesRequests, seriesRequestsModal]
+  );
+
+  const answerSeriesRequest = useCallback(
+    async (request: AdminClassSeriesRequest, accept: boolean) => {
+      if (!clubSlug || seriesRequestBusyId) return;
+      try {
+        setSeriesRequestBusyId(request.memberId);
+        const result = accept
+          ? await ClubAdminService.approveClassSeriesMember(clubSlug, request.seriesId, request.memberId)
+          : await ClubAdminService.rejectClassSeriesMember(clubSlug, request.seriesId, request.memberId);
+        const rows = await loadSeriesRequests();
+        const left = seriesRequestsModal?.seriesId
+          ? rows.filter((row) => row.seriesId === seriesRequestsModal.seriesId)
+          : rows;
+        if (left.length === 0) setSeriesRequestsModal(null);
+        await loadClassSessions();
+        if (selectedClassId) await loadEnrollments(selectedClassId);
+        const name = request.studentName || 'El jugador';
+        if (accept) {
+          const full = 'full' in result && Array.isArray(result.full) ? result.full.length : 0;
+          showAdminToast(
+            full > 0
+              ? `${name} ya está en el curso. ${full === 1 ? 'Una clase estaba llena' : `${full} clases estaban llenas`}.`
+              : `${name} ya está en el curso.`
+          );
+        } else {
+          showAdminToast(`Rechazaste el pedido de ${name}.`);
+        }
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'answerSeriesRequest' }, error);
+        showAdminToast(extractErrorMessage(error, 'No se pudo responder el pedido.'));
+      } finally {
+        setSeriesRequestBusyId(null);
+      }
+    },
+    [clubSlug, loadClassSessions, loadEnrollments, loadSeriesRequests, selectedClassId, seriesRequestBusyId, seriesRequestsModal]
+  );
+
   const closeModal = useCallback(() => {
     if (submitting) return;
     setModalOpen(false);
@@ -1326,6 +1552,69 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       capacity: nextType === 'INDIVIDUAL' ? '1' : prev.capacity === '1' || !prev.capacity ? '2' : prev.capacity,
     }));
   }, []);
+
+  // Curso: se guarda una vez y el servidor genera las clases de las próximas semanas.
+  const submitSeries = async (skipConflicts: boolean) => {
+    if (!clubSlug) return;
+    if (classWeekdays.length === 0) {
+      setFormError('Elegí qué días se da.');
+      setFieldErrors({ weekdays: 'Elegí al menos un día.' });
+      return;
+    }
+    const parsedPrice = parseOptionalPositiveNumber(form.pricePerStudent);
+    const payload: AdminClassSeriesInput = {
+      teacherId: form.teacherId,
+      activityTypeId: form.activityTypeId ? Number(form.activityTypeId) : null,
+      courtId: form.courtId ? Number(form.courtId) : null,
+      weekdays: classWeekdays,
+      startTime: form.startsAt.slice(11, 16),
+      durationMinutes: durationFromForm(form),
+      capacity: form.classType === 'INDIVIDUAL' ? 1 : Number(form.capacity),
+      pricePerStudent: Number.isNaN(parsedPrice) ? null : parsedPrice,
+      level: normalizeOptionalText(form.level),
+      description: normalizeOptionalText(form.description),
+      startsOn: form.startsAt.slice(0, 10),
+      endsOn: classEndsOn || null,
+      skipConflicts,
+      visibility: classVisibleInApp ? 'PUBLIC' : 'PRIVATE',
+      requiresApproval: classVisibleInApp && !classRequiresPayment && classRequiresApproval,
+      requiresPayment: classVisibleInApp && classRequiresPayment,
+    };
+    try {
+      setSubmitting(true);
+      setFormError('');
+      setFieldErrors({});
+      setSeriesConflicts(null);
+      const result = editingSeriesId
+        ? await ClubAdminService.updateClassSeries(clubSlug, editingSeriesId, payload)
+        : await ClubAdminService.createClassSeries(clubSlug, payload);
+      const created = Number(result?.created || 0);
+      const skipped = Array.isArray(result?.skipped) ? result.skipped.length : 0;
+      const kept = Number(result?.kept || 0);
+      const parts = [
+        editingSeriesId
+          ? 'Curso actualizado.'
+          : `Curso creado: ${created === 1 ? '1 clase' : `${created} clases`} en las próximas semanas.`,
+      ];
+      if (skipped) parts.push(`${skipped === 1 ? '1 fecha salteada' : `${skipped} fechas salteadas`}.`);
+      if (kept) parts.push(`${kept === 1 ? '1 clase con pagos o asistencia quedó' : `${kept} clases con pagos o asistencia quedaron`} como estaba.`);
+      showAdminToast(parts.join(' '));
+      closeModalImmediately();
+      await loadClassSessions();
+      setFeedback(null);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
+    } catch (error) {
+      reportUiError({ area: 'AdminClassesPage', action: 'submitSeries' }, error);
+      const conflicts = normalizeApiError(error).meta?.conflicts;
+      if (Array.isArray(conflicts) && conflicts.length) {
+        setSeriesConflicts(conflicts as AdminClassSeriesConflict[]);
+      }
+      setFieldErrors(getApiFieldErrors(error));
+      setFormError(extractErrorMessage(error, 'No se pudo guardar el curso.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const submitForm = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -1366,6 +1655,11 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       return;
     }
 
+    if (classWeekly || editingSeriesId) {
+      await submitSeries(false);
+      return;
+    }
+
     try {
       setSubmitting(true);
       setFormError('');
@@ -1394,29 +1688,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         await ClubAdminService.updateClassSession(clubSlug, editingClassId, payload);
         showAdminToast('Clase actualizada.');
       } else {
-        // "Se repite": se crea una clase por semana, mismo día y hora.
-        const weeks = Math.max(1, classRepeatWeeks);
-        const failed: string[] = [];
-        let created = 0;
-        for (let week = 0; week < weeks; week += 1) {
-          const startsAt = localInputToIso(shiftLocalInputDays(form.startsAt, week * 7));
-          const endsAt = localInputToIso(shiftLocalInputDays(form.endsAt, week * 7));
-          try {
-            await ClubAdminService.createClassSession(clubSlug, { ...payload, startsAt, endsAt });
-            created += 1;
-          } catch (error) {
-            if (weeks === 1) throw error;
-            failed.push(`${formatClassDay(startsAt)} (${extractErrorMessage(error, 'no se pudo')})`);
-          }
-        }
-        if (created === 0) {
-          setFormError(`No se pudo crear ninguna clase. ${failed[0] || ''}`.trim());
-          return;
-        }
-        showAdminToast(created === 1 ? 'Clase creada.' : `Se crearon ${created} clases.`);
-        if (failed.length) {
-          partialError = `No se pudieron crear ${failed.length === 1 ? '1 clase' : `${failed.length} clases`}: ${failed.join(' · ')}`;
-        }
+        await ClubAdminService.createClassSession(clubSlug, payload);
+        showAdminToast('Clase creada.');
       }
 
       closeModalImmediately();
@@ -1452,6 +1725,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
   const openEnrollmentCreateModal = useCallback(() => {
     resetEnrollmentForm();
+    setEnrollToSeries(true);
     setNewStudentPhone('');
     setEnrollmentOtherPayer(false);
     setEnrollmentDrawerTab('summary');
@@ -1549,10 +1823,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setClassPassAccountId(accountId);
         setClassPassAccountInitialView(initialView);
         setClassPassAccountContext({
-          title: `Cuenta pack · ${classPass.packageName}`,
+          title: `Pack · ${classPass.packageName}`,
           subtitle: classPass.ownerClient?.name
-            ? `Titular: ${classPass.ownerClient.name}`
-            : 'Cuenta financiera del pack de Academia',
+            ? `Paga: ${classPass.ownerClient.name}`
+            : 'Pack de Academia',
         });
         setClassPassAccountStudentClientId(classPass.beneficiaryClientId);
         setClassPassAccountDrawerOpen(true);
@@ -1567,6 +1841,75 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     },
     [classPassAccountBusyId, clubSlug, loadClassPassesForStudents]
   );
+
+  const monthPassTarget =
+    editingEnrollment?.seriesMemberId && selectedClass?.seriesId
+      ? { seriesId: selectedClass.seriesId, memberId: editingEnrollment.seriesMemberId }
+      : null;
+  const monthPassSeriesId = monthPassTarget?.seriesId || null;
+  const monthPassMemberId = monthPassTarget?.memberId || null;
+
+  useEffect(() => {
+    if (!clubSlug || !monthPassSeriesId || !monthPassMemberId || enrollmentDrawerTab !== 'account') {
+      setMonthPassPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setMonthPassChargeAnyway(false);
+    setMonthPassLoading(true);
+    setMonthPassError('');
+    ClubAdminService.classSeriesMonthPass(clubSlug, monthPassSeriesId, monthPassMemberId, { month: monthPassMonth, preview: true })
+      .then((preview) => {
+        if (!cancelled) setMonthPassPreview(preview);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setMonthPassPreview(null);
+        setMonthPassError(extractErrorMessage(error, 'No se pudo calcular el mes.'));
+      })
+      .finally(() => {
+        if (!cancelled) setMonthPassLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clubSlug, enrollmentDrawerTab, monthPassMemberId, monthPassMonth, monthPassSeriesId]);
+
+  const chargeCourseMonth = useCallback(async () => {
+    if (!clubSlug || !monthPassSeriesId || !monthPassMemberId || monthPassBusy || !editingEnrollment) return;
+    try {
+      setMonthPassBusy(true);
+      setMonthPassError('');
+      const result = await ClubAdminService.classSeriesMonthPass(clubSlug, monthPassSeriesId, monthPassMemberId, {
+        month: monthPassMonth,
+      });
+      setMonthPassPreview({ ...result, existingPassId: result.pass?.id ?? null });
+      await loadClassPassesForStudents([editingEnrollment.studentClientId], 'merge');
+      if (selectedClass) await loadEnrollments(selectedClass.id);
+      showAdminToast(
+        `${result.monthLabel[0].toUpperCase()}${result.monthLabel.slice(1)}: ${result.classes === 1 ? '1 clase' : `${result.classes} clases`}.${
+          result.applied ? ` Ya se ${result.applied === 1 ? 'cubrió 1 clase' : `cubrieron ${result.applied} clases`} con presente.` : ''
+        }`
+      );
+      if (result.pass && result.total) await openClassPassAccountDrawer(result.pass);
+    } catch (error) {
+      reportUiError({ area: 'AdminClassesPage', action: 'chargeCourseMonth' }, error);
+      setMonthPassError(extractErrorMessage(error, 'No se pudo cobrar el mes.'));
+    } finally {
+      setMonthPassBusy(false);
+    }
+  }, [
+    clubSlug,
+    editingEnrollment,
+    loadClassPassesForStudents,
+    loadEnrollments,
+    monthPassBusy,
+    monthPassMemberId,
+    monthPassMonth,
+    monthPassSeriesId,
+    openClassPassAccountDrawer,
+    selectedClass,
+  ]);
 
   const openClassEnrollmentAccountDrawer = useCallback(
     async (enrollment: AdminClassEnrollment) => {
@@ -1605,10 +1948,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setClassEnrollmentAccountId(accountId);
         setClassEnrollmentAccountInitialView(initialView);
         setClassEnrollmentAccountContext({
-          title: `Cuenta clase · ${enrollment.snapshotName}`,
+          title: `Clase · ${enrollment.snapshotName}`,
           subtitle: selectedClass.teacher?.displayName
             ? `${selectedClass.teacher.displayName} · ${formatDateRange(selectedClass.startsAt, selectedClass.endsAt)}`
-            : 'Cuenta financiera de la inscripción de Academia',
+            : 'Clase de Academia',
         });
         setClassEnrollmentAccountDrawerOpen(true);
       } catch (error) {
@@ -1646,6 +1989,34 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     studentUserSearchTransform
   );
 
+  const selectedClassInActiveSeries = Boolean(selectedClass?.seriesId && selectedClass.series?.status === 'ACTIVE');
+  const enrollmentGoesToSeries = selectedClassInActiveSeries && enrollToSeries;
+
+  const removeEnrollmentFromSeries = useCallback(
+    async (enrollment: AdminClassEnrollment) => {
+      if (!clubSlug || !selectedClass?.seriesId || !enrollment.seriesMemberId || seriesBusy) return;
+      try {
+        setSeriesBusy(true);
+        const result = await ClubAdminService.removeClassSeriesMember(clubSlug, selectedClass.seriesId, enrollment.seriesMemberId);
+        setEnrollmentRemoveConfirm(null);
+        await loadEnrollments(selectedClass.id);
+        const kept = Number(result?.kept || 0);
+        showAdminToast(
+          kept > 0
+            ? `Sacado del curso. ${kept === 1 ? 'Queda en 1 clase' : `Queda en ${kept} clases`} con pagos o asistencia.`
+            : 'Sacado del curso.'
+        );
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
+      } catch (error) {
+        reportUiError({ area: 'AdminClassesPage', action: 'removeEnrollmentFromSeries' }, error);
+        setFeedback({ tone: 'error', message: extractErrorMessage(error, 'No se pudo sacar al alumno del curso.') });
+      } finally {
+        setSeriesBusy(false);
+      }
+    },
+    [clubSlug, loadEnrollments, selectedClass, seriesBusy]
+  );
+
   const submitEnrollmentForm = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!clubSlug || !selectedClass || enrollmentSubmitting) return;
@@ -1673,12 +2044,17 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           billingResponsibleClientId: enrollmentForm.selectedResponsible?.clientId ?? null,
           notes: normalizeOptionalText(enrollmentForm.notes),
         });
+        let attendanceResult: Awaited<ReturnType<typeof ClubAdminService.setClassEnrollmentAttendance>> | null = null;
         if (enrollmentForm.attendanceStatus !== enrollmentForm.initialAttendanceStatus) {
-          await ClubAdminService.setClassEnrollmentAttendance(clubSlug, selectedClass.id, editingEnrollmentId, {
+          attendanceResult = await ClubAdminService.setClassEnrollmentAttendance(clubSlug, selectedClass.id, editingEnrollmentId, {
             attendanceStatus: enrollmentForm.attendanceStatus,
           });
         }
-        showAdminToast('Inscripción actualizada.');
+        showAdminToast(
+          attendanceResult && (attendanceResult.creditApplied || attendanceResult.creditReturned)
+            ? attendanceToast(enrollmentForm.attendanceStatus, attendanceResult.creditApplied, attendanceResult.creditReturned)
+            : 'Inscripción actualizada.'
+        );
       } else {
         let studentClientId = enrollmentForm.selectedStudent?.clientId || '';
         if (pendingNewStudent) {
@@ -1691,13 +2067,29 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           studentClientId = String(created?.id || created?.client?.id || '');
           if (!studentClientId) throw new Error('No se pudo crear el cliente.');
         }
-        await ClubAdminService.createClassEnrollment(clubSlug, selectedClass.id, {
-          studentClientId,
-          studentUserId: enrollmentForm.selectedStudentUser?.userId ?? enrollmentForm.selectedStudent?.userId ?? null,
-          billingResponsibleClientId: enrollmentOtherPayer ? enrollmentForm.selectedResponsible?.clientId ?? null : null,
-          notes: normalizeOptionalText(enrollmentForm.notes),
-        });
-        showAdminToast(pendingNewStudent ? 'Cliente creado y anotado.' : 'Alumno anotado.');
+        const billingResponsibleClientId = enrollmentOtherPayer ? enrollmentForm.selectedResponsible?.clientId ?? null : null;
+        if (enrollmentGoesToSeries && selectedClass.seriesId) {
+          const result = await ClubAdminService.addClassSeriesMember(clubSlug, selectedClass.seriesId, {
+            studentClientId,
+            billingResponsibleClientId,
+            notes: normalizeOptionalText(enrollmentForm.notes),
+          });
+          const enrolled = Number(result?.enrolled || 0);
+          const full = Array.isArray(result?.full) ? result.full.length : 0;
+          showAdminToast(
+            `Anotado al curso: ${enrolled === 1 ? '1 clase' : `${enrolled} clases`}.${
+              full ? ` ${full === 1 ? '1 clase estaba llena' : `${full} clases estaban llenas`}.` : ''
+            }`
+          );
+        } else {
+          await ClubAdminService.createClassEnrollment(clubSlug, selectedClass.id, {
+            studentClientId,
+            studentUserId: enrollmentForm.selectedStudentUser?.userId ?? enrollmentForm.selectedStudent?.userId ?? null,
+            billingResponsibleClientId,
+            notes: normalizeOptionalText(enrollmentForm.notes),
+          });
+          showAdminToast(pendingNewStudent ? 'Cliente creado y anotado.' : 'Alumno anotado.');
+        }
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
       }
 
@@ -1739,13 +2131,14 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       if (!clubSlug || !selectedClass || quickAttendanceBusyId) return;
       try {
         setQuickAttendanceBusyId(enrollment.id);
-        await ClubAdminService.setClassEnrollmentAttendance(clubSlug, selectedClass.id, enrollment.id, {
+        const result = await ClubAdminService.setClassEnrollmentAttendance(clubSlug, selectedClass.id, enrollment.id, {
           attendanceStatus: nextAttendanceStatus,
         });
         await loadEnrollments(selectedClass.id);
-        showAdminToast(
-          nextAttendanceStatus === 'ATTENDED' ? 'Asistencia marcada como presente.' : 'Asistencia vuelta a pendiente.'
-        );
+        if (result.creditApplied || result.creditReturned) {
+          void loadClassPassesForStudents([enrollment.studentClientId], 'merge');
+        }
+        showAdminToast(attendanceToast(nextAttendanceStatus, result.creditApplied, result.creditReturned));
       } catch (error) {
         reportUiError({ area: 'AdminClassesPage', action: 'quickSetEnrollmentAttendance' }, error);
         setFeedback({
@@ -1756,7 +2149,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setQuickAttendanceBusyId(null);
       }
     },
-    [clubSlug, loadEnrollments, quickAttendanceBusyId, selectedClass]
+    [clubSlug, loadClassPassesForStudents, loadEnrollments, quickAttendanceBusyId, selectedClass]
   );
 
   const quickOpenCreditFlow = useCallback(
@@ -1783,13 +2176,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         if (usablePasses.length === 0) {
           setFeedback({
             tone: 'error',
-            message: 'No hay un pack compatible disponible para cubrir esta inscripción con crédito.',
+            message: 'Este alumno no tiene un pack que sirva para esta clase.',
           });
           return;
         }
 
         if (usablePasses.length > 1) {
-          showAdminToast('Elegí el pack desde Gestionar para evitar consumir el crédito equivocado.');
+          showAdminToast('Tiene más de un pack: elegí cuál usar.');
           openEnrollmentEditModal(enrollment, 'credits');
           return;
         }
@@ -1813,7 +2206,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         reportUiError({ area: 'AdminClassesPage', action: 'quickOpenCreditFlow' }, error);
         setFeedback({
           tone: 'error',
-          message: translateClassPassError(error, 'No se pudo preparar el consumo de crédito.'),
+          message: translateClassPassError(error, 'No se pudo preparar el uso del pack.'),
         });
       } finally {
         setQuickCreditBusyEnrollmentId(null);
@@ -1834,7 +2227,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         reason,
       });
 
-      showAdminToast('Crédito consumido.');
+      showAdminToast('Clase pagada con el pack.');
       setCreditUsageConfirmState(null);
       await loadEnrollments(selectedClass.id);
       await Promise.all([
@@ -1844,7 +2237,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       setFeedback(null);
     } catch (error) {
       reportUiError({ area: 'AdminClassesPage', action: 'consumeClassPassCredit' }, error);
-      const message = translateClassPassError(error, 'No se pudo consumir el crédito del pack.');
+      const message = translateClassPassError(error, 'No se pudo usar la clase del pack.');
       setCreditUsageError(message);
       setEnrollmentFormError(message);
     } finally {
@@ -1873,8 +2266,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         return;
       }
       if (!Number.isInteger(totalCredits) || totalCredits <= 0) {
-        setClassPassFormError('La cantidad de créditos debe ser un entero mayor a 0.');
-        setClassPassFieldErrors({ totalCredits: 'Ingresá créditos válidos.' });
+        setClassPassFormError('Poné cuántas clases trae el pack.');
+        setClassPassFieldErrors({ totalCredits: 'Cantidad de clases.' });
         return;
       }
       if (Number.isNaN(parsedPriceAtPurchase) || parsedPriceAtPurchase === 0) {
@@ -1914,7 +2307,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         reportUiError({ area: 'AdminClassesPage', action: 'submitClassPassForm' }, error);
         setClassPassFieldErrors(getApiFieldErrors(error));
         setClassPassFormError(
-          translateCreateClassPassError(error, 'No se pudo asignar el pack de créditos al alumno.')
+          translateCreateClassPassError(error, 'No se pudo crear el pack.')
         );
       } finally {
         setClassPassSubmitting(false);
@@ -1945,7 +2338,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       }
 
       if (enrollment.paymentStatus === 'COVERED_BY_CREDIT') {
-        return { label: 'Cubierto por crédito', muted: false };
+        return { label: 'Pagada con pack', muted: false };
       }
 
       if (['PAID', 'REFUNDED'].includes(enrollment.paymentStatus)) {
@@ -1972,8 +2365,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
       const availableCredits = usablePasses.reduce((total, classPass) => total + Number(classPass.remainingCredits || 0), 0);
       return {
-        label: `${usablePasses.length} pack${usablePasses.length === 1 ? '' : 's'} · ${availableCredits} crédito${availableCredits === 1 ? '' : 's'}`,
+        label: `Pack: ${availableCredits === 1 ? 'queda 1 clase' : `quedan ${availableCredits} clases`}`,
         muted: false,
+        // Al marcar presente se usa solo: no es deuda.
+        covers: availableCredits > 0,
       };
     },
     [classPassesByStudent, classPassesLoading, selectedClass]
@@ -1994,13 +2389,16 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       collected += Number(row.paidAmount || 0);
       if (row.paymentStatus === 'PAID' || row.paymentStatus === 'COVERED_BY_CREDIT') {
         settled += 1;
+      } else if (row.paymentStatus === 'UNPAID' && !Number(row.paidAmount || 0) && compatiblePassSummary(row).covers) {
+        // Lo cubre un pack (curso o plan): se descuenta al marcar presente.
+        settled += 1;
       } else if (Number(row.priceAtEnrollment || 0) > 0) {
         owing += 1;
         owedAmount += Math.max(0, Number(row.priceAtEnrollment || 0) - Number(row.paidAmount || 0));
       }
     }
     return { settled, owing, owedAmount, collected };
-  }, [enrollments]);
+  }, [compatiblePassSummary, enrollments]);
   const editingEnrollmentPasses = editingEnrollment
     ? classPassesByStudent[editingEnrollment.studentClientId] || []
     : [];
@@ -2018,7 +2416,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   }, [editingEnrollment, editingEnrollmentAccount]);
   const editingEnrollmentAccountBadgeLabel = useMemo(() => {
     if (!editingEnrollment) return academyFinancialLabel(editingEnrollmentFinancial?.financialStatus || 'NO_ACCOUNT');
-    if (editingEnrollment.paymentStatus === 'COVERED_BY_CREDIT') return 'Cubierto por crédito';
+    if (editingEnrollment.paymentStatus === 'COVERED_BY_CREDIT') return 'Pagada con pack';
     if (editingEnrollment.paymentStatus === 'REFUNDED') return 'Devuelto';
     if (editingEnrollment.paymentStatus === 'PAID') return 'Pagado';
     if (editingEnrollment.enrollmentStatus === 'CANCELLED') return 'No cobrable';
@@ -2077,16 +2475,21 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     CLASS_DURATION_CHOICES.includes(durationMinutes) || durationMinutes <= 0
       ? CLASS_DURATION_CHOICES
       : [...CLASS_DURATION_CHOICES, durationMinutes].sort((a, b) => a - b);
-  const repeatHint = (() => {
-    if (editingClassId || classRepeatWeeks <= 1 || !formDate) return '';
-    const start = new Date(form.startsAt);
-    if (Number.isNaN(start.getTime())) return '';
-    const weekday = start.toLocaleDateString('es-AR', { weekday: 'long' });
-    const last = new Date(start);
-    last.setDate(last.getDate() + (classRepeatWeeks - 1) * 7);
-    const lastLabel = last.toLocaleDateString('es-AR', { day: 'numeric', month: 'long' });
-    return `Se crean ${classRepeatWeeks} clases: todos los ${weekday} a las ${formTime}, hasta el ${lastLabel}.`;
+  const weeklyHint = (() => {
+    if (!classWeekly) return 'Una sola fecha. Para clases de todas las semanas, elegí "Todas las semanas".';
+    if (classWeekdays.length === 0 || !formTime) return 'Elegí qué días se da.';
+    const until = classEndsOn
+      ? `hasta el ${new Date(`${classEndsOn}T12:00:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' })}`
+      : 'hasta que lo termines';
+    return `Todos los ${weekdaysLabel(classWeekdays, true)} a las ${formTime}, ${until}. Anotás a cada alumno una vez y queda en todas las clases.`;
   })();
+  const toggleClassWeekday = (day: number) =>
+    setClassWeekdays((prev) => (prev.includes(day) ? prev.filter((value) => value !== day) : [...prev, day]));
+  const chooseWeekly = (weekly: boolean) => {
+    setClassWeekly(weekly);
+    setSeriesConflicts(null);
+    if (weekly && classWeekdays.length === 0 && formDate) setClassWeekdays([weekdayOfDateKey(formDate)]);
+  };
   const classFormContent = (
     <form id="class-session-form" onSubmit={submitForm} className="space-y-6">
       {formError && <AdminInlineError>{formError}</AdminInlineError>}
@@ -2135,7 +2538,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       <FormBlock title="¿Cuándo?" error={fieldErrors.startsAt || fieldErrors.endsAt}>
         <div className="grid grid-cols-2 gap-3 sm:max-w-[360px]">
           <label className="space-y-1">
-            <span className="text-[12px] text-p-text-muted">Día</span>
+            <span className="text-[12px] text-p-text-muted">{classWeekly ? 'Empieza el' : 'Día'}</span>
             <input
               type="date"
               value={formDate}
@@ -2178,18 +2581,96 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       </FormBlock>
 
       {!editingClassId && (
-        <FormBlock title="¿Se repite todas las semanas?" hint={repeatHint}>
-          <div className="flex flex-wrap gap-2">
-            {CLASS_REPEAT_CHOICES.map((choice) => (
-              <ChoiceChip
-                key={choice.value}
-                active={classRepeatWeeks === choice.value}
-                onClick={() => setClassRepeatWeeks(choice.value)}
-              >
-                {choice.label}
+        <FormBlock title="¿Se repite?" hint={weeklyHint} error={fieldErrors.weekdays}>
+          {!editingSeriesId && (
+            <div className="flex flex-wrap gap-2">
+              <ChoiceChip active={!classWeekly} onClick={() => chooseWeekly(false)}>
+                Solo una vez
               </ChoiceChip>
-            ))}
-          </div>
+              <ChoiceChip active={classWeekly} onClick={() => chooseWeekly(true)}>
+                Todas las semanas
+              </ChoiceChip>
+            </div>
+          )}
+          {classWeekly && (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {WEEKDAY_CHOICES.map((day) => (
+                  <ChoiceChip
+                    key={day.value}
+                    active={classWeekdays.includes(day.value)}
+                    onClick={() => toggleClassWeekday(day.value)}
+                  >
+                    {day.label}
+                  </ChoiceChip>
+                ))}
+              </div>
+              <label className="block space-y-1 sm:max-w-[200px]">
+                <span className="text-[12px] text-p-text-muted">Hasta (opcional)</span>
+                <input
+                  type="date"
+                  value={classEndsOn}
+                  min={formDate || undefined}
+                  onChange={(event) => setClassEndsOn(event.target.value)}
+                  className={fieldInputClass}
+                />
+              </label>
+              <CheckboxField
+                label="Se ve en la app: los jugadores se anotan solos"
+                checked={classVisibleInApp}
+                onChange={setClassVisibleInApp}
+              />
+              {classVisibleInApp && (
+                <div className="space-y-2 pl-6">
+                  <CheckboxField
+                    label="Cobrar al anotarse (Mercado Pago)"
+                    checked={classRequiresPayment}
+                    onChange={(checked) => {
+                      setClassRequiresPayment(checked);
+                      if (checked) setClassRequiresApproval(false);
+                    }}
+                  />
+                  {classRequiresPayment ? (
+                    <p className="text-[12px] text-p-text-muted">
+                      Pagan las clases que quedan del mes y quedan anotados. Después, el mes se cobra como siempre.
+                    </p>
+                  ) : (
+                    <CheckboxField
+                      label="Aprobar a cada uno antes de sumarlo"
+                      checked={classRequiresApproval}
+                      onChange={setClassRequiresApproval}
+                    />
+                  )}
+                  {fieldErrors.requiresPayment ? (
+                    <p className="text-[12px] text-[var(--error-fg)]">{fieldErrors.requiresPayment}</p>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          )}
+          {seriesConflicts && seriesConflicts.length > 0 && (
+            <div className="space-y-2 rounded-xl border border-p-border bg-p-surface-2 px-3 py-3">
+              <p className="text-[13px] font-semibold text-p-text">
+                {seriesConflicts.length === 1 ? 'Esta fecha choca' : `Estas ${seriesConflicts.length} fechas chocan`} con algo en la cancha:
+              </p>
+              <ul className="space-y-0.5 text-[12px] text-p-text-secondary">
+                {seriesConflicts.slice(0, 6).map((conflict) => (
+                  <li key={conflict.date}>
+                    {formatDateKeyLabel(conflict.date)} · {conflict.reason}
+                  </li>
+                ))}
+                {seriesConflicts.length > 6 && <li>y {seriesConflicts.length - 6} más</li>}
+              </ul>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => void submitSeries(true)}
+                className="text-[13px] font-semibold text-p-text underline underline-offset-2 disabled:opacity-50"
+              >
+                Crear igual, sin esas fechas
+              </button>
+            </div>
+          )}
         </FormBlock>
       )}
 
@@ -2263,23 +2744,6 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         </button>
         {classFormMoreOpen && (
           <div className="mt-4 space-y-4">
-            <div className="grid gap-2">
-              <CheckboxField
-                label="Se ve en la app: los jugadores pueden anotarse solos"
-                checked={form.visibility === 'PUBLIC'}
-                onChange={(checked) => setForm((prev) => ({ ...prev, visibility: checked ? 'PUBLIC' : 'PRIVATE' }))}
-              />
-              <CheckboxField
-                label="Aprobar a cada uno antes de anotarlo"
-                checked={form.requiresApproval}
-                onChange={(checked) => setForm((prev) => ({ ...prev, requiresApproval: checked }))}
-              />
-              <CheckboxField
-                label="Cobrar antes de anotar"
-                checked={form.requiresPaymentToEnroll}
-                onChange={(checked) => setForm((prev) => ({ ...prev, requiresPaymentToEnroll: checked }))}
-              />
-            </div>
             <Field
               label="Nivel (opcional)"
               value={form.level}
@@ -2316,30 +2780,30 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     <form id="class-pass-form" onSubmit={submitClassPassForm} className="space-y-4">
       {classPassFormError ? <AdminInlineError>{classPassFormError}</AdminInlineError> : null}
 
-      <AdminDrawerSection title="Titular y beneficiario" className={drawerSectionCardClass}>
+      <AdminDrawerSection title="Para quién es" className={drawerSectionCardClass}>
         <div className="space-y-4">
           <div className={helperCardClass}>
-            <p className="font-semibold text-p-text">Asignar créditos no registra un pago</p>
+            <p className="font-semibold text-p-text">Crear el pack no lo cobra</p>
             <p className="mt-1">
-              Esta acción crea un pack de créditos para el alumno. Si cargás un precio, después vas a poder abrir la cuenta del pack para cobrarlo desde AccountDrawer.
+              Se crea el pack con sus clases. Si le ponés precio, después lo cobrás desde el pack.
             </p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <Field
-              label="Titular del pack"
+              label="Paga"
               value={classPassForm.ownerClientName}
               onChange={() => undefined}
               disabled
-              hint="Por ahora se toma el responsable cargado en la inscripción. Si no existe, usa al alumno."
+              hint="Quien paga la clase; si no hay nadie cargado, el alumno."
               inputClassName={fieldInputClass}
             />
             <Field
-              label="Beneficiario"
+              label="Alumno"
               value={classPassForm.beneficiaryClientName}
               onChange={() => undefined}
               disabled
-              hint="El pack se asigna al alumno de esta inscripción."
+              hint="El pack es para este alumno."
               inputClassName={fieldInputClass}
             />
           </div>
@@ -2358,7 +2822,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               inputClassName={fieldInputClass}
             />
             <Field
-              label="Créditos"
+              label="Clases"
               type="number"
               value={classPassForm.totalCredits}
               onChange={(value) =>
@@ -2452,6 +2916,24 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         <AdminFeedbackBanner tone={feedback.tone} title={feedback.tone === 'error' ? 'Error' : 'Listo'}>
           {feedback.message}
         </AdminFeedbackBanner>
+      )}
+
+      {seriesRequests.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-p-accent bg-p-surface px-4 py-3">
+          <p className="text-[13px] text-p-text">
+            <span className="font-semibold">
+              {seriesRequests.length === 1 ? '1 jugador pidió lugar' : `${seriesRequests.length} jugadores pidieron lugar`}
+            </span>{' '}
+            en cursos desde la app.
+          </p>
+          <button
+            type="button"
+            onClick={() => setSeriesRequestsModal({ seriesId: null })}
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800"
+          >
+            Ver pedidos
+          </button>
+        </div>
       )}
 
       {summary.total > 0 && (
@@ -2618,14 +3100,51 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 <UserPlus size={14} />
                 Agregar alumno
               </button>
-              <button
-                type="button"
-                onClick={() => void openEditModal(selectedClass.id)}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
-              >
-                <Pencil size={14} />
-                Editar
-              </button>
+              {selectedClass.seriesId && selectedClass.series?.status === 'ACTIVE' ? (
+                <>
+                  {Number(selectedClass.series?.pendingRequests || 0) > 0 && (
+                    <button
+                      type="button"
+                      disabled={seriesBusy}
+                      onClick={() => setSeriesRequestsModal({ seriesId: selectedClass.seriesId as string })}
+                      className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-accent bg-p-surface px-3 text-sm font-semibold text-p-accent transition hover:bg-p-surface-2"
+                    >
+                      Pedidos ({selectedClass.series?.pendingRequests})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void openSeriesEditModal(selectedClass.seriesId as string)}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+                  >
+                    <Pencil size={14} />
+                    Editar curso
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void openEditModal(selectedClass.id)}
+                    className="inline-flex h-9 items-center justify-center rounded-lg px-2 text-sm font-semibold text-p-text-muted transition hover:text-p-text hover:underline underline-offset-2"
+                  >
+                    Solo esta fecha
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSeriesEndConfirm(selectedClass)}
+                    className="inline-flex h-9 items-center justify-center rounded-lg px-2 text-sm font-semibold text-[var(--error-fg)] transition hover:underline underline-offset-2"
+                  >
+                    Terminar curso
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void openEditModal(selectedClass.id)}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+                >
+                  <Pencil size={14} />
+                  Editar
+                </button>
+              )}
             </div>
           ) : null
         }
@@ -2645,7 +3164,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             enrollmentsLoading={enrollmentsLoading}
             activeTabId={classDrawerTab}
             onManageEnrollment={openEnrollmentEditModal}
-            onCancelEnrollment={(row) => void cancelEnrollment(row)}
+            onCancelEnrollment={(row) => {
+              if (row.seriesMemberId && selectedClass.seriesId) setEnrollmentRemoveConfirm(row);
+              else void cancelEnrollment(row);
+            }}
             enrollmentStatusBusyId={enrollmentStatusBusyId}
             quickAttendanceBusyId={quickAttendanceBusyId}
             quickCreditBusyEnrollmentId={quickCreditBusyEnrollmentId}
@@ -2660,8 +3182,14 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       <AdminDrawer
         open={modalOpen}
         onClose={closeModal}
-        title={editingClassId ? 'Editar clase' : 'Nueva clase'}
-        subtitle={editingClassId ? 'Cambiá lo que necesites.' : 'Quién la da, cuándo y para cuántos.'}
+        title={editingSeriesId ? 'Editar curso' : editingClassId ? 'Editar esta fecha' : classWeekly ? 'Nuevo curso' : 'Nueva clase'}
+        subtitle={
+          editingSeriesId
+            ? 'Los cambios se aplican a las clases que vienen.'
+            : editingClassId
+              ? 'Cambiá lo que necesites.'
+              : 'Quién la da, cuándo y para cuántos.'
+        }
         size="lg"
         footer={
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -2680,11 +3208,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             >
               {submitting
                 ? 'Guardando...'
-                : editingClassId
-                  ? 'Guardar cambios'
-                  : classRepeatWeeks > 1
-                    ? `Crear ${classRepeatWeeks} clases`
-                    : 'Crear clase'}
+                : editingSeriesId
+                  ? 'Guardar curso'
+                  : editingClassId
+                    ? 'Guardar cambios'
+                    : classWeekly
+                      ? 'Crear curso'
+                      : 'Crear clase'}
             </button>
           </div>
         }
@@ -2792,6 +3322,25 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   helper="Si no está cargado, escribí el nombre completo y elegí la opción para crearlo."
                 />
               )}
+
+              {!editingEnrollmentId && selectedClassInActiveSeries ? (
+                <div className="space-y-1.5">
+                  <span className="text-[12px] text-p-text-muted">¿A qué lo anotás?</span>
+                  <div className="flex flex-wrap gap-2">
+                    <ChoiceChip active={enrollToSeries} onClick={() => setEnrollToSeries(true)}>
+                      A todo el curso
+                    </ChoiceChip>
+                    <ChoiceChip active={!enrollToSeries} onClick={() => setEnrollToSeries(false)}>
+                      Solo a esta clase
+                    </ChoiceChip>
+                  </div>
+                  <p className="text-[12px] text-p-text-muted">
+                    {enrollToSeries
+                      ? `Queda en todas las clases que vienen (${weekdaysLabel(selectedClass?.series?.weekdays || [])} ${selectedClass?.series?.startTime || ''}).`
+                      : 'Solo para esta fecha, por ejemplo para recuperar una clase.'}
+                  </p>
+                </div>
+              ) : null}
 
               {!editingEnrollmentId &&
               enrollmentForm.selectedStudent?.kind === 'newClientSuggestion' &&
@@ -2909,16 +3458,16 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           <AdminDrawerSection title="Pack" className={drawerSectionCardClass}>
             {!editingEnrollmentId || !editingEnrollment || !editingEnrollmentForCredit ? (
               <div className={helperCardClass}>
-                <p className="font-semibold text-p-text">Créditos después de guardar</p>
+                <p className="font-semibold text-p-text">Packs después de guardar</p>
                 <p className="mt-1">
-                  Guardá primero la inscripción. Después vas a poder ver packs compatibles, saldo y consumir un crédito manualmente.
+                  Guardá primero al alumno. Después ves sus packs y cuántas clases le quedan.
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-[13px] text-p-text-secondary">
-                    Packs disponibles, saldo y consumo manual de créditos para esta inscripción.
+                    Al marcar presente se usa sola una clase del pack. Acá podés usarla a mano.
                   </p>
                   <button
                     type="button"
@@ -2931,16 +3480,16 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 </div>
 
                 <div className={helperCardClass}>
-                  <p className="font-semibold text-p-text">Asignar y consumir siguen siendo cosas distintas</p>
+                  <p className="font-semibold text-p-text">Cómo funciona</p>
                   <p className="mt-1">
-                    Consumir un crédito solo cubre la inscripción con el pack. No genera pagos ni cambia asistencia. Si necesitás cobrar el pack, abrí su cuenta aparte.
+                    Usar una clase del pack paga esta clase. El pack se cobra aparte, desde el botón del pack.
                   </p>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-4">
                   <SummaryBlock label="Pago actual" value={paymentStatusLabel(editingEnrollment.paymentStatus)} />
                   <SummaryBlock label="Asistencia" value={attendanceStatusLabel(editingEnrollmentForCredit.attendanceStatus)} />
-                  <SummaryBlock label="Consumos" value={String(editingEnrollmentCreditUsages.length)} />
+                  <SummaryBlock label="Usos del pack" value={String(editingEnrollmentCreditUsages.length)} />
                   <SummaryBlock
                     label="Packs activos"
                     value={String(editingEnrollmentPasses.filter((row) => effectiveClassPassStatus(row) === 'ACTIVE').length)}
@@ -2969,18 +3518,18 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                           : 'La inscripción no tiene precio cargado para abrir cuenta.'}
                       </p>
                       {editingEnrollmentAccountLoading ? (
-                        <p className="mt-2 text-[12px] text-p-text-muted">Cargando estado financiero...</p>
+                        <p className="mt-2 text-[12px] text-p-text-muted">Cargando cobro...</p>
                       ) : editingEnrollmentAccountError ? (
                         <p className="mt-2 text-[12px] text-[var(--error-fg)]">{editingEnrollmentAccountError}</p>
                       ) : editingEnrollmentFinancial?.blockedReason ? (
                         <p className="mt-2 text-[12px] text-p-text-muted">{editingEnrollmentFinancial.blockedReason}</p>
                       ) : editingEnrollment.paymentStatus === 'COVERED_BY_CREDIT' ? (
                         <p className="mt-2 text-[12px] text-p-text-muted">
-                          Esta inscripción quedó cubierta por crédito. No se abre una cuenta de cobro en esta fase.
+                          Esta clase ya está pagada con un pack.
                         </p>
                       ) : (
                         <p className="mt-2 text-[12px] text-p-text-muted">
-                          Cobrar la clase usa la cuenta financiera canónica. No modifica créditos ni asistencia.
+                          Cobra solo esta clase. No toca el pack ni la asistencia.
                         </p>
                       )}
                     </div>
@@ -3003,9 +3552,9 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
                 {resolveCreditUsageReason(editingEnrollmentForCredit.attendanceStatus) === 'MANUAL_ADJUSTMENT' ? (
                   <div className="rounded-xl border border-p-border-strong bg-p-surface px-3 py-3 text-[12px] text-p-text-secondary">
-                    <p className="font-semibold text-p-text">Consumo manual</p>
+                    <p className="font-semibold text-p-text">Uso a mano</p>
                     <p className="mt-1">
-                      La asistencia todavía no define un motivo automático. Si consumís ahora, el uso del crédito se va a registrar como ajuste manual.
+                      Todavía no tiene presente. Si usás el pack ahora, queda anotado como uso a mano.
                     </p>
                   </div>
                 ) : null}
@@ -3018,7 +3567,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 ) : editingEnrollmentPasses.length === 0 ? (
                   <AcademyEmptyState
                     title="Sin packs activos"
-                    description="Este alumno no tiene un pack activo y compatible para consumir desde esta clase."
+                    description="Este alumno no tiene un pack que sirva para esta clase."
                     tone="info"
                   />
                 ) : (
@@ -3048,7 +3597,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                               />
                             </div>
                               <p className="mt-1 text-[12px] text-p-text-secondary">
-                                {classPass.remainingCredits}/{classPass.totalCredits} créditos disponibles
+                                Le quedan {classPass.remainingCredits} de {classPass.totalCredits} clases
                               </p>
                               <p className="mt-1 text-[12px] text-p-text-secondary">
                                 {classPass.priceAtPurchase != null
@@ -3101,10 +3650,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                                 className="inline-flex h-8 items-center justify-center rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 shadow-sm transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-700/50"
                               >
                                 {creditUsageBusyPassId === classPass.id
-                                  ? 'Consumiendo...'
+                                  ? 'Usando...'
                                   : availability.reason === 'MANUAL_ADJUSTMENT'
-                                    ? 'Consumir crédito manualmente'
-                                    : 'Consumir 1 crédito'}
+                                    ? 'Usar 1 clase a mano'
+                                    : 'Usar 1 clase'}
                               </button>
                             </div>
                           </div>
@@ -3133,8 +3682,79 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           </AdminDrawerSection>
           ) : null}
 
+          {showEnrollmentAccountTab && monthPassTarget ? (
+            <AdminDrawerSection title="Cuota del curso" className={drawerSectionCardClass}>
+              <div className="space-y-3">
+                <p className="text-[13px] text-p-text-secondary">
+                  Cobrale el mes entero. Cada vez que marcás presente se usa una clase del mes.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {monthChoices().map((choice) => (
+                    <ChoiceChip key={choice.value} active={monthPassMonth === choice.value} onClick={() => setMonthPassMonth(choice.value)}>
+                      {choice.label[0].toUpperCase() + choice.label.slice(1)}
+                    </ChoiceChip>
+                  ))}
+                </div>
+                {monthPassError ? <AdminInlineError>{monthPassError}</AdminInlineError> : null}
+                {monthPassLoading && !monthPassPreview ? (
+                  <p className="text-[12px] text-p-text-muted">Calculando...</p>
+                ) : monthPassPreview ? (
+                  monthPassPreview.existingPassId ? (
+                    <p className="text-[13px] text-p-text">
+                      {monthPassPreview.monthLabel[0].toUpperCase() + monthPassPreview.monthLabel.slice(1)} ya está cobrado. Lo ves en la pestaña Pack.
+                    </p>
+                  ) : monthPassPreview.classes === 0 ? (
+                    <p className="text-[13px] text-p-text-muted">No tiene clases para cobrar en {monthPassPreview.monthLabel}.</p>
+                  ) : monthPassPreview.coveredByPlan?.length && !monthPassChargeAnyway ? (
+                    <div className="space-y-2">
+                      <p className="text-[13px] text-p-text">
+                        {monthPassPreview.monthLabel[0].toUpperCase() + monthPassPreview.monthLabel.slice(1)} lo cubre su plan:{' '}
+                        <span className="font-semibold">
+                          {monthPassPreview.coveredByPlan
+                            .map((row) => `${row.packageName} (${row.remainingCredits === 1 ? 'le queda 1 clase' : `le quedan ${row.remainingCredits} clases`})`)
+                            .join(', ')}
+                        </span>
+                        . Al marcar presente se usa solo.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setMonthPassChargeAnyway(true)}
+                        className="text-[12px] font-semibold text-p-text-muted underline-offset-2 hover:text-p-text hover:underline"
+                      >
+                        Cobrar la cuota igual
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-[13px] text-p-text">
+                        {monthPassPreview.classes === 1 ? '1 clase' : `${monthPassPreview.classes} clases`}
+                        {monthPassPreview.total != null
+                          ? ` · ${formatCurrency(monthPassPreview.total)}`
+                          : ' · el curso no tiene precio'}
+                        {monthPassPreview.settled > 0 ? (
+                          <span className="text-p-text-muted">
+                            {' '}
+                            ({monthPassPreview.settled === 1 ? '1 ya estaba pagada' : `${monthPassPreview.settled} ya estaban pagadas`})
+                          </span>
+                        ) : null}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={monthPassBusy}
+                        onClick={() => void chargeCourseMonth()}
+                        className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
+                      >
+                        {monthPassBusy ? 'Cobrando...' : `Cobrar ${monthPassPreview.monthLabel}`}
+                      </button>
+                    </div>
+                  )
+                ) : null}
+              </div>
+            </AdminDrawerSection>
+          ) : null}
+
           {showEnrollmentAccountTab ? (
-            <AdminDrawerSection title="Cuenta" className={drawerSectionCardClass}>
+            <AdminDrawerSection title={monthPassTarget ? 'Solo esta clase' : 'Cuenta'} className={drawerSectionCardClass}>
               {!editingEnrollment ? (
                 <div className={helperCardClass}>
                   <p className="font-semibold text-p-text">Guardá primero la inscripción</p>
@@ -3146,7 +3766,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 <div className="space-y-4">
                   <div className="grid gap-3 md:grid-cols-3">
                     <SummaryBlock label="Estado de pago" value={paymentStatusLabel(editingEnrollment.paymentStatus)} />
-                    <SummaryBlock label="Estado financiero" value={editingEnrollmentAccountBadgeLabel} />
+                    <SummaryBlock label="Cobro" value={editingEnrollmentAccountBadgeLabel} />
                     <SummaryBlock
                       label="Precio de la clase"
                       value={
@@ -3178,18 +3798,18 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                             : 'La inscripción no tiene precio cargado para abrir cuenta.'}
                         </p>
                         {editingEnrollmentAccountLoading ? (
-                          <p className="mt-2 text-[12px] text-p-text-muted">Cargando estado financiero...</p>
+                          <p className="mt-2 text-[12px] text-p-text-muted">Cargando cobro...</p>
                         ) : editingEnrollmentAccountError ? (
                           <p className="mt-2 text-[12px] text-[var(--error-fg)]">{editingEnrollmentAccountError}</p>
                         ) : editingEnrollmentFinancial?.blockedReason ? (
                           <p className="mt-2 text-[12px] text-p-text-muted">{editingEnrollmentFinancial.blockedReason}</p>
                         ) : editingEnrollment.paymentStatus === 'COVERED_BY_CREDIT' ? (
                           <p className="mt-2 text-[12px] text-p-text-muted">
-                            Esta inscripción quedó cubierta por crédito. No se abre una cuenta de cobro en esta fase.
+                            Esta clase ya está pagada con un pack.
                           </p>
                         ) : (
                           <p className="mt-2 text-[12px] text-p-text-muted">
-                            Cobrar la clase usa la cuenta financiera canónica. No modifica créditos ni asistencia.
+                            Cobra solo esta clase. No toca el pack ni la asistencia.
                           </p>
                         )}
                       </div>
@@ -3225,13 +3845,13 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               ) : (
                 <div className="space-y-4">
                   <div className="grid gap-3 md:grid-cols-3">
-                    <SummaryBlock label="Consumos" value={String(editingEnrollmentCreditUsages.length)} />
+                    <SummaryBlock label="Usos del pack" value={String(editingEnrollmentCreditUsages.length)} />
                     <SummaryBlock
                       label="Último motivo"
                       value={
                         editingEnrollmentCreditUsages[0]
                           ? creditUsageReasonLabel(editingEnrollmentCreditUsages[0].reason)
-                          : 'Sin consumos'
+                          : 'Sin usos'
                       }
                     />
                     <SummaryBlock
@@ -3246,7 +3866,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
 
                   {editingEnrollmentCreditUsages.length > 0 ? (
                     <div className="space-y-2">
-                      <p className="text-[12px] font-semibold text-p-text">Consumos registrados</p>
+                      <p className="text-[12px] font-semibold text-p-text">Usos del pack</p>
                       <div className="space-y-2">
                         {editingEnrollmentCreditUsages.map((usage) => (
                           <div key={usage.id} className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
@@ -3255,7 +3875,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                                 {usage.classPass?.packageName || 'Pack sin referencia'}
                               </p>
                               <span className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2.5 py-1 text-[11px] font-semibold text-p-text-secondary">
-                                {usage.creditsUsed} crédito{usage.creditsUsed === 1 ? '' : 's'}
+                                {usage.creditsUsed} clase{usage.creditsUsed === 1 ? '' : 's'}
                               </span>
                             </div>
                             <p className="mt-1 text-[12px] text-p-text-secondary">
@@ -3268,8 +3888,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                     </div>
                   ) : (
                     <AcademyEmptyState
-                      title="Sin consumos registrados"
-                      description="Todavía no hay créditos aplicados a esta inscripción."
+                      title="Todavía no se usó"
+                      description="Esta clase no se pagó con ningún pack."
                       tone="info"
                     />
                   )}
@@ -3342,7 +3962,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         open={classPassDrawerOpen}
         onClose={closeClassPassDrawer}
         title="Asignar pack"
-        subtitle="Creá un pack de créditos para este alumno sin registrar cobro ni tocar el estado de pago de la inscripción."
+        subtitle="Un pack de clases para este alumno. Se cobra aparte."
         size="md"
         footer={
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -3418,37 +4038,133 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       />
 
       <AdminAppModal
+        show={Boolean(seriesRequestsModal)}
+        onClose={() => {
+          if (!seriesRequestBusyId) setSeriesRequestsModal(null);
+        }}
+        title={seriesRequestsModal?.seriesId ? 'Pedidos para sumarse al curso' : 'Pedidos para sumarse a cursos'}
+        message={
+          visibleSeriesRequests.length > 0 ? (
+            <div className="space-y-2">
+              <p>Lo pidieron desde la app. Al aceptar, quedan anotados en las clases que vienen.</p>
+              <ul className="space-y-2">
+                {visibleSeriesRequests.map((member) => (
+                  <li
+                    key={member.memberId}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-p-border bg-p-surface-2 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-semibold text-p-text">{member.studentName}</p>
+                      <p className="text-[12px] text-p-text-muted">
+                        {seriesRequestsModal?.seriesId ? null : <>{member.seriesLabel}</>}
+                        {member.studentPhone ? <>{seriesRequestsModal?.seriesId ? '' : ' · '}{member.studentPhone}</> : null}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-1.5">
+                      <button
+                        type="button"
+                        disabled={Boolean(seriesRequestBusyId)}
+                        onClick={() => void answerSeriesRequest(member, false)}
+                        className="h-8 rounded-lg px-2 text-[12px] font-semibold text-[var(--error-fg)] transition hover:underline underline-offset-2 disabled:opacity-60"
+                      >
+                        Rechazar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={Boolean(seriesRequestBusyId)}
+                        onClick={() => void answerSeriesRequest(member, true)}
+                        className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
+                      >
+                        {seriesRequestBusyId === member.memberId ? 'Un momento...' : 'Aceptar'}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p>No hay pedidos pendientes.</p>
+          )
+        }
+        confirmText="Listo"
+        onConfirm={() => setSeriesRequestsModal(null)}
+      />
+
+      <AdminAppModal
+        show={Boolean(seriesEndConfirm)}
+        onClose={() => {
+          if (!seriesBusy) setSeriesEndConfirm(null);
+        }}
+        title="¿Terminar este curso?"
+        message={
+          seriesEndConfirm?.series ? (
+            <p>
+              Se sacan las clases que vienen ({weekdaysLabel(seriesEndConfirm.series.weekdays)} {seriesEndConfirm.series.startTime}) y
+              la cancha queda libre. Las clases pasadas y las que tienen pagos o asistencia quedan como están.
+            </p>
+          ) : null
+        }
+        cancelText="No, volver"
+        confirmText={seriesBusy ? 'Terminando...' : 'Sí, terminar curso'}
+        confirmDisabled={seriesBusy}
+        isWarning
+        onConfirm={() => {
+          if (seriesEndConfirm) void endSeries(seriesEndConfirm);
+        }}
+      />
+
+      <AdminAppModal
+        show={Boolean(enrollmentRemoveConfirm)}
+        onClose={() => {
+          if (!seriesBusy) setEnrollmentRemoveConfirm(null);
+        }}
+        onCancel={() => {
+          const target = enrollmentRemoveConfirm;
+          if (!target || seriesBusy) return;
+          setEnrollmentRemoveConfirm(null);
+          void cancelEnrollment(target);
+        }}
+        title={`¿Sacar a ${enrollmentRemoveConfirm?.snapshotName || 'este alumno'}?`}
+        message={<p>Está anotado al curso. Podés sacarlo solo de esta clase o de todas las que vienen.</p>}
+        cancelText="Solo esta clase"
+        confirmText={seriesBusy ? 'Sacando...' : 'Sacar del curso'}
+        confirmDisabled={seriesBusy}
+        isWarning
+        onConfirm={() => {
+          if (enrollmentRemoveConfirm) void removeEnrollmentFromSeries(enrollmentRemoveConfirm);
+        }}
+      />
+
+      <AdminAppModal
         show={Boolean(creditUsageConfirmState)}
         onClose={() => {
           if (!creditUsageBusyPassId) setCreditUsageConfirmState(null);
         }}
         title={
           creditUsageConfirmState?.reason === 'MANUAL_ADJUSTMENT'
-            ? 'Confirmar consumo manual de crédito'
-            : 'Confirmar consumo de crédito'
+            ? '¿Usar 1 clase del pack a mano?'
+            : '¿Pagar esta clase con el pack?'
         }
         message={
           creditUsageConfirmState ? (
             <div className="space-y-3">
               <p>
-                Vas a consumir <strong>1 crédito</strong> del pack para cubrir esta inscripción.
-                Esto <strong>no registra un pago</strong> ni cambia la asistencia.
+                Se usa <strong>1 clase</strong> del pack para pagar esta clase. No cambia la asistencia.
               </p>
               {creditUsageConfirmState.reason === 'MANUAL_ADJUSTMENT' ? (
                 <p className="rounded-xl border border-p-border-strong bg-p-surface px-3 py-3 text-[12px] text-p-text-secondary">
-                  La asistencia todavía no define un motivo automático. Este consumo se va a registrar como
-                  <strong> ajuste manual</strong>.
+                  Todavía no tiene presente: queda anotado como <strong>uso a mano</strong>.
                 </p>
               ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <SummaryBlock label="Alumno" value={creditUsageConfirmState.enrollment.snapshotName} />
                 <SummaryBlock label="Pack" value={creditUsageConfirmState.classPass.packageName} />
                 <SummaryBlock
-                  label="Créditos actuales"
+                  label="Le quedan"
                   value={`${creditUsageConfirmState.classPass.remainingCredits}/${creditUsageConfirmState.classPass.totalCredits}`}
                 />
                 <SummaryBlock
-                  label="Restantes estimados"
+                  label="Después le quedan"
                   value={String(Math.max(0, creditUsageConfirmState.classPass.remainingCredits - 1))}
                 />
                 <SummaryBlock label="Motivo" value={creditUsageReasonLabel(creditUsageConfirmState.reason)} />
@@ -3463,10 +4179,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         cancelText="Cancelar"
         confirmText={
           creditUsageBusyPassId
-            ? 'Consumiendo...'
+            ? 'Usando...'
             : creditUsageConfirmState?.reason === 'MANUAL_ADJUSTMENT'
-              ? 'Consumir manualmente'
-              : 'Consumir crédito'
+              ? 'Usar a mano'
+              : 'Usar 1 clase'
         }
         confirmDisabled={Boolean(creditUsageBusyPassId)}
         onConfirm={() => {
@@ -3701,7 +4417,7 @@ function ClassSessionDrawerContent({
   quickCreditBusyEnrollmentId: string | null;
   onQuickSetAttendance: (row: AdminClassEnrollment, nextStatus: AdminClassAttendanceStatus) => void;
   onQuickUseCredit: (row: AdminClassEnrollment) => void;
-  getCreditSummary: (row: AdminClassEnrollment) => { label: string; muted: boolean };
+  getCreditSummary: (row: AdminClassEnrollment) => { label: string; muted: boolean; covers?: boolean };
   onAddEnrollment: () => void;
 }) {
   return (
@@ -3721,7 +4437,9 @@ function ClassSessionDrawerContent({
                 selectedClass.classType === 'GROUP' ? `Grupal, hasta ${selectedClass.capacity}` : 'Individual',
                 selectedClass.level,
                 selectedClass.pricePerStudent != null ? `${formatCurrency(selectedClass.pricePerStudent)} por alumno` : 'Sin precio',
-                selectedClass.visibility === 'PUBLIC' ? 'Se ve en la app' : 'Solo la anotás vos',
+                selectedClass.series
+                  ? `Curso: ${weekdaysLabel(selectedClass.series.weekdays)} ${selectedClass.series.startTime}${selectedClass.series.status === 'ENDED' ? ' (terminado)' : ''}`
+                  : null,
               ]
                 .filter(Boolean)
                 .join(' · ')}
@@ -3760,10 +4478,10 @@ function ClassSessionDrawerContent({
                     <span className="font-semibold text-[var(--error-fg)]">
                       {moneySummary.owing === 1 ? '1 debe' : `${moneySummary.owing} deben`} {formatCurrency(moneySummary.owedAmount)}
                     </span>
-                    {moneySummary.settled > 0 ? ` · ${moneySummary.settled} ya pagaron` : ''}
+                    {moneySummary.settled > 0 ? ` · ${moneySummary.settled} al día` : ''}
                   </>
                 ) : moneySummary.settled > 0 ? (
-                  'Todos pagaron.'
+                  'Todos al día (pagaron o lo cubre un pack).'
                 ) : (
                   'Nadie debe nada.'
                 )}
@@ -3875,7 +4593,7 @@ function ClassEnrollmentListItem({
   onCancel,
 }: {
   enrollment: AdminClassEnrollment;
-  creditSummary: { label: string; muted: boolean };
+  creditSummary: { label: string; muted: boolean; covers?: boolean };
   busy: boolean;
   quickAttendanceBusy: boolean;
   quickCreditBusy: boolean;
@@ -3894,14 +4612,21 @@ function ClassEnrollmentListItem({
   const creditActionLabel = quickCreditBusy
     ? 'Preparando...'
     : creditAlreadyApplied
-      ? 'Crédito aplicado'
+      ? 'Pagada con pack'
       : 'Usar crédito';
 
   const cancelled = enrollment.enrollmentStatus === 'CANCELLED';
   const attended = enrollment.attendanceStatus === 'ATTENDED';
   const owedAmount = Math.max(0, Number(enrollment.priceAtEnrollment || 0) - Number(enrollment.paidAmount || 0));
+  // Tiene un pack (del curso o de su plan) que se usa solo al marcar presente: no es deuda.
+  const coveredByPass =
+    !cancelled &&
+    enrollment.paymentStatus === 'UNPAID' &&
+    !Number(enrollment.paidAmount || 0) &&
+    Boolean(creditSummary.covers);
   const owes =
     !cancelled &&
+    !coveredByPass &&
     enrollment.paymentStatus !== 'PAID' &&
     enrollment.paymentStatus !== 'COVERED_BY_CREDIT' &&
     enrollment.paymentStatus !== 'REFUNDED' &&
@@ -3913,9 +4638,13 @@ function ClassEnrollmentListItem({
         ? 'Pagó'
         : enrollment.paymentStatus === 'REFUNDED'
           ? 'Se le devolvió'
-          : owes
-            ? `Debe ${formatCurrency(owedAmount)}`
-            : 'Sin cargo';
+          : coveredByPass
+            ? attended
+              ? 'Lo cubre el pack'
+              : 'Lo cubre el pack al marcar presente'
+            : owes
+              ? `Debe ${formatCurrency(owedAmount)}`
+              : 'Sin cargo';
   const showCreditHint = !creditSummary.muted && !creditAlreadyApplied && enrollment.paymentStatus !== 'PAID';
 
   return (

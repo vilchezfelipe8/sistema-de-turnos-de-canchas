@@ -33,7 +33,7 @@ export function academyPaymentLabel(status: string) {
     case 'REFUNDED':
       return 'Devuelto';
     case 'COVERED_BY_CREDIT':
-      return 'Cubierto con crédito';
+      return 'Pagada con pack';
     default:
       return status;
   }
@@ -123,7 +123,7 @@ export function academyPassStatusLabel(status: string) {
     case 'EXPIRED':
       return 'Vencido';
     case 'DEPLETED':
-      return 'Sin créditos';
+      return 'Sin clases';
     case 'CANCELLED':
       return 'Cancelado';
     default:
@@ -261,7 +261,7 @@ export function AcademyModuleHeader({
 }) {
   const meta = [
     'Operación diaria simple',
-    'Créditos y pagos separados',
+    'Presente usa el pack solo',
     'Cobro siempre por Cuentas',
   ];
 

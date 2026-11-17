@@ -6,6 +6,7 @@ import { normalizeOptionalString } from './academyAdminUtils';
 import { getDerivedPaymentStatus } from '../../domain/bookingDomain';
 import { AccountService } from '../AccountService';
 import { mapAccountDto } from '../../dto/financialDto';
+import { ClassCreditUsageAdminService } from './ClassCreditUsageAdminService';
 
 type CreateClassEnrollmentInput = {
   studentClientId: string;
@@ -28,6 +29,8 @@ type ClassEnrollmentSummary = {
   studentClientId: string;
   studentUserId: number | null;
   billingResponsibleClientId: string | null;
+  /** Anotado por estar en el curso. Null = anotado solo a esta clase. */
+  seriesMemberId: string | null;
   snapshotName: string;
   snapshotEmail: string | null;
   snapshotPhone: string | null;
@@ -67,6 +70,7 @@ type ClassEnrollmentAccountPayload = {
 export class ClassEnrollmentAdminService {
   private readonly validation = new AcademyAdminValidationService();
   private readonly accountService = new AccountService();
+  private readonly creditUsageService = new ClassCreditUsageAdminService();
 
   private buildAccountBlockedReason(row: {
     enrollmentStatus: string;
@@ -156,6 +160,7 @@ export class ClassEnrollmentAdminService {
       studentClientId: String(row.studentClientId),
       studentUserId: Number.isFinite(Number(row.studentUserId)) ? Number(row.studentUserId) : null,
       billingResponsibleClientId: row.billingResponsibleClientId ? String(row.billingResponsibleClientId) : null,
+      seriesMemberId: row.seriesMemberId ? String(row.seriesMemberId) : null,
       snapshotName: String(row.snapshotName || '').trim(),
       snapshotEmail: normalizeOptionalString(row.snapshotEmail),
       snapshotPhone: normalizeOptionalString(row.snapshotPhone),
@@ -479,7 +484,8 @@ export class ClassEnrollmentAdminService {
       | 'NO_SHOW'
       | 'CANCELLED_ON_TIME'
       | 'CANCELLED_LATE',
-    attendedAt?: string | null
+    attendedAt?: string | null,
+    actorUserId?: number
   ) {
     const existing = await prisma.classEnrollment.findFirst({
       where: {
@@ -487,7 +493,7 @@ export class ClassEnrollmentAdminService {
         classSessionId: String(classSessionId),
         clubId,
       },
-      select: { id: true, enrollmentStatus: true, attendedAt: true },
+      select: { id: true, enrollmentStatus: true, attendedAt: true, attendanceStatus: true },
     });
     if (!existing) {
       throw notFound('Inscripción no encontrada.', ErrorCodes.CLASS_ENROLLMENT_NOT_FOUND);
@@ -518,21 +524,37 @@ export class ClassEnrollmentAdminService {
           : existing.attendedAt || new Date()
         : null;
 
-    const updated = await prisma.classEnrollment.update({
+    const include = {
+      studentClient: { select: { id: true, name: true } },
+      studentUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+      billingResponsibleClient: { select: { id: true, name: true } },
+      createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+    } as const;
+
+    let updated = await prisma.classEnrollment.update({
       where: { id: String(enrollmentId) },
       data: {
         attendanceStatus: attendanceStatus as any,
         attendedAt: resolvedAttendedAt,
       },
-      include: {
-        studentClient: { select: { id: true, name: true } },
-        studentUser: { select: { id: true, email: true, firstName: true, lastName: true } },
-        billingResponsibleClient: { select: { id: true, name: true } },
-        createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
-      },
+      include,
     });
 
-    return this.mapRow(updated);
+    // Presente usa 1 clase del pack; sacar el presente la devuelve.
+    const wasAttended = existing.attendanceStatus === 'ATTENDED';
+    const isAttended = attendanceStatus === 'ATTENDED';
+    let creditApplied: Awaited<ReturnType<ClassCreditUsageAdminService['applyAttendanceCredit']>> = null;
+    let creditReturned: Awaited<ReturnType<ClassCreditUsageAdminService['revertAttendanceCredit']>> = null;
+    if (isAttended && !wasAttended && actorUserId) {
+      creditApplied = await this.creditUsageService.applyAttendanceCredit(clubId, String(enrollmentId), actorUserId);
+    } else if (wasAttended && !isAttended) {
+      creditReturned = await this.creditUsageService.revertAttendanceCredit(clubId, String(enrollmentId));
+    }
+    if (creditApplied || creditReturned) {
+      updated = await prisma.classEnrollment.findFirstOrThrow({ where: { id: String(enrollmentId), clubId }, include });
+    }
+
+    return { ...this.mapRow(updated), creditApplied, creditReturned };
   }
 
   async getAccount(clubId: number, enrollmentId: string): Promise<ClassEnrollmentAccountPayload> {

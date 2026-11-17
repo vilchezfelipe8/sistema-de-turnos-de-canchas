@@ -67,6 +67,44 @@ export type ClubFavorite = {
   club: Club;
 };
 
+export type ClubCourse = {
+  id: string;
+  activity: string | null;
+  teacher: string | null;
+  weekdays: number[];
+  weekdaysLabel: string;
+  startTime: string;
+  durationMinutes: number;
+  level: string | null;
+  description: string | null;
+  pricePerClass: number | null;
+  spotsLeft: number;
+  requiresApproval: boolean;
+  /** Se paga por Mercado Pago al anotarse. */
+  requiresPayment: boolean;
+  /** Lo que se paga al anotarse: las clases que quedan del mes. */
+  signupPrice: { month: string; monthLabel: string; classes: number; pricePerClass: number; total: number } | null;
+  /** Estado del jugador logueado en el curso. AWAITING_PAYMENT: tiene el lugar guardado mientras paga. */
+  myStatus: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT' | null;
+};
+
+/** Curso del jugador (en cualquiera de sus clubes), con las próximas clases. */
+export type MyCourse = {
+  id: string;
+  status: 'ACTIVE' | 'PENDING' | 'AWAITING_PAYMENT';
+  clubName: string;
+  clubSlug: string;
+  activity: string | null;
+  teacher: string | null;
+  court: string | null;
+  weekdaysLabel: string;
+  startTime: string;
+  durationMinutes: number;
+  level: string | null;
+  canLeave: boolean;
+  nextClasses: string[];
+};
+
 export class ClubService {
   static async getClubById(id: number): Promise<Club> {
     const response = await fetch(`${apiBase()}/clubs/${id}`);
@@ -176,5 +214,44 @@ export class ClubService {
       throw new Error(error.error || 'No se pudo quitar favorito');
     }
     return response.json();
+  }
+
+  static async getClubCourses(slug: string): Promise<ClubCourse[]> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/courses`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudieron cargar los cursos');
+    }
+    return res.json();
+  }
+
+  static async getMyCourses(): Promise<MyCourse[]> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/courses/me`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudieron cargar tus cursos');
+    }
+    return res.json();
+  }
+
+  static async joinClubCourse(
+    slug: string,
+    id: string
+  ): Promise<{ status: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT'; enrolled: number; initPoint: string | null }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/courses/${id}/join`, { method: 'POST' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo anotarte');
+    }
+    return res.json();
+  }
+
+  static async leaveClubCourse(slug: string, id: string): Promise<{ kept: number }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/courses/${id}/join`, { method: 'DELETE' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo bajarte del curso');
+    }
+    return res.json();
   }
 }

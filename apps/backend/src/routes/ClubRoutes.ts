@@ -10,10 +10,12 @@ import { requirePiqueTeam, requireTenantRole } from '../middleware/RoleMiddlewar
 import { verifyClubAccessById } from '../middleware/ClubMiddleware';
 import { PlayerSlotController } from '../controllers/PlayerSlotController';
 import { BookingReleaseController } from '../controllers/BookingReleaseController';
+import { ClubCoursesController } from '../controllers/ClubCoursesController';
 
 const router = Router();
 const playerSlotController = new PlayerSlotController();
 const bookingReleaseController = new BookingReleaseController();
+const clubCoursesController = new ClubCoursesController();
 
 const clubRepository = new ClubRepository();
 const activityRepository = new ActivityTypeRepository();
@@ -27,7 +29,11 @@ router.get('/', clubController.getAllClubs);
 router.get('/slug/:slug', clubController.getClubBySlug);
 router.get('/slug/:slug/activity-formats', playerSlotController.listPublicFormats);
 router.get('/slug/:slug/booking-window', optionalAuthMiddleware, bookingReleaseController.getPublicWindow);
+router.get('/slug/:slug/courses', optionalAuthMiddleware, clubCoursesController.list);
+router.post('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesController.join);
+router.delete('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesController.leave);
 router.get('/favorites/me', authMiddleware, clubFavoriteController.listMyFavorites);
+router.get('/courses/me', authMiddleware, clubCoursesController.mine);
 router.get('/:id', clubController.getClubById);
 router.post('/:id/favorite', authMiddleware, clubFavoriteController.markFavorite);
 router.delete('/:id/favorite', authMiddleware, clubFavoriteController.unmarkFavorite);

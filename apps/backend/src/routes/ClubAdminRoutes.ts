@@ -28,6 +28,7 @@ import { MembershipAdminController } from '../controllers/MembershipAdminControl
 import { TeacherAdminController } from '../controllers/TeacherAdminController';
 import { ClientRelationshipAdminController } from '../controllers/ClientRelationshipAdminController';
 import { ClassSessionAdminController } from '../controllers/ClassSessionAdminController';
+import { ClassSeriesAdminController } from '../controllers/ClassSeriesAdminController';
 import { ClassEnrollmentAdminController } from '../controllers/ClassEnrollmentAdminController';
 import { ClassPassAdminController } from '../controllers/ClassPassAdminController';
 import { ClassCreditUsageAdminController } from '../controllers/ClassCreditUsageAdminController';
@@ -82,6 +83,7 @@ const membershipAdminController = new MembershipAdminController();
 const teacherAdminController = new TeacherAdminController();
 const clientRelationshipAdminController = new ClientRelationshipAdminController();
 const classSessionAdminController = new ClassSessionAdminController();
+const classSeriesAdminController = new ClassSeriesAdminController();
 const classEnrollmentAdminController = new ClassEnrollmentAdminController();
 const classPassAdminController = new ClassPassAdminController();
 const classCreditUsageAdminController = new ClassCreditUsageAdminController();
@@ -635,6 +637,85 @@ router.delete('/:slug/admin/client-relationships/:id',
     verifyClubAccess,
     requireTenantRole('ADMIN'),
     clientRelationshipAdminController.remove
+);
+
+// Cursos: clases con días fijos que generan las clases de las próximas semanas.
+router.get('/:slug/admin/class-series',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.list
+);
+
+// Pedidos de lugar en cursos que llegaron desde la app.
+router.get('/:slug/admin/class-series-requests',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.listRequests
+);
+
+router.get('/:slug/admin/class-series/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.getById
+);
+
+router.post('/:slug/admin/class-series',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    classSeriesAdminController.create
+);
+
+router.put('/:slug/admin/class-series/:id',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    classSeriesAdminController.update
+);
+
+router.post('/:slug/admin/class-series/:id/end',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole('ADMIN'),
+    classSeriesAdminController.end
+);
+
+router.post('/:slug/admin/class-series/:id/members',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.addMember
+);
+
+router.delete('/:slug/admin/class-series/:id/members/:memberId',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.removeMember
+);
+
+router.post('/:slug/admin/class-series/:id/members/:memberId/approve',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.approveMember
+);
+
+router.post('/:slug/admin/class-series/:id/members/:memberId/reject',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.rejectMember
+);
+
+router.post('/:slug/admin/class-series/:id/members/:memberId/month-pass',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    classSeriesAdminController.monthPass
 );
 
 router.get('/:slug/admin/class-sessions',
@@ -1256,6 +1337,13 @@ router.post('/:slug/admin/subscriptions',
     verifyClubAccess,
     requireTenantRole(['ADMIN', 'STAFF']),
     subscriptionAdminController.sell
+);
+
+router.post('/:slug/admin/subscriptions/:id/pause',
+    authMiddleware,
+    verifyClubAccess,
+    requireTenantRole(['ADMIN', 'STAFF']),
+    subscriptionAdminController.pause
 );
 
 router.post('/:slug/admin/subscriptions/:id/cancel',

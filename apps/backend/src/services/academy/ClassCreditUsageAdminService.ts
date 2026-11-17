@@ -119,6 +119,122 @@ export class ClassCreditUsageAdminService {
     return 'ACTIVE' as const;
   }
 
+  /**
+   * Presente → usa sola 1 clase del pack del alumno.
+   *
+   * Solo cuando la clase no está pagada ni tiene cuenta con movimientos. Si el alumno tiene
+   * varios packs que sirven, usa el que vence primero. Si no hay ninguno, no pasa nada: la
+   * clase queda para cobrar como siempre.
+   */
+  async applyAttendanceCredit(clubId: number, classEnrollmentId: string, actorUserId: number) {
+    const enrollment = await prisma.classEnrollment.findFirst({
+      where: { id: String(classEnrollmentId), clubId },
+      select: {
+        id: true,
+        studentClientId: true,
+        enrollmentStatus: true,
+        paymentStatus: true,
+        classSession: { select: { teacherId: true, activityTypeId: true, classType: true, startsAt: true } },
+        creditUsages: { select: { id: true }, take: 1 },
+      },
+    });
+    if (!enrollment || enrollment.enrollmentStatus !== 'ENROLLED') return null;
+    if (enrollment.paymentStatus !== 'UNPAID' || enrollment.creditUsages.length) return null;
+
+    const account = await prisma.account.findFirst({
+      where: { clubId, sourceType: 'CLASS_ENROLLMENT', sourceId: String(enrollment.id) },
+      select: { totalAmount: true, paidAmount: true },
+    });
+    if (account && (Number(account.totalAmount || 0) > 0.009 || Number(account.paidAmount || 0) > 0.009)) return null;
+
+    const session = enrollment.classSession;
+    const candidates = await prisma.classPass.findMany({
+      where: {
+        clubId,
+        beneficiaryClientId: enrollment.studentClientId,
+        status: 'ACTIVE',
+        remainingCredits: { gt: 0 },
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          // Packs de un mes o de un período de plan: no se gastan en clases de antes de que empiecen.
+          { OR: [{ validFrom: null }, { validFrom: { lte: session.startsAt } }] },
+          // Clases de un plan: solo mientras el plan esté al día (en mora quedan congeladas; un plazo fijo recién terminado conserva su semana de gracia).
+          { OR: [{ subscriptionId: null }, { subscription: { status: { in: ['ACTIVE', 'EXPIRED'] } } }] },
+          { OR: [{ activityTypeId: null }, ...(session.activityTypeId ? [{ activityTypeId: session.activityTypeId }] : [])] },
+          { OR: [{ classType: null }, { classType: session.classType }] },
+          { OR: [{ teacherId: null }, { teacherId: session.teacherId }] },
+        ],
+      },
+      orderBy: [{ expiresAt: { sort: 'asc', nulls: 'last' } }, { purchasedAt: 'asc' }],
+      select: { id: true, validFrom: true },
+    });
+    // Primero el pack del mes de la clase (el de validFrom más reciente que ya empezó): las clases
+    // que sobraron del mes anterior quedan para la semana de gracia, no se comen las del mes nuevo.
+    // Después, los packs comprados sin mes, el que vence antes primero.
+    const ordered = candidates
+      .map((row, index) => ({ row, index }))
+      .sort((a, b) => {
+        const av = a.row.validFrom ? a.row.validFrom.getTime() : null;
+        const bv = b.row.validFrom ? b.row.validFrom.getTime() : null;
+        if (av !== null && bv !== null && av !== bv) return bv - av;
+        if (av !== null && bv === null) return -1;
+        if (av === null && bv !== null) return 1;
+        return a.index - b.index;
+      })
+      .map((item) => item.row);
+
+    for (const candidate of ordered) {
+      try {
+        const usage = await this.create(clubId, candidate.id, actorUserId, {
+          classEnrollmentId: String(enrollment.id),
+          creditsUsed: 1,
+          reason: 'ATTENDANCE',
+        });
+        return {
+          classPassId: usage.classPassId,
+          packageName: usage.classPass?.packageName || '',
+          remainingCredits: Number(usage.classPass?.remainingCredits ?? 0),
+        };
+      } catch {
+        // Ese pack cambió entre la búsqueda y el uso: probamos con el siguiente.
+      }
+    }
+    return null;
+  }
+
+  /** Se desmarcó el presente: devuelve la clase que se había usado del pack por asistencia. */
+  async revertAttendanceCredit(clubId: number, classEnrollmentId: string) {
+    return prisma.$transaction(async (tx) => {
+      const usage = await tx.classCreditUsage.findFirst({
+        where: { clubId, classEnrollmentId: String(classEnrollmentId), reason: 'ATTENDANCE' },
+        select: { id: true, classPassId: true, creditsUsed: true },
+      });
+      if (!usage) return null;
+
+      await tx.classCreditUsage.delete({ where: { id: usage.id } });
+      const pass = await tx.classPass.update({
+        where: { id: usage.classPassId },
+        data: {
+          usedCredits: { decrement: usage.creditsUsed },
+          remainingCredits: { increment: usage.creditsUsed },
+        },
+        select: { id: true, status: true, packageName: true, remainingCredits: true },
+      });
+      if (pass.status === 'DEPLETED') {
+        await tx.classPass.update({ where: { id: pass.id }, data: { status: 'ACTIVE' } });
+      }
+      await tx.classEnrollment.updateMany({
+        where: { id: String(classEnrollmentId), clubId, paymentStatus: 'COVERED_BY_CREDIT' },
+        data: { paymentStatus: 'UNPAID' },
+      });
+      return {
+        classPassId: pass.id,
+        packageName: String(pass.packageName || '').trim(),
+        remainingCredits: Number(pass.remainingCredits),
+      };
+    });
+  }
+
   async listByClassPass(clubId: number, classPassId: string) {
     await this.validation.assertClassPassBelongsToClub(clubId, classPassId);
     const rows = await prisma.classCreditUsage.findMany({
@@ -197,8 +313,10 @@ export class ClassCreditUsageAdminService {
               usedCredits: true,
               remainingCredits: true,
               expiresAt: true,
+              validFrom: true,
               transferable: true,
               status: true,
+              subscription: { select: { status: true } },
             },
           }),
           tx.classEnrollment.findFirst({
@@ -217,6 +335,7 @@ export class ClassCreditUsageAdminService {
                   teacherId: true,
                   activityTypeId: true,
                   classType: true,
+                  startsAt: true,
                 },
               },
             },
@@ -238,6 +357,17 @@ export class ClassCreditUsageAdminService {
         });
         if (effectiveStatus !== 'ACTIVE') {
           throw badRequest('El pack no está disponible para consumir créditos.', ErrorCodes.CLASS_PASS_INVALID_STATUS);
+        }
+
+        if (classPass.subscription && !['ACTIVE', 'EXPIRED'].includes(String(classPass.subscription.status))) {
+          throw conflict(
+            'El plan de este pack no está al día: sus clases quedan congeladas hasta que pague.',
+            ErrorCodes.CLASS_PASS_INVALID_STATUS
+          );
+        }
+
+        if (classPass.validFrom && classEnrollment.classSession.startsAt < classPass.validFrom) {
+          throw badRequest('Este pack todavía no empezó a valer para la fecha de esta clase.', ErrorCodes.CLASS_PASS_INVALID_STATUS);
         }
 
         if (Number(classPass.totalCredits) !== Number(classPass.usedCredits) + Number(classPass.remainingCredits)) {

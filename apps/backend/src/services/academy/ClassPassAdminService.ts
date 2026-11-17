@@ -48,6 +48,9 @@ type ClassPassSummary = {
   usedCredits: number;
   remainingCredits: number;
   expiresAt: string | null;
+  validFrom: string | null;
+  subscriptionId: string | null;
+  onHold: boolean;
   activityTypeId: number | null;
   classType: string | null;
   teacherId: string | null;
@@ -199,6 +202,10 @@ export class ClassPassAdminService {
       usedCredits: Number(row.usedCredits),
       remainingCredits: Number(row.remainingCredits),
       expiresAt: row.expiresAt ? new Date(row.expiresAt).toISOString() : null,
+      validFrom: row.validFrom ? new Date(row.validFrom).toISOString() : null,
+      subscriptionId: row.subscriptionId ? String(row.subscriptionId) : null,
+      // Pack de un plan en mora (o cancelado/pausado): sus clases no se pueden usar.
+      onHold: Boolean(row.subscription && !['ACTIVE', 'EXPIRED'].includes(String(row.subscription.status))),
       activityTypeId: Number.isFinite(activityTypeId ?? Number.NaN) ? activityTypeId : null,
       classType: row.classType ? String(row.classType) : null,
       teacherId: row.teacherId ? String(row.teacherId) : null,
@@ -368,6 +375,7 @@ export class ClassPassAdminService {
         ownerUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         beneficiaryUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         activityType: { select: { id: true, name: true } },
+        subscription: { select: { status: true } },
         teacher: { select: { id: true, displayName: true, isActive: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
       },
@@ -392,6 +400,7 @@ export class ClassPassAdminService {
         ownerUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         beneficiaryUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         activityType: { select: { id: true, name: true } },
+        subscription: { select: { status: true } },
         teacher: { select: { id: true, displayName: true, isActive: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
       },
@@ -455,6 +464,7 @@ export class ClassPassAdminService {
         ownerUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         beneficiaryUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         activityType: { select: { id: true, name: true } },
+        subscription: { select: { status: true } },
         teacher: { select: { id: true, displayName: true, isActive: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
       },
@@ -532,6 +542,7 @@ export class ClassPassAdminService {
         ownerUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         beneficiaryUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         activityType: { select: { id: true, name: true } },
+        subscription: { select: { status: true } },
         teacher: { select: { id: true, displayName: true, isActive: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
       },
@@ -566,6 +577,7 @@ export class ClassPassAdminService {
           ownerUser: { select: { id: true, email: true, firstName: true, lastName: true } },
           beneficiaryUser: { select: { id: true, email: true, firstName: true, lastName: true } },
           activityType: { select: { id: true, name: true } },
+        subscription: { select: { status: true } },
           teacher: { select: { id: true, displayName: true, isActive: true } },
           createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         },
@@ -590,6 +602,7 @@ export class ClassPassAdminService {
         ownerUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         beneficiaryUser: { select: { id: true, email: true, firstName: true, lastName: true } },
         activityType: { select: { id: true, name: true } },
+        subscription: { select: { status: true } },
         teacher: { select: { id: true, displayName: true, isActive: true } },
         createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
       },

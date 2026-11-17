@@ -23,6 +23,7 @@ const planSchema = z.object({
   graceDays: z.number().int().min(0).max(60).optional(),
   pauseMaxDays: z.number().int().min(0).max(180).optional(),
   pauseMaxCount: z.number().int().min(0).max(12).optional(),
+  suspendMemberAfterDays: optionalInt(1, 365).optional(),
   grantsMemberCategoryId: z.string().trim().min(1).optional().nullable(),
   sortOrder: z.number().int().optional(),
   options: z
@@ -65,6 +66,12 @@ const cancelSchema = z.object({
 });
 
 const statusSchema = z.object({ isActive: z.boolean() });
+
+const pauseSchema = z.object({
+  startDate: dateKey.optional().nullable(),
+  endDate: dateKey,
+  reason: z.string().trim().max(500).optional().nullable(),
+});
 
 type ClubRequest = Request & { clubId?: number };
 
@@ -200,6 +207,24 @@ export class SubscriptionAdminController {
       return res.json(await subscriptionService.cancel(clubId, actorUserId, this.resolveId(req.params.id, 'Plan del cliente'), reason));
     } catch (error) {
       return sendAppError(res, error, 'No se pudo cancelar el plan.');
+    }
+  };
+
+  pause = async (req: ClubRequest, res: Response) => {
+    try {
+      const clubId = this.resolveClubId(req);
+      const actorUserId = this.resolveActorUserId(req);
+      const parsed = pauseSchema.safeParse(req.body ?? {});
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
+      return res.json(
+        await subscriptionService.pause(clubId, actorUserId, this.resolveId(req.params.id, 'Plan del cliente'), {
+          startDate: parsed.data.startDate || null,
+          endDate: parsed.data.endDate,
+          reason: parsed.data.reason ? sanitizeString(parsed.data.reason, 500) : null,
+        })
+      );
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo pausar el plan.');
     }
   };
 }

@@ -8,6 +8,8 @@ import { featureFlags } from './config/featureFlags';
 import { PendingBookingAutoCancelService } from './services/PendingBookingAutoCancelService';
 import { BookingReminderService } from './services/BookingReminderService';
 import { FiscalCertExpiryChecker } from './services/FiscalCertExpiryChecker';
+import { ClassSeriesAdminService } from './services/academy/ClassSeriesAdminService';
+import { subscriptionService } from './services/subscriptions/SubscriptionService';
 import { BookingService } from './services/BookingService';
 import { BookingRepository } from './repositories/BookingRepository';
 import { CourtRepository } from './repositories/CourtRepository';
@@ -214,6 +216,20 @@ const checkFiscalCertExpiry = async () => {
   }
 };
 
+const classSeriesService = new ClassSeriesAdminService();
+const CLASS_SERIES_EXTEND_INTERVAL_MS = 60 * 60 * 1000;
+
+// Cursos: mantiene generadas las clases de las próximas semanas.
+const extendClassSeries = async () => {
+  try {
+    await classSeriesService.extendAll();
+    metricsService.recordSchedulerRun('class_series_extend', 'success');
+  } catch (error) {
+    console.error('❌ Error generando clases de cursos:', error);
+    metricsService.recordSchedulerRun('class_series_extend', 'error');
+  }
+};
+
 const startScheduler = async () => {
   await completePastBookings();
   await processPendingBookingPolicies();
@@ -235,6 +251,35 @@ const startScheduler = async () => {
   setInterval(async () => {
     await checkFiscalCertExpiry();
   }, CERT_EXPIRY_CHECK_INTERVAL_MS);
+
+  await extendClassSeries();
+  setInterval(async () => {
+    await extendClassSeries();
+  }, CLASS_SERIES_EXTEND_INTERVAL_MS);
+
+  // Planes: renueva los que se renuevan solos, vence los de plazo fijo y marca la mora.
+  const runSubscriptionLifecycle = async () => {
+    try {
+      await subscriptionService.runLifecycle();
+      metricsService.recordSchedulerRun('subscription_lifecycle', 'success');
+    } catch (error) {
+      console.error('❌ Error en renovación de planes:', error);
+      metricsService.recordSchedulerRun('subscription_lifecycle', 'error');
+    }
+  };
+  await runSubscriptionLifecycle();
+  setInterval(runSubscriptionLifecycle, 60 * 60 * 1000);
+
+  // Cursos que se cobran al anotarse: suelta los lugares que no se pagaron a tiempo.
+  setInterval(async () => {
+    try {
+      await classSeriesService.releaseExpiredPaidSpots();
+      metricsService.recordSchedulerRun('class_series_release_unpaid', 'success');
+    } catch (error) {
+      console.error('❌ Error liberando lugares de cursos sin pagar:', error);
+      metricsService.recordSchedulerRun('class_series_release_unpaid', 'error');
+    }
+  }, 5 * 60 * 1000);
 
   console.log('⏰ Scheduler de reservas iniciado');
 };
