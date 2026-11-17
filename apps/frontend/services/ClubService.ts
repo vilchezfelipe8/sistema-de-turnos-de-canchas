@@ -69,6 +69,8 @@ export type ClubFavorite = {
 
 export type ClubCourse = {
   id: string;
+  /** Nombre que puso el club. Sin nombre se muestra la actividad. */
+  name: string | null;
   activity: string | null;
   teacher: string | null;
   weekdays: number[];
@@ -82,8 +84,21 @@ export type ClubCourse = {
   requiresApproval: boolean;
   /** Se paga por Mercado Pago al anotarse. */
   requiresPayment: boolean;
-  /** Lo que se paga al anotarse: las clases que quedan del mes. */
-  signupPrice: { month: string; monthLabel: string; classes: number; pricePerClass: number; total: number } | null;
+  startsOn: string;
+  endsOn: string | null;
+  /** Todavía no arrancó. */
+  startsLater: boolean;
+  /** Lo que se paga al anotarse: las clases que quedan del mes que no cubre su plan. */
+  signupPrice: {
+    month: string;
+    monthLabel: string;
+    classes: number;
+    coveredByPlan: number;
+    pricePerClass: number;
+    total: number;
+  } | null;
+  /** Clases del mes que le cubre su plan (con sesión iniciada). */
+  planCoverage: { covered: number; classes: number; full: boolean } | null;
   /** Estado del jugador logueado en el curso. AWAITING_PAYMENT: tiene el lugar guardado mientras paga. */
   myStatus: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT' | null;
 };
@@ -94,6 +109,7 @@ export type MyCourse = {
   status: 'ACTIVE' | 'PENDING' | 'AWAITING_PAYMENT';
   clubName: string;
   clubSlug: string;
+  name: string | null;
   activity: string | null;
   teacher: string | null;
   court: string | null;
@@ -269,7 +285,7 @@ export class ClubService {
   static async joinClubCourse(
     slug: string,
     id: string
-  ): Promise<{ status: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT'; enrolled: number; initPoint: string | null }> {
+  ): Promise<{ status: 'PENDING' | 'ACTIVE' | 'AWAITING_PAYMENT'; enrolled: number; initPoint: string | null; coveredByPlan?: boolean }> {
     const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/courses/${id}/join`, { method: 'POST' });
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));

@@ -13,6 +13,8 @@ type Props = {
   loginHref: string;
   /** Si no se pasa, usa el aviso general de la app. */
   onNotice?: (message: string, tone?: Tone) => void;
+  /** Avisa cuántos cursos hay (para mostrar el acceso arriba en la página del club). */
+  onCount?: (count: number) => void;
 };
 
 const defaultNotice = (message: string, tone: Tone = 'info') => {
@@ -23,10 +25,17 @@ const defaultNotice = (message: string, tone: Tone = 'info') => {
 const formatPrice = (value: number) =>
   new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value);
 
+const shortDay = (key: string) => `${key.slice(8, 10)}/${key.slice(5, 7)}`;
+const classesLabel = (count: number) => (count === 1 ? '1 clase' : `${count} clases`);
+
 /** Cursos que el club muestra en la app: el jugador se anota (o pide lugar) y se baja. */
-export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice = defaultNotice }: Props) {
+export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice = defaultNotice, onCount }: Props) {
   const [courses, setCourses] = useState<ClubCourse[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    onCount?.(courses.length);
+  }, [courses.length, onCount]);
 
   const load = useCallback(async () => {
     try {
@@ -72,7 +81,9 @@ export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice =
       onNotice(
         result.status === 'PENDING'
           ? 'Listo, le avisamos al club. Te confirman tu lugar.'
-          : 'Listo, estás anotado al curso.',
+          : result.coveredByPlan
+            ? 'Listo, estás anotado. Lo cubre tu plan.'
+            : 'Listo, estás anotado al curso.',
         'success'
       );
       await load();
@@ -106,26 +117,36 @@ export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice =
   if (courses.length === 0) return null;
 
   return (
-    <section className="cl-panel" aria-labelledby="club-courses-title">
+    <section className="cl-panel" id="cursos" aria-labelledby="club-courses-title" style={{ scrollMarginTop: 88 }}>
       <h2 id="club-courses-title" className="cl-panel-h">Cursos</h2>
       <div className="cl-reviews">
         {courses.map((course) => {
           const busy = busyId === course.id;
           const full = course.spotsLeft <= 0;
           const details = [
+            course.name ? course.activity : null,
             course.teacher ? `Con ${course.teacher}` : null,
             course.level,
+            `${course.durationMinutes} min`,
             course.pricePerClass != null ? `${formatPrice(course.pricePerClass)} la clase` : null,
           ].filter(Boolean);
+          const dates = [
+            course.startsLater ? `Empieza el ${shortDay(course.startsOn)}` : null,
+            course.endsOn ? `Hasta el ${shortDay(course.endsOn)}` : null,
+          ].filter(Boolean);
+          const coverage = course.planCoverage;
+          const paid = course.requiresPayment && course.signupPrice;
+          const paidByPlan = Boolean(paid && course.signupPrice!.classes === 0);
           return (
             <article key={course.id} className="cl-review-card">
               <div className="cl-review-head">
-                <span className="cl-review-name">{course.activity || 'Curso'}</span>
+                <span className="cl-review-name">{course.name || course.activity || 'Curso'}</span>
                 <span className="cl-course-when">
                   {course.weekdaysLabel} {course.startTime}
                 </span>
               </div>
               {details.length > 0 && <p className="cl-review-comment">{details.join(' · ')}</p>}
+              {dates.length > 0 && <p className="cl-course-dates">{dates.join(' · ')}</p>}
               {course.description && <p className="cl-review-comment cl-course-desc">{course.description}</p>}
 
               {course.myStatus === 'ACTIVE' ? (
@@ -166,23 +187,29 @@ export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice =
                 <>
                   <button type="button" className="cl-review-cta" disabled={busy} onClick={() => void join(course)}>
                     <BusyLabel busy={busy}>
-                      {course.requiresPayment && course.signupPrice
-                        ? `Anotarme y pagar ${formatPrice(course.signupPrice.total)}`
-                        : course.requiresApproval
+                      {paid && !paidByPlan
+                        ? `Anotarme y pagar ${formatPrice(course.signupPrice!.total)}`
+                        : course.requiresApproval && !paid
                           ? 'Pedir lugar'
                           : 'Anotarme'}
                     </BusyLabel>
                   </button>
-                  {course.requiresPayment && course.signupPrice && (
+                  {coverage?.full ? (
+                    <p className="cl-course-spots is-plan">Lo cubre tu plan.</p>
+                  ) : paid ? (
                     <p className="cl-course-spots">
-                      Pagás {course.signupPrice.monthLabel} con Mercado Pago:{' '}
-                      {course.signupPrice.classes === 1 ? '1 clase' : `${course.signupPrice.classes} clases`}.
+                      Pagás {course.signupPrice!.monthLabel} con Mercado Pago: {classesLabel(course.signupPrice!.classes)}.
+                      {course.signupPrice!.coveredByPlan > 0 ? ` Tu plan cubre ${classesLabel(course.signupPrice!.coveredByPlan)} más.` : ''}
                     </p>
-                  )}
+                  ) : coverage ? (
+                    <p className="cl-course-spots is-plan">
+                      Tu plan cubre {classesLabel(coverage.covered)} de {classesLabel(coverage.classes)} este mes.
+                    </p>
+                  ) : null}
                 </>
               )}
-              {!course.myStatus && !full && course.spotsLeft <= 3 && (
-                <p className="cl-course-spots">
+              {!course.myStatus && !full && (
+                <p className={`cl-course-spots${course.spotsLeft <= 3 ? ' is-few' : ''}`}>
                   {course.spotsLeft === 1 ? 'Queda 1 lugar' : `Quedan ${course.spotsLeft} lugares`}
                 </p>
               )}

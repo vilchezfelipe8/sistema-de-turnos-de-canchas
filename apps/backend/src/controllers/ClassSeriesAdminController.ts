@@ -29,6 +29,7 @@ const seriesBodySchema = z.object({
   durationMinutes: z.number().int().min(15).max(360),
   capacity: z.number().int().min(1).max(100),
   pricePerStudent: optionalMoney.optional(),
+  name: optionalText(80).optional(),
   level: optionalText(120).optional(),
   description: optionalText(1200).optional(),
   startsOn: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/),

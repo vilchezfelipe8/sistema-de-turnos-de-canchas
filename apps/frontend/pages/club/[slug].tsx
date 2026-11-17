@@ -18,7 +18,7 @@ import { getMyBookings } from '../../services/BookingService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { isAuthSessionInvalidatedError } from '../../utils/apiClient';
-import { MapPin, Clock, Phone, Instagram, Facebook, Globe, Share2, Trophy, Star, Heart, X, Navigation, SearchX } from 'lucide-react';
+import { MapPin, Clock, Phone, Instagram, Facebook, Globe, Share2, Trophy, Star, Heart, X, Navigation, SearchX, GraduationCap } from 'lucide-react';
 import ClubAppHome from '../../components/clubApp/ClubAppHome';
 import ClubInstallButton from '../../components/clubApp/ClubInstallButton';
 import { useClubApp } from '../../hooks/useClubApp';
@@ -198,6 +198,9 @@ const PAGE_CSS = `
   .cl-course-link { background:none; border:none; padding:6px 0; font-family:inherit; font-size:12px; font-weight:700; color:var(--text-secondary); text-decoration:underline; cursor:pointer; }
   .cl-course-link:disabled { opacity:.6; cursor:not-allowed; }
   .cl-course-spots { margin:8px 0 0; font-size:12px; font-weight:600; color:var(--text-muted); text-align:center; }
+  .cl-course-spots.is-few { color:var(--warning-fg, var(--text-secondary)); }
+  .cl-course-spots.is-plan { color:var(--accent-fg); }
+  .cl-course-dates { margin:4px 0 0; font-size:12px; font-weight:700; color:var(--accent-fg); }
   .cl-feedback { padding:10px 16px; border-radius:12px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); font-size:12px; font-weight:700; color:var(--accent-fg); margin-top:12px; }
   /* Contenido del modal de reseña (el modal en sí: pique.css .p-modal-*) */
   .cl-review-stars { display:flex; gap:8px; }
@@ -262,6 +265,8 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
   const [canReviewClub, setCanReviewClub] = useState(false);
   const [hasExistingClubReview, setHasExistingClubReview] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
+  // Cursos publicados: si hay, se muestra un acceso arriba (la sección queda abajo en la columna lateral).
+  const [courseCount, setCourseCount] = useState(0);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
@@ -636,6 +641,12 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
                     Cómo llegar
                   </a>
                 )}
+                {courseCount > 0 && (
+                  <a href="#cursos" className="cl-directions">
+                    <GraduationCap size={14} />
+                    {courseCount === 1 ? 'Ver el curso' : `Ver ${courseCount} cursos`}
+                  </a>
+                )}
               </div>
             </div>
 
@@ -723,6 +734,7 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
               loggedIn={Boolean(user?.id)}
               loginHref={`/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`}
               onNotice={showAppNotice}
+              onCount={setCourseCount}
             />
 
             {/* Reseñas: lo que opinan y, si podés, el acceso a dejar la tuya */}

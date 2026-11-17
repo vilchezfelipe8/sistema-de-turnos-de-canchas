@@ -916,6 +916,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [classWeekly, setClassWeekly] = useState(false);
   const [classWeekdays, setClassWeekdays] = useState<number[]>([]);
   const [classEndsOn, setClassEndsOn] = useState('');
+  const [classSeriesName, setClassSeriesName] = useState('');
   // Curso en la app: los jugadores lo ven en la página del club y se anotan solos.
   const [classVisibleInApp, setClassVisibleInApp] = useState(false);
   const [classRequiresApproval, setClassRequiresApproval] = useState(false);
@@ -1328,6 +1329,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     setClassWeekly(false);
     setClassWeekdays([]);
     setClassEndsOn('');
+    setClassSeriesName('');
     setClassVisibleInApp(false);
     setClassRequiresApproval(false);
     setClassRequiresPayment(false);
@@ -1411,6 +1413,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setClassWeekly(true);
         setClassWeekdays(series.weekdays);
         setClassEndsOn(series.endsOn || '');
+        setClassSeriesName(series.name || '');
         setClassVisibleInApp(series.visibility === 'PUBLIC');
         setClassRequiresApproval(Boolean(series.requiresApproval));
         setClassRequiresPayment(Boolean(series.requiresPayment));
@@ -1571,6 +1574,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       durationMinutes: durationFromForm(form),
       capacity: form.classType === 'INDIVIDUAL' ? 1 : Number(form.capacity),
       pricePerStudent: Number.isNaN(parsedPrice) ? null : parsedPrice,
+      name: normalizeOptionalText(classSeriesName),
       level: normalizeOptionalText(form.level),
       description: normalizeOptionalText(form.description),
       startsOn: form.startsAt.slice(0, 10),
@@ -2605,6 +2609,18 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   </ChoiceChip>
                 ))}
               </div>
+              <label className="block space-y-1">
+                <span className="text-[12px] text-p-text-muted">Nombre del curso (opcional)</span>
+                <input
+                  type="text"
+                  value={classSeriesName}
+                  maxLength={80}
+                  onChange={(event) => setClassSeriesName(event.target.value)}
+                  placeholder="Ej: Escuelita de menores"
+                  className={fieldInputClass}
+                />
+                {fieldErrors.name ? <span className="text-[12px] text-p-error">{fieldErrors.name}</span> : null}
+              </label>
               <label className="block space-y-1 sm:max-w-[200px]">
                 <span className="text-[12px] text-p-text-muted">Hasta (opcional)</span>
                 <input
