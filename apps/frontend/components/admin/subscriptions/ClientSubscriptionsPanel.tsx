@@ -495,13 +495,6 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
       <AdminModal
         open={endPauseTarget !== null}
         title={endPauseStarted ? 'Terminar la pausa hoy' : 'Anular la pausa'}
-        description={
-          endPauseTarget
-            ? endPauseStarted
-              ? `La pausa queda del ${formatShortDay(endPauseTarget.pause.startDate)} hasta ayer y el plan vuelve a estar activo hoy. Las cuotas, el fin del plan y las clases se adelantan los días que no usó.`
-              : `Se borra la pausa del ${formatShortDay(endPauseTarget.pause.startDate)} al ${formatShortDay(endPauseTarget.pause.endDate)}, las fechas vuelven a como estaban y la pausa no cuenta para el límite del plan.`
-            : undefined
-        }
         onClose={() => setEndPauseTarget(null)}
         footer={
           <div className="flex justify-end gap-2">
@@ -514,7 +507,16 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
           </div>
         }
       >
-        {endPauseError ? <AdminFeedbackBanner tone="error" compact>{endPauseError}</AdminFeedbackBanner> : <span />}
+        <div className="grid gap-3">
+          {endPauseError ? <AdminFeedbackBanner tone="error" compact>{endPauseError}</AdminFeedbackBanner> : null}
+          <p className="text-[13px] leading-relaxed text-p-text-secondary">
+            {endPauseTarget
+            ? endPauseStarted
+              ? `La pausa queda del ${formatShortDay(endPauseTarget.pause.startDate)} hasta ayer y el plan vuelve a estar activo hoy. Las cuotas, el fin del plan y las clases se adelantan los días que no usó.`
+              : `Se borra la pausa del ${formatShortDay(endPauseTarget.pause.startDate)} al ${formatShortDay(endPauseTarget.pause.endDate)}, las fechas vuelven a como estaban y la pausa no cuenta para el límite del plan.`
+            : undefined}
+          </p>
+        </div>
       </AdminModal>
 
       <AdminModal
