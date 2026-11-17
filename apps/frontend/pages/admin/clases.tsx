@@ -4478,10 +4478,10 @@ function ClassSessionDrawerContent({
                     <span className="font-semibold text-[var(--error-fg)]">
                       {moneySummary.owing === 1 ? '1 debe' : `${moneySummary.owing} deben`} {formatCurrency(moneySummary.owedAmount)}
                     </span>
-                    {moneySummary.settled > 0 ? ` · ${moneySummary.settled} ya pagaron` : ''}
+                    {moneySummary.settled > 0 ? ` · ${moneySummary.settled} al día` : ''}
                   </>
                 ) : moneySummary.settled > 0 ? (
-                  'Todos pagaron.'
+                  'Todos al día (pagaron o lo cubre un pack).'
                 ) : (
                   'Nadie debe nada.'
                 )}
