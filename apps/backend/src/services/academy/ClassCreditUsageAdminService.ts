@@ -134,7 +134,7 @@ export class ClassCreditUsageAdminService {
         studentClientId: true,
         enrollmentStatus: true,
         paymentStatus: true,
-        classSession: { select: { teacherId: true, activityTypeId: true, classType: true } },
+        classSession: { select: { teacherId: true, activityTypeId: true, classType: true, startsAt: true } },
         creditUsages: { select: { id: true }, take: 1 },
       },
     });
@@ -156,6 +156,8 @@ export class ClassCreditUsageAdminService {
         remainingCredits: { gt: 0 },
         AND: [
           { OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
+          // Packs de un mes o de un período de plan: no se gastan en clases de antes de que empiecen.
+          { OR: [{ validFrom: null }, { validFrom: { lte: session.startsAt } }] },
           { OR: [{ activityTypeId: null }, ...(session.activityTypeId ? [{ activityTypeId: session.activityTypeId }] : [])] },
           { OR: [{ classType: null }, { classType: session.classType }] },
           { OR: [{ teacherId: null }, { teacherId: session.teacherId }] },

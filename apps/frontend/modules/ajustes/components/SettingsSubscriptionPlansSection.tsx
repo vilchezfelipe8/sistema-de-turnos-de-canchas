@@ -132,7 +132,7 @@ const entitlementSummary = (plan: SubscriptionPlan) =>
     .map((row) =>
       row.kind === 'ACTIVITY_ACCESS'
         ? `${row.activityType.name}${row.timesPerWeek ? ` ${row.timesPerWeek}x semana` : ' libre'}`
-        : `${row.creditsPerPeriod} clases de ${row.activityType.name}`
+        : `${row.creditsPerPeriod} clases de ${row.activityType.name} por mes`
     )
     .join(' · ');
 
@@ -462,7 +462,7 @@ export default function SettingsSubscriptionPlansSection() {
                       onChange={(e) => updateEntitlement(index, { kind: e.target.value as SubscriptionEntitlementKind })}
                     >
                       <option value="ACTIVITY_ACCESS">Acceso</option>
-                      <option value="CLASS_CREDITS">Clases por período</option>
+                      <option value="CLASS_CREDITS">Clases por mes</option>
                     </select>
                   </label>
                   <label className={`${labelClass} min-w-[140px] flex-1`}>
@@ -491,7 +491,7 @@ export default function SettingsSubscriptionPlansSection() {
                   ) : (
                     <>
                       <label className={`${labelClass} w-24`}>
-                        Clases
+                        Clases por mes
                         <input
                           type="number"
                           min={1}

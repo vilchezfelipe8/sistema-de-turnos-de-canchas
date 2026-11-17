@@ -294,6 +294,8 @@ export type AdminClassSeriesMonthPass = {
   total: number | null;
   expiresAt: string;
   existingPassId: string | null;
+  /** Clases que ya le da un plan del club ese mes (se usan solas al marcar presente). */
+  coveredByPlan?: Array<{ classPassId: string; packageName: string; remainingCredits: number }>;
   pass: AdminClassPass | null;
   applied: number;
 };

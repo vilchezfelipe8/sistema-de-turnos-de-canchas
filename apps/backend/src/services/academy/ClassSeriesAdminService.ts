@@ -1135,6 +1135,7 @@ export class ClassSeriesAdminService {
           status: 'ACTIVE',
           seriesMemberId: member.id,
           coversMonth: quote.month,
+          validFrom: fromZonedTime(`${quote.month}-01T00:00:00`, timeZone),
           createdByUserId: Number(userId),
         },
         select: { id: true },
@@ -1342,6 +1343,34 @@ export class ClassSeriesAdminService {
     return { released };
   }
 
+  /** Packs de planes (clases incluidas) que le sirven al alumno para este curso en ese mes. */
+  private async planPassesForMonth(
+    clubId: number,
+    series: { activityTypeId: number | null; classType: string; teacherId: string },
+    studentClientId: string,
+    monthRange: { gte: Date; lt: Date }
+  ) {
+    const rows = await prisma.classPass.findMany({
+      where: {
+        clubId,
+        beneficiaryClientId: studentClientId,
+        status: 'ACTIVE',
+        subscriptionId: { not: null },
+        remainingCredits: { gt: 0 },
+        AND: [
+          { OR: [{ validFrom: null }, { validFrom: { lt: monthRange.lt } }] },
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: monthRange.gte } }] },
+          { OR: [{ activityTypeId: null }, ...(series.activityTypeId ? [{ activityTypeId: series.activityTypeId }] : [])] },
+          { OR: [{ classType: null }, { classType: series.classType as any }] },
+          { OR: [{ teacherId: null }, { teacherId: series.teacherId }] },
+        ],
+      },
+      orderBy: [{ validFrom: 'asc' }],
+      select: { id: true, packageName: true, remainingCredits: true },
+    });
+    return rows.map((row) => ({ classPassId: row.id, packageName: row.packageName, remainingCredits: row.remainingCredits }));
+  }
+
   /** Cursos del jugador en todos sus clubes, con las próximas clases. */
   async listMine(userId: number) {
     const members = await prisma.classSeriesMember.findMany({
@@ -1546,6 +1575,8 @@ export class ClassSeriesAdminService {
       total,
       expiresAt: expiresAt.toISOString(),
       existingPassId: existing?.id ?? null,
+      // Clases que ya le da un plan del club ese mes (se usan solas al marcar presente).
+      coveredByPlan: await this.planPassesForMonth(clubId, series, member.studentClient.id, monthRange),
     };
     if (input.preview) return { ...summary, pass: null, applied: 0 };
 
@@ -1569,6 +1600,7 @@ export class ClassSeriesAdminService {
         status: 'ACTIVE',
         seriesMemberId: member.id,
         coversMonth: month,
+        validFrom: monthRange.gte,
         createdByUserId: Number(actorUserId),
       },
       select: { id: true },

@@ -1423,6 +1423,8 @@ model ClassPass {
   usedCredits      Int @default(0)
   remainingCredits Int
   expiresAt        DateTime? @db.Timestamptz(3)
+  // Desde cuándo vale (packs de un mes o de un período de plan). null = desde que se compró.
+  validFrom        DateTime? @db.Timestamptz(3)
 
   activityTypeId Int?
   activityType   ActivityType? @relation(fields: [activityTypeId], references: [id], onDelete: SetNull)

@@ -915,6 +915,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   // Cuota del mes de un alumno del curso.
   const [monthPassMonth, setMonthPassMonth] = useState(() => monthKeyOf(new Date()));
   const [monthPassPreview, setMonthPassPreview] = useState<AdminClassSeriesMonthPass | null>(null);
+  // El mes ya lo cubre un plan: el cobro de la cuota queda escondido salvo que lo pidan.
+  const [monthPassChargeAnyway, setMonthPassChargeAnyway] = useState(false);
   const [monthPassLoading, setMonthPassLoading] = useState(false);
   const [monthPassBusy, setMonthPassBusy] = useState(false);
   const [monthPassError, setMonthPassError] = useState('');
@@ -1834,6 +1836,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       return;
     }
     let cancelled = false;
+    setMonthPassChargeAnyway(false);
     setMonthPassLoading(true);
     setMonthPassError('');
     ClubAdminService.classSeriesMonthPass(clubSlug, monthPassSeriesId, monthPassMemberId, { month: monthPassMonth, preview: true })
@@ -3678,6 +3681,25 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                     </p>
                   ) : monthPassPreview.classes === 0 ? (
                     <p className="text-[13px] text-p-text-muted">No tiene clases para cobrar en {monthPassPreview.monthLabel}.</p>
+                  ) : monthPassPreview.coveredByPlan?.length && !monthPassChargeAnyway ? (
+                    <div className="space-y-2">
+                      <p className="text-[13px] text-p-text">
+                        {monthPassPreview.monthLabel[0].toUpperCase() + monthPassPreview.monthLabel.slice(1)} lo cubre su plan:{' '}
+                        <span className="font-semibold">
+                          {monthPassPreview.coveredByPlan
+                            .map((row) => `${row.packageName} (${row.remainingCredits === 1 ? 'le queda 1 clase' : `le quedan ${row.remainingCredits} clases`})`)
+                            .join(', ')}
+                        </span>
+                        . Al marcar presente se usa solo.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setMonthPassChargeAnyway(true)}
+                        className="text-[12px] font-semibold text-p-text-muted underline-offset-2 hover:text-p-text hover:underline"
+                      >
+                        Cobrar la cuota igual
+                      </button>
+                    </div>
                   ) : (
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-[13px] text-p-text">

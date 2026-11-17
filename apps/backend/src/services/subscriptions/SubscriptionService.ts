@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { fromZonedTime } from 'date-fns-tz';
 import { prisma } from '../../prisma';
 import { ErrorCodes, badRequest, conflict, notFound } from '../../errors';
 import { AccountingService } from '../AccountingService';
@@ -440,7 +441,7 @@ export class SubscriptionService {
       const payerClientId = String(input.payerClientId || '').trim() || clientId;
       const clients = await tx.client.findMany({
         where: { clubId, id: { in: Array.from(new Set([clientId, payerClientId])) } },
-        select: { id: true },
+        select: { id: true, userId: true },
       });
       if (!clientId || clients.length !== new Set([clientId, payerClientId]).size) {
         throw notFound('Cliente no encontrado.', ErrorCodes.CLIENT_NOT_FOUND);
@@ -536,6 +537,65 @@ export class SubscriptionService {
           amount: row.listAmount,
           actorUserId,
         });
+      }
+
+      // Clases incluidas: son por mes. Un pack por cada mes que cubre el plan (no importa en cuántas
+      // cuotas se pague), que vale desde que empieza ese mes y vence una semana después de que termina.
+      // Al marcar presente se usa solo (como la cuota de un curso).
+      const creditEntitlements = plan.entitlements.filter(
+        (row) => row.kind === 'CLASS_CREDITS' && Number(row.creditsPerPeriod || 0) > 0
+      );
+      if (creditEntitlements.length) {
+        const timeZone = await this.clubTimeZone(clubId, tx);
+        const student = clients.find((row) => row.id === clientId);
+        const fmt = (key: string) => `${key.slice(8, 10)}/${key.slice(5, 7)}`;
+        const periods = schedule.installments.filter((item) => item.kind === 'PERIOD');
+        const coverageStart = periods.reduce((min, item) => (item.coversFrom < min ? item.coversFrom : min), periods[0]?.coversFrom || startDate);
+        const coverageEnd = periods.reduce((max, item) => (item.coversTo > max ? item.coversTo : max), periods[0]?.coversTo || startDate);
+        const addDaysKey = (key: string, days: number) => dateToKey(new Date(dateKeyToDate(key).getTime() + days * 86_400_000));
+        const addMonthsKey = (key: string, months: number) => {
+          const [y, m, d] = key.split('-').map(Number);
+          const total = y * 12 + (m - 1) + months;
+          const year = Math.floor(total / 12);
+          const month = (total % 12) + 1;
+          const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+          return `${year}-${String(month).padStart(2, '0')}-${String(Math.min(d, lastDay)).padStart(2, '0')}`;
+        };
+        const months: Array<{ coversFrom: string; coversTo: string }> = [];
+        for (let index = 0; index < 120; index += 1) {
+          const from = addMonthsKey(coverageStart, index);
+          if (from > coverageEnd) break;
+          const nextFrom = addMonthsKey(coverageStart, index + 1);
+          const to = addDaysKey(nextFrom, -1) < coverageEnd ? addDaysKey(nextFrom, -1) : coverageEnd;
+          months.push({ coversFrom: from, coversTo: to });
+        }
+        for (const row of months) {
+          const graceEnd = addDaysKey(row.coversTo, 8);
+          for (const entitlement of creditEntitlements) {
+            const credits = Number(entitlement.creditsPerPeriod);
+            await tx.classPass.create({
+              data: {
+                clubId,
+                ownerClientId: payerClientId,
+                beneficiaryClientId: clientId,
+                beneficiaryUserId: student?.userId ?? null,
+                packageName: `${plan.name} · ${entitlement.activityType?.name || 'clases'} del ${fmt(row.coversFrom)} al ${fmt(row.coversTo)}`,
+                priceAtPurchase: null,
+                totalCredits: credits,
+                usedCredits: 0,
+                remainingCredits: credits,
+                validFrom: fromZonedTime(`${row.coversFrom}T00:00:00`, timeZone),
+                expiresAt: fromZonedTime(`${graceEnd}T00:00:00`, timeZone),
+                activityTypeId: entitlement.activityTypeId,
+                classType: entitlement.classType ?? null,
+                status: 'ACTIVE',
+                subscriptionId: subscription.id,
+                notes: 'Incluido en el plan.',
+                createdByUserId: actorUserId,
+              },
+            });
+          }
+        }
       }
 
       await tx.subscriptionHistory.create({
@@ -765,6 +825,12 @@ export class SubscriptionService {
         await this.projectionService.refreshAccountSummary(account.id, tx);
         await tx.subscriptionInstallment.update({ where: { id: account.sourceId }, data: { status: 'VOID' } });
       }
+
+      // Clases incluidas de los períodos que todavía no empezaron: se anulan (si no se usaron).
+      await tx.classPass.updateMany({
+        where: { subscriptionId: subscription.id, status: 'ACTIVE', usedCredits: 0, validFrom: { gt: new Date() } },
+        data: { status: 'CANCELLED' },
+      });
 
       await tx.subscription.update({
         where: { id: subscription.id },
