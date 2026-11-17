@@ -13,6 +13,7 @@ const CSS = `
   .mp-sub { margin:3px 0 0; color:var(--text-secondary); font-size:12px; line-height:1.45; }
   .mp-badge { flex:none; padding:3px 8px; border:1px solid var(--border); border-radius:999px; background:var(--surface-1); color:var(--text-secondary); font-size:11px; font-weight:800; white-space:nowrap; }
   .mp-badge.is-ok { border-color:var(--accent-border-subtle); background:var(--positive-bg); color:var(--positive-fg); }
+  .mp-badge.is-warn { border-color:transparent; background:var(--warn-bg); color:var(--warn-fg); }
   .mp-badge.is-due { border-color:transparent; background:var(--error-bg, rgba(220,38,38,.1)); color:var(--error-fg); }
   .mp-lines { margin:10px 0 0; display:grid; gap:4px; }
   .mp-line { margin:0; color:var(--text-primary); font-size:13px; line-height:1.45; }
@@ -52,6 +53,8 @@ const badge = (plan: MyPlan) => {
     return { label: 'En pausa', tone: '' };
   }
   if (plan.status === 'PAST_DUE' || plan.hasOverdue) return { label: 'Cuota vencida', tone: ' is-due' };
+  // Venció pero sigue en los días de gracia: todavía no es deuda, pero tampoco está al día.
+  if (plan.nextInstallment && plan.nextInstallment.dueDate <= localToday()) return { label: 'Cuota a pagar', tone: ' is-warn' };
   return { label: 'Al día', tone: ' is-ok' };
 };
 
@@ -192,7 +195,13 @@ export default function MyPlansCard() {
 
               <div className="mp-lines">
                 <p className="mp-line">
-                  Al día hasta: <strong>{plan.paidThrough ? day(plan.paidThrough) : 'todavía sin cuotas pagas'}</strong>
+                  {plan.paidThrough ? (
+                    <>
+                      Al día hasta: <strong>{day(plan.paidThrough)}</strong>
+                    </>
+                  ) : (
+                    'Todavía no pagaste ninguna cuota.'
+                  )}
                 </p>
                 {next ? (
                   <p className={`mp-line${next.isOverdue ? ' is-due' : ''}`}>
