@@ -35,7 +35,11 @@ router.post('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesControlle
 router.delete('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesController.leave);
 router.get('/favorites/me', authMiddleware, clubFavoriteController.listMyFavorites);
 router.get('/courses/me', authMiddleware, clubCoursesController.mine);
-router.get('/subscriptions/me', authMiddleware, new PlayerSubscriptionController().mine);
+const playerSubscriptionController = new PlayerSubscriptionController();
+router.get('/subscriptions/me', authMiddleware, playerSubscriptionController.mine);
+router.post('/subscriptions/me/:id/checkout', authMiddleware, playerSubscriptionController.checkout);
+router.post('/subscriptions/me/:id/pause', authMiddleware, playerSubscriptionController.pause);
+router.post('/subscriptions/me/:id/pauses/:pauseId/end', authMiddleware, playerSubscriptionController.endPause);
 router.get('/:id', clubController.getClubById);
 router.post('/:id/favorite', authMiddleware, clubFavoriteController.markFavorite);
 router.delete('/:id/favorite', authMiddleware, clubFavoriteController.unmarkFavorite);

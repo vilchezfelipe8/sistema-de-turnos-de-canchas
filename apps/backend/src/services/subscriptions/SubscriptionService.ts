@@ -1636,6 +1636,7 @@ export class SubscriptionService {
       const pause = item.pauses.find((row: any) => row.endDate >= today) || null;
       return {
         id: row.id,
+        clubId: row.clubId,
         clubName: row.club?.name || '',
         clubSlug: row.club?.slug || '',
         planName: item.planName,
@@ -1659,9 +1660,16 @@ export class SubscriptionService {
               coversFrom: next.coversFrom,
               coversTo: next.coversTo,
               isOverdue: next.isOverdue,
+              // Se puede pagar online: tiene cuenta abierta con saldo.
+              payable: Boolean(next.account && next.account.status === 'OPEN' && next.account.remainingAmount > 0),
             }
           : null,
-        pause: pause ? { startDate: pause.startDate, endDate: pause.endDate } : null,
+        pause: pause ? { id: pause.id, startDate: pause.startDate, endDate: pause.endDate, started: pause.startDate <= today } : null,
+        pauseMaxDays: item.pauseMaxDays,
+        pauseMaxCount: item.pauseMaxCount,
+        pausesUsed: item.pausesUsed,
+        // El jugador puede pausar solo: plan activo, que permita pausas, con cupo y sin otra pausa por venir.
+        canPause: item.status === 'ACTIVE' && item.pauseMaxCount > 0 && item.pauseMaxDays > 0 && item.pausesUsed < item.pauseMaxCount && !pause,
         classes: passes
           .filter((pass) => pass.subscriptionId === row.id)
           .map((pass) => ({

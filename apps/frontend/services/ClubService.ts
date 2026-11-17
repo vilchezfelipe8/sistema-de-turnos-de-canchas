@@ -139,8 +139,15 @@ export type MyPlan = {
   currentPeriodEnd: string;
   paidThrough: string | null;
   pendingAmount: number;
-  nextInstallment: { amount: number; dueDate: string; coversFrom: string; coversTo: string; isOverdue: boolean } | null;
-  pause: { startDate: string; endDate: string } | null;
+  nextInstallment: { amount: number; dueDate: string; coversFrom: string; coversTo: string; isOverdue: boolean; payable: boolean } | null;
+  pause: { id: string; startDate: string; endDate: string; started: boolean } | null;
+  pauseMaxDays: number;
+  pauseMaxCount: number;
+  pausesUsed: number;
+  /** Puede pausarlo solo desde la app. */
+  canPause: boolean;
+  /** El club cobra online y hay una cuota con saldo. */
+  canPayOnline: boolean;
   classes: Array<{ name: string; remaining: number; total: number; expiresAt: string | null }>;
 };
 
@@ -262,6 +269,39 @@ export class ClubService {
       throw new Error(error.error || 'No se pudieron cargar los cursos');
     }
     return res.json();
+  }
+
+  /** Link de Mercado Pago para pagar la cuota pendiente del plan. */
+  static async payMyPlanInstallment(subscriptionId: string): Promise<{ initPoint: string; amount: number }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/subscriptions/me/${encodeURIComponent(subscriptionId)}/checkout`, { method: 'POST' });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo armar el pago de la cuota');
+    }
+    return res.json();
+  }
+
+  static async pauseMyPlan(subscriptionId: string, body: { startDate?: string | null; endDate: string }): Promise<void> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/subscriptions/me/${encodeURIComponent(subscriptionId)}/pause`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo pausar el plan');
+    }
+  }
+
+  static async endMyPlanPause(subscriptionId: string, pauseId: string): Promise<void> {
+    const res = await fetchWithAuth(
+      `${apiBase()}/clubs/subscriptions/me/${encodeURIComponent(subscriptionId)}/pauses/${encodeURIComponent(pauseId)}/end`,
+      { method: 'POST' }
+    );
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo terminar la pausa');
+    }
   }
 
   static async getMyPlans(): Promise<MyPlan[]> {
