@@ -37,6 +37,7 @@ import {
 import NotificationPreferencesSection from '../components/push/NotificationPreferencesSection';
 import BusyLabel from '../components/ui/BusyLabel';
 import MyCoursesCard from '../components/club/MyCoursesCard';
+import MyPlansCard from '../components/club/MyPlansCard';
 
 const PAGE_CSS = `
   .pf-page { padding-top:16px!important; padding-bottom:var(--page-end-gap)!important; }
@@ -745,6 +746,7 @@ export default function PerfilPage() {
         </div>
 
         {/* Cursos del jugador (no aparece si no está en ninguno) */}
+        <MyPlansCard />
         <MyCoursesCard />
 
         <ProfileDisclosure

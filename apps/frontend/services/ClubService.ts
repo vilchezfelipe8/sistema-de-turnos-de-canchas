@@ -105,6 +105,29 @@ export type MyCourse = {
   nextClasses: string[];
 };
 
+/** Plan del jugador ("Mis planes" del perfil). */
+export type MyPlan = {
+  id: string;
+  clubName: string;
+  clubSlug: string;
+  planName: string;
+  optionLabel: string;
+  billingType: 'RECURRING' | 'FIXED_TERM' | null;
+  status: 'ACTIVE' | 'PAST_DUE' | 'PAUSED';
+  hasOverdue: boolean;
+  beneficiaryName: string | null;
+  payerName: string | null;
+  isPayerOnly: boolean;
+  startDate: string;
+  endDate: string | null;
+  currentPeriodEnd: string;
+  paidThrough: string | null;
+  pendingAmount: number;
+  nextInstallment: { amount: number; dueDate: string; coversFrom: string; coversTo: string; isOverdue: boolean } | null;
+  pause: { startDate: string; endDate: string } | null;
+  classes: Array<{ name: string; remaining: number; total: number; expiresAt: string | null }>;
+};
+
 export class ClubService {
   static async getClubById(id: number): Promise<Club> {
     const response = await fetch(`${apiBase()}/clubs/${id}`);
@@ -221,6 +244,15 @@ export class ClubService {
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
       throw new Error(error.error || 'No se pudieron cargar los cursos');
+    }
+    return res.json();
+  }
+
+  static async getMyPlans(): Promise<MyPlan[]> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/subscriptions/me`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudieron cargar tus planes');
     }
     return res.json();
   }

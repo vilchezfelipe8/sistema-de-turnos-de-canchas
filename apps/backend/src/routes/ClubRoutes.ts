@@ -9,6 +9,7 @@ import { authMiddleware, optionalAuthMiddleware } from '../middleware/AuthMiddle
 import { requirePiqueTeam, requireTenantRole } from '../middleware/RoleMiddleware';
 import { verifyClubAccessById } from '../middleware/ClubMiddleware';
 import { PlayerSlotController } from '../controllers/PlayerSlotController';
+import { PlayerSubscriptionController } from '../controllers/PlayerSubscriptionController';
 import { BookingReleaseController } from '../controllers/BookingReleaseController';
 import { ClubCoursesController } from '../controllers/ClubCoursesController';
 
@@ -34,6 +35,7 @@ router.post('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesControlle
 router.delete('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesController.leave);
 router.get('/favorites/me', authMiddleware, clubFavoriteController.listMyFavorites);
 router.get('/courses/me', authMiddleware, clubCoursesController.mine);
+router.get('/subscriptions/me', authMiddleware, new PlayerSubscriptionController().mine);
 router.get('/:id', clubController.getClubById);
 router.post('/:id/favorite', authMiddleware, clubFavoriteController.markFavorite);
 router.delete('/:id/favorite', authMiddleware, clubFavoriteController.unmarkFavorite);

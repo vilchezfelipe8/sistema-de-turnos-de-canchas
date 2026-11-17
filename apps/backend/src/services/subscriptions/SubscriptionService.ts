@@ -1115,7 +1115,7 @@ export class SubscriptionService {
           kind: 'PLAN_NOTICE',
           aggregateType: 'Subscription',
           aggregateId: input.subscriptionId,
-          content: { title: input.title, body: input.body, url: '/perfil', tag: `plan-${input.subscriptionId}-${input.dedupe}` },
+          content: { title: input.title, body: input.body, url: '/perfil#mis-planes', tag: `plan-${input.subscriptionId}-${input.dedupe}` },
         });
       }
       const phone = toDialablePhoneNumber(input.payer?.phone);
@@ -1499,6 +1499,98 @@ export class SubscriptionService {
       orderBy: [{ createdAt: 'desc' }],
     });
     return this.mapSubscriptions(clubId, rows);
+  }
+
+  // ── App del jugador ────────────────────────────────────────────────────
+
+  /**
+   * "Mis planes": los planes vigentes del jugador en todos sus clubes (los que usa y los que paga),
+   * con la próxima cuota y las clases incluidas que le quedan.
+   */
+  async listMine(userId: number) {
+    const rows = await prisma.subscription.findMany({
+      where: {
+        status: { in: ['ACTIVE', 'PAST_DUE', 'PAUSED'] },
+        OR: [{ client: { userId } }, { payerClient: { userId } }],
+      },
+      include: {
+        ...this.subscriptionInclude,
+        client: { select: { id: true, name: true, userId: true } },
+        payerClient: { select: { id: true, name: true, userId: true } },
+        club: { select: { name: true, slug: true } },
+      },
+      orderBy: [{ createdAt: 'desc' }],
+    });
+    if (!rows.length) return [];
+
+    const byClub = new Map<number, typeof rows>();
+    for (const row of rows) byClub.set(row.clubId, [...(byClub.get(row.clubId) || []), row]);
+    const mapped = new Map<string, any>();
+    for (const [clubId, clubRows] of byClub) {
+      for (const item of await this.mapSubscriptions(clubId, clubRows)) mapped.set(item.id, item);
+    }
+
+    const now = new Date();
+    const passes = await prisma.classPass.findMany({
+      where: {
+        subscriptionId: { in: rows.map((row) => row.id) },
+        status: 'ACTIVE',
+        remainingCredits: { gt: 0 },
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+          { OR: [{ validFrom: null }, { validFrom: { lte: now } }] },
+        ],
+      },
+      orderBy: [{ validFrom: 'asc' }],
+      select: { subscriptionId: true, packageName: true, remainingCredits: true, totalCredits: true, expiresAt: true },
+    });
+
+    return rows.map((row) => {
+      const item = mapped.get(row.id);
+      // Lo paga para otro (hijo, etc.): no es quien toma las clases.
+      const isPayer = row.client.userId !== userId;
+      const pending = item.installments.filter((inst: any) => inst.status === 'PENDING');
+      const next = pending.sort((a: any, b: any) => a.dueDate.localeCompare(b.dueDate))[0] || null;
+      const today = localDateKey(now, DEFAULT_TIME_ZONE);
+      const pause = item.pauses.find((row: any) => row.endDate >= today) || null;
+      return {
+        id: row.id,
+        clubName: row.club?.name || '',
+        clubSlug: row.club?.slug || '',
+        planName: item.planName,
+        optionLabel: item.optionLabel,
+        billingType: item.billingType,
+        status: item.status,
+        hasOverdue: item.hasOverdue,
+        // Lo paga otro (o lo paga para otro): se muestra para quién es.
+        beneficiaryName: row.client.id !== row.payerClient.id ? row.client.name : null,
+        payerName: row.client.id !== row.payerClient.id ? row.payerClient.name : null,
+        isPayerOnly: isPayer,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        currentPeriodEnd: item.currentPeriodEnd,
+        paidThrough: item.paidThrough,
+        pendingAmount: item.pendingAmount,
+        nextInstallment: next
+          ? {
+              amount: next.account ? next.account.remainingAmount : next.listAmount,
+              dueDate: next.dueDate,
+              coversFrom: next.coversFrom,
+              coversTo: next.coversTo,
+              isOverdue: next.isOverdue,
+            }
+          : null,
+        pause: pause ? { startDate: pause.startDate, endDate: pause.endDate } : null,
+        classes: passes
+          .filter((pass) => pass.subscriptionId === row.id)
+          .map((pass) => ({
+            name: pass.packageName,
+            remaining: pass.remainingCredits,
+            total: pass.totalCredits,
+            expiresAt: pass.expiresAt ? pass.expiresAt.toISOString() : null,
+          })),
+      };
+    });
   }
 }
 
