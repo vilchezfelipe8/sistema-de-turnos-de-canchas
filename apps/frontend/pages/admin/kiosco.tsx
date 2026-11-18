@@ -126,16 +126,17 @@ export default function KioskPage() {
     return schedules.find((row) => row.activityTypeId === prefs.activityTypeId) || schedules[0];
   }, [schedules, prefs.activityTypeId]);
 
-  // El campo tiene que tener siempre el foco: el lector de QR escribe como un teclado.
+  // El campo tiene que tener siempre el foco (también con el resultado en pantalla):
+  // el lector de QR escribe como un teclado y el que viene atrás no espera.
   useEffect(() => {
-    if (result || showSettings) return;
+    if (showSettings) return;
     const focus = () => inputRef.current?.focus();
     focus();
     const timer = window.setInterval(() => {
       if (document.activeElement !== inputRef.current) focus();
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [result, showSettings, activity]);
+  }, [showSettings, activity]);
 
   const clearResult = useCallback(() => {
     if (resetTimer.current) window.clearTimeout(resetTimer.current);
@@ -267,12 +268,19 @@ export default function KioskPage() {
                   ref={inputRef}
                   className="ks-input"
                   value={value}
-                  onChange={(e) => setValue(e.target.value)}
+                  onChange={(e) => {
+                    if (result) {
+                      if (resetTimer.current) window.clearTimeout(resetTimer.current);
+                      resetTimer.current = null;
+                      setResult(null);
+                    }
+                    setValue(e.target.value);
+                  }}
                   inputMode="numeric"
                   autoComplete="off"
                   aria-label="DNI o código"
                   placeholder="Tu DNI"
-                  disabled={busy}
+                  readOnly={busy}
                 />
                 <p className="ks-hint">Escribí tu DNI y apretá Enter, o acercá tu código de la app.</p>
               </form>
@@ -281,12 +289,16 @@ export default function KioskPage() {
         </main>
 
         {result && (
-          <button
-            type="button"
+          <div
             className={`ks-result ${result.allowed ? 'is-ok' : 'is-no'}`}
-            onClick={clearResult}
+            onMouseDown={(e) => {
+              // Tocar la pantalla cierra el resultado sin sacarle el foco al campo.
+              e.preventDefault();
+              clearResult();
+            }}
+            role="status"
             aria-live="assertive"
-            style={{ border: 'none', color: '#fff', fontFamily: 'inherit', cursor: 'pointer' }}
+            style={{ color: '#fff', cursor: 'pointer' }}
           >
             <span className="ks-badge">{result.allowed ? <Check size={72} strokeWidth={3} /> : <X size={72} strokeWidth={3} />}</span>
             <h2>
@@ -303,7 +315,7 @@ export default function KioskPage() {
                 {result.validUntil ? ` · al día hasta el ${shortDate(result.validUntil)}` : ''}
               </p>
             ) : null}
-          </button>
+          </div>
         )}
       </div>
     </>
