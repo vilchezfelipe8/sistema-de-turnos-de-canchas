@@ -69,8 +69,37 @@ Desinstalar: `powershell -ExecutionPolicy Bypass -File instalar.ps1 -Desinstalar
 
 Registro: `%LOCALAPPDATA%\PiqueMolinete\molinete.log` (cada apertura y cada pedido rechazado).
 
+## Lector de huellas (opcional)
+
+Lectores USB de ZKTeco (ZK4500, ZK9500, SLK20R, Live20R…) con el **ZKFinger SDK** de ZKTeco.
+
+1. Instalar en la PC del kiosco el driver del lector y el ZKFinger SDK (deja `libzkfp.dll` en System32).
+2. En `config.json`:
+
+   ```json
+   "fingerprint": { "type": "zkfinger", "dll": "libzkfp.dll", "minScore": 0, "cooldownMs": 1500 }
+   ```
+
+3. Reiniciar el agente (`instalar.ps1`). En el kiosco arriba tiene que decir **Molinete · Huella**.
+4. Registrar socios: ruedita → **Registrar huella** → DNI → elegir dedo → el socio acepta → apoya el
+   mismo dedo 3 veces. Hasta 2 dedos por socio; desde ahí se borran también.
+
+Cómo funciona: Pique guarda solo la plantilla (un patrón numérico, no la imagen del dedo) y la fecha
+del consentimiento. El kiosco le pasa las plantillas del club al agente al abrir y cada 5 minutos; el
+agente compara en la PC y le dice al kiosco de quién es la huella, y el kiosco valida el ingreso igual
+que con DNI (queda en "Ingresos de hoy" como *Huella*).
+
+Para probar sin lector: `"type": "simulate"` y mandar `POST /fingerprint/simulate` con
+`{ "template": "<base64>" }` (cualquier texto en base64 hace de dedo).
+
+Las huellas que hoy tiene AccesoGym no se pueden pasar: hay que registrar a cada socio de nuevo
+(se puede hacer de a poco: mientras tanto entra con DNI o QR).
+
 ## API
 
 - `GET /health` → `{ ok, agent, version, relay, lastOpenAt, lastError }`
 - `POST /open` → cierra el relé, contesta `{ ok: true }` y lo suelta después de `pulseMs`.
+- `POST /fingerprint/templates` `{ fingerprints: [{ id, format, template }] }` → reemplaza las huellas conocidas.
+- `GET /fingerprint/events?after=N` → lecturas nuevas: `match` (con `fingerprintId`) o `unknown`.
+- `POST /fingerprint/enroll` / `GET /fingerprint/enroll` / `DELETE /fingerprint/enroll` → registro con 3 lecturas.
 - Responde CORS y `Access-Control-Allow-Private-Network` a los orígenes permitidos; al resto, 403.

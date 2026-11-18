@@ -10,5 +10,11 @@
     "closeHex": "A0 01 00 A1",
     "openCommand": "",
     "closeCommand": ""
+  },
+  "fingerprint": {
+    "type": "none",
+    "dll": "libzkfp.dll",
+    "minScore": 0,
+    "cooldownMs": 1500
   }
 }

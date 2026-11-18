@@ -203,7 +203,13 @@ public static class ZKFP {
     $script:fp.ready = $true
     Write-Log "Lector de huellas listo ($($script:fp.width)x$($script:fp.height))"
   } catch {
-    $script:fp.error = $_.Exception.Message
+    $ex = $_.Exception
+    while ($ex.InnerException) { $ex = $ex.InnerException }
+    if ($ex -is [System.DllNotFoundException] -or $ex -is [System.BadImageFormatException]) {
+      $script:fp.error = "No se encontro el ZKFinger SDK ($($fpCfg.dll)). Instalalo en esta PC y reinicia el agente."
+    } else {
+      $script:fp.error = $ex.Message
+    }
     Write-Log "Lector de huellas: $($script:fp.error)"
   }
 }

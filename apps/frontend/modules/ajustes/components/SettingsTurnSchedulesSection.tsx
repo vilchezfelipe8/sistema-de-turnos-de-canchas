@@ -219,7 +219,7 @@ export default function SettingsTurnSchedulesSection() {
       {rows.some((row) => row.isActive) ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-p-border bg-p-surface-2 p-3">
           <p className="min-w-0 flex-1 text-[12px] text-p-text-secondary">
-            Kiosco de ingreso: abrilo en la PC del molinete. El socio escribe su DNI o muestra su código de la app.
+            Kiosco de ingreso: abrilo en la PC del molinete. El socio escribe su DNI, muestra su código de la app o apoya el dedo (si hay lector; las huellas se registran desde el kiosco).
           </p>
           <button type="button" className={ghostButtonClass} onClick={() => setLogsDate(todayKey())}>
             Ingresos de hoy
@@ -508,7 +508,13 @@ export default function SettingsTurnSchedulesSection() {
                 <li key={row.id} className="flex items-start gap-3 px-3 py-2">
                   <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-p-text-muted">{row.time}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-p-text">{row.name || 'Sin identificar'}</p>
+                    <p className="text-[13px] font-semibold text-p-text">
+                      {row.name || 'Sin identificar'}
+                      <span className="font-normal text-p-text-muted">
+                        {' · '}
+                        {row.method === 'FINGERPRINT' ? 'Huella' : row.method === 'QR' ? 'Código QR' : 'DNI'}
+                      </span>
+                    </p>
                     {row.result === 'DENIED' ? <p className="text-[12px] text-p-text-secondary">{row.message}</p> : null}
                   </div>
                   <span
