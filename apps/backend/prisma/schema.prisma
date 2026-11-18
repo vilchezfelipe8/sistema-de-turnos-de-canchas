@@ -753,6 +753,7 @@ model Club {
   subscriptions Subscription[]
   activityTurnSchedules ActivityTurnSchedule[]
   activityTurns ActivityTurn[]
+  accessLogs AccessLog[]
   subscriptionInstallments SubscriptionInstallment[]
   courtBlocks   CourtBlock[]
 }
@@ -933,6 +934,7 @@ model ActivityType {
   subscriptionEntitlements SubscriptionPlanEntitlement[]
   turnSchedule           ActivityTurnSchedule?
   turns                  ActivityTurn[]
+  accessLogs             AccessLog[]
 
   @@index([clubId])
 }
@@ -1041,6 +1043,7 @@ model Client {
   subscriptions Subscription[] @relation("SubscriptionClient")
   paidSubscriptions Subscription[] @relation("SubscriptionPayerClient")
   activityTurns ActivityTurn[] @relation("ActivityTurnClient")
+  accessLogs AccessLog[]
 
   @@index([clubId])
   @@index([userId])
@@ -3089,4 +3092,32 @@ model ActivityTurn {
 
   @@index([activityTypeId, startsAt, status])
   @@index([clubId, clientId, startsAt])
+}
+
+enum AccessLogResult {
+  ALLOWED
+  DENIED
+}
+
+// Cada intento de entrar (kiosco o molinete), permitido o no.
+model AccessLog {
+  id              String          @id @default(cuid())
+  clubId          Int
+  club            Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  activityTypeId  Int?
+  activityType    ActivityType?   @relation(fields: [activityTypeId], references: [id], onDelete: SetNull)
+  clientId        String?
+  client          Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  // DNI | QR
+  method          String
+  result          AccessLogResult
+  // OK, NO_TURN, UNPAID, NOT_FOUND…
+  code            String
+  message         String
+  turnId          String?
+  createdByUserId Int?
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId, createdAt])
+  @@index([clientId, createdAt])
 }

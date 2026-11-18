@@ -36,6 +36,7 @@ router.post('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesControlle
 router.delete('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesController.leave);
 const activityTurnController = new ActivityTurnController();
 router.get('/slug/:slug/turns', optionalAuthMiddleware, activityTurnController.listPublic);
+router.get('/slug/:slug/access-code', authMiddleware, activityTurnController.myAccessCode);
 router.get('/slug/:slug/turns/:activityTypeId/slots', optionalAuthMiddleware, activityTurnController.daySlots);
 router.post('/slug/:slug/turns/:activityTypeId', authMiddleware, activityTurnController.book);
 router.post('/slug/:slug/turns/mine/:turnId/cancel', authMiddleware, activityTurnController.cancelMine);

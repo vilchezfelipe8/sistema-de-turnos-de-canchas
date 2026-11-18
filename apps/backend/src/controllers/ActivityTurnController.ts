@@ -4,6 +4,7 @@ import { prisma } from '../prisma';
 import { ErrorCodes, notFound, sendAppError, validationError, zodValidationAppError } from '../errors';
 import { activityTurnService } from '../services/gym/ActivityTurnService';
 import { activityAccessService } from '../services/gym/ActivityAccessService';
+import { accessCheckInService } from '../services/gym/AccessCheckInService';
 import { sanitizeString } from '../utils/sanitize';
 
 const time = z.string().regex(/^([01]\d|2[0-4]):[0-5]\d$/);
@@ -24,6 +25,7 @@ const scheduleSchema = z.object({
 });
 
 const bookSchema = z.object({ startsAt: z.string().min(10) });
+const checkInSchema = z.object({ activityTypeId: z.number().int().positive(), identifier: z.string().trim().min(1).max(120) });
 const adminBookSchema = z.object({ startsAt: z.string().min(10), clientId: z.string().trim().min(1) });
 
 type ClubRequest = Request & { clubId?: number };
@@ -171,6 +173,38 @@ export class ActivityTurnController {
       return res.json(await activityTurnService.cancel(clubIdOf(req), String(req.params.turnId), { admin: true }));
     } catch (error) {
       return sendAppError(res, error, 'No se pudo cancelar el turno.');
+    }
+  };
+
+  checkIn = async (req: ClubRequest, res: Response) => {
+    try {
+      const parsed = checkInSchema.safeParse(req.body);
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
+      return res.json(await accessCheckInService.checkIn(clubIdOf(req), parsed.data.activityTypeId, parsed.data.identifier, userIdOf(req)));
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo validar el ingreso.');
+    }
+  };
+
+  accessLogs = async (req: ClubRequest, res: Response) => {
+    try {
+      const date = typeof req.query.date === 'string' && req.query.date ? req.query.date : null;
+      return res.json(await accessCheckInService.listDay(clubIdOf(req), date));
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudieron cargar los ingresos.');
+    }
+  };
+
+  myAccessCode = async (req: Request, res: Response) => {
+    try {
+      const userId = userIdOf(req);
+      if (!userId) throw validationError('Iniciá sesión.', { user: 'Usuario inválido.' });
+      const clubId = await resolveSlugClubId(req.params.slug);
+      const code = await accessCheckInService.playerCode(clubId, userId);
+      if (!code) throw notFound('Todavía no sos cliente de este club.', ErrorCodes.CLIENT_NOT_FOUND);
+      return res.json(code);
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo armar tu código.');
     }
   };
 

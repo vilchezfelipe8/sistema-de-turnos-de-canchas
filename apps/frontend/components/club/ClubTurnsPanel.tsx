@@ -37,6 +37,8 @@ export default function ClubTurnsPanel({ slug, loggedIn, loginHref, onNotice }: 
   const [day, setDay] = useState<TurnDay | null>(null);
   const [loadingDay, setLoadingDay] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [code, setCode] = useState<{ svg: string } | null>(null);
+  const [codeOpen, setCodeOpen] = useState(false);
 
   const loadList = useCallback(async () => {
     try {
@@ -109,6 +111,23 @@ export default function ClubTurnsPanel({ slug, loggedIn, loginHref, onNotice }: 
     }
   };
 
+  const toggleCode = async () => {
+    if (codeOpen) {
+      setCodeOpen(false);
+      return;
+    }
+    try {
+      setBusy('code');
+      if (!code) setCode(await ActivityTurnService.myAccessCode(slug));
+      setCodeOpen(true);
+    } catch (error) {
+      reportUiError({ area: 'ClubTurnsPanel', action: 'code' }, error);
+      onNotice(extractErrorMessage(error, 'No se pudo armar tu código.'), 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (activities.length === 0) return null;
 
   const today = activity?.days[0];
@@ -142,6 +161,20 @@ export default function ClubTurnsPanel({ slug, loggedIn, loginHref, onNotice }: 
           {activities.length === 1 ? `${activity.name}: ` : ''}turnos de {activity.slotMinutes} min.
           {activity.requiresTurn ? ' Para entrar necesitás tu turno reservado.' : ''}
         </p>
+      )}
+
+      {loggedIn && (mine.length > 0 || day?.access?.allowed) && (
+        <div className="cl-turn-code">
+          <button type="button" className="cl-course-link" disabled={busy === 'code'} onClick={() => void toggleCode()}>
+            <BusyLabel busy={busy === 'code'}>{codeOpen ? 'Ocultar mi código' : 'Mi código de ingreso'}</BusyLabel>
+          </button>
+          {codeOpen && code ? (
+            <>
+              <div className="cl-turn-qr" aria-label="Código QR para entrar" dangerouslySetInnerHTML={{ __html: code.svg }} />
+              <p className="cl-course-spots">Mostralo en el lector del molinete. También podés entrar con tu DNI.</p>
+            </>
+          ) : null}
+        </div>
       )}
 
       {mine.length > 0 && (

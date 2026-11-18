@@ -120,6 +120,52 @@ export const ActivityTurnService = {
 
   adminCancel: (slug: string, turnId: string) =>
     request<{ id: string }>(`/clubs/${slug}/admin/turns/item/${enc(turnId)}/cancel`, { method: 'POST' }, 'No se pudo cancelar el turno.'),
+
+  // Ingreso (kiosco)
+  checkIn: (slug: string, activityTypeId: number, identifier: string) =>
+    request<CheckInResult>(
+      `/clubs/${slug}/admin/access/check-in`,
+      { method: 'POST', body: JSON.stringify({ activityTypeId, identifier }) },
+      'No se pudo validar el ingreso.'
+    ),
+
+  accessLogs: (slug: string, date?: string) =>
+    request<AccessLogDay>(
+      `/clubs/${slug}/admin/access/logs${date ? `?date=${enc(date)}` : ''}`,
+      { method: 'GET' },
+      'No se pudieron cargar los ingresos.'
+    ),
+
+  myAccessCode: (slug: string) =>
+    request<{ code: string; svg: string; name: string }>(`/clubs/slug/${enc(slug)}/access-code`, { method: 'GET' }, 'No se pudo armar tu código.'),
+};
+
+export type CheckInResult = {
+  allowed: boolean;
+  code: string;
+  message: string;
+  firstName: string | null;
+  name: string | null;
+  planName: string | null;
+  validUntil: string | null;
+  turn: { startsAt: string; endsAt: string; label: string } | null;
+};
+
+export type AccessLogDay = {
+  date: string;
+  allowed: number;
+  denied: number;
+  rows: Array<{
+    id: string;
+    time: string;
+    createdAt: string;
+    name: string | null;
+    activityName: string | null;
+    method: string;
+    result: 'ALLOWED' | 'DENIED';
+    code: string;
+    message: string;
+  }>;
 };
 
 export const WEEKDAY_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];

@@ -8,6 +8,7 @@ import {
   ActivityTurnService,
   WEEKDAY_SHORT,
   windowsLabel,
+  type AccessLogDay,
   type AdminTurnDay,
   type TurnSchedule,
   type TurnScheduleInput,
@@ -97,6 +98,9 @@ export default function SettingsTurnSchedulesSection() {
   const [viewing, setViewing] = useState<{ schedule: TurnSchedule; date: string } | null>(null);
   const [dayData, setDayData] = useState<AdminTurnDay | null>(null);
   const [dayError, setDayError] = useState('');
+  const [logsDate, setLogsDate] = useState<string | null>(null);
+  const [logs, setLogs] = useState<AccessLogDay | null>(null);
+  const [logsError, setLogsError] = useState('');
 
   const load = useCallback(async () => {
     if (!clubSlug) return;
@@ -173,6 +177,22 @@ export default function SettingsTurnSchedulesSection() {
     }
   };
 
+  const loadLogs = useCallback(async () => {
+    if (!clubSlug || !logsDate) return;
+    try {
+      setLogsError('');
+      setLogs(await ActivityTurnService.accessLogs(clubSlug, logsDate));
+    } catch (err) {
+      reportUiError({ area: 'SettingsTurnSchedulesSection', action: 'loadLogs' }, err);
+      setLogs(null);
+      setLogsError(extractErrorMessage(err, 'No se pudieron cargar los ingresos.'));
+    }
+  }, [clubSlug, logsDate]);
+
+  useEffect(() => {
+    void loadLogs();
+  }, [loadLogs]);
+
   const draft = editing?.draft;
   const visibleSlots = (dayData?.slots || []).filter((slot) => slot.people.length > 0 || !slot.isPast);
 
@@ -196,6 +216,19 @@ export default function SettingsTurnSchedulesSection() {
       }
     >
       {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
+      {rows.some((row) => row.isActive) ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-p-border bg-p-surface-2 p-3">
+          <p className="min-w-0 flex-1 text-[12px] text-p-text-secondary">
+            Kiosco de ingreso: abrilo en la PC del molinete. El socio escribe su DNI o muestra su código de la app.
+          </p>
+          <button type="button" className={ghostButtonClass} onClick={() => setLogsDate(todayKey())}>
+            Ingresos de hoy
+          </button>
+          <a href="/admin/kiosco" target="_blank" rel="noopener noreferrer" className={primaryButtonClass}>
+            Abrir kiosco
+          </a>
+        </div>
+      ) : null}
       {loading && !rows.length ? <p className="text-[13px] text-p-text-muted">Cargando...</p> : null}
       {!loading && !rows.length ? (
         <p className="text-[13px] text-p-text-muted">Todavía no hay turnero. Creá uno, por ejemplo &quot;Musculación&quot;.</p>
@@ -435,6 +468,56 @@ export default function SettingsTurnSchedulesSection() {
                       ))}
                     </ul>
                   ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </AdminModal>
+      <AdminModal
+        open={logsDate !== null}
+        title="Ingresos"
+        onClose={() => {
+          setLogsDate(null);
+          setLogs(null);
+        }}
+        maxWidthClassName="max-w-xl"
+      >
+        {logsDate ? (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <label className={`${labelClass} block max-w-[200px]`}>
+                Día
+                <input type="date" className={inputClass} value={logsDate} onChange={(e) => e.target.value && setLogsDate(e.target.value)} />
+              </label>
+              {logs ? (
+                <p className="text-[12px] text-p-text-secondary">
+                  {logs.allowed} {logs.allowed === 1 ? 'entró' : 'entraron'} · {logs.denied}{' '}
+                  {logs.denied === 1 ? 'rechazado' : 'rechazados'}
+                </p>
+              ) : null}
+            </div>
+            {logsError ? (
+              <AdminFeedbackBanner tone="error" compact>
+                {logsError}
+              </AdminFeedbackBanner>
+            ) : null}
+            {logs && logs.rows.length === 0 ? <p className="text-[13px] text-p-text-muted">Nadie intentó entrar este día.</p> : null}
+            <ul className="divide-y divide-p-border rounded-lg border border-p-border">
+              {(logs?.rows || []).map((row) => (
+                <li key={row.id} className="flex items-start gap-3 px-3 py-2">
+                  <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-p-text-muted">{row.time}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold text-p-text">{row.name || 'Sin identificar'}</p>
+                    {row.result === 'DENIED' ? <p className="text-[12px] text-p-text-secondary">{row.message}</p> : null}
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      row.result === 'ALLOWED' ? 'bg-p-positive-bg text-p-positive' : 'bg-p-surface-2 text-p-text-secondary'
+                    }`}
+                  >
+                    {row.result === 'ALLOWED' ? 'Entró' : 'Rechazado'}
+                  </span>
                 </li>
               ))}
             </ul>
