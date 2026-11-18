@@ -36,6 +36,7 @@ const SETTINGS_TABS: Array<{ value: SettingsTab; label: string; comingSoon?: boo
   { value: 'usuarios', label: 'Usuarios' },
   { value: 'socios', label: 'Socios' },
   { value: 'planes', label: 'Planes' },
+  { value: 'turnero', label: 'Turnero' },
   { value: 'caja', label: 'Caja' },
   { value: 'excepciones', label: 'Excepciones' },
   { value: 'auditoria', label: 'Auditoría' },
@@ -64,6 +65,7 @@ const MOBILE_SETTINGS_GROUPS: Array<{
       { value: 'precios', description: 'Por cancha o por jugador, luces y descuentos', icon: Tag },
       { value: 'socios', description: 'Padrón y precios diferenciales', icon: Users },
       { value: 'planes', description: 'Abonos, cuotas y vencimientos', icon: Repeat },
+      { value: 'turnero', description: 'Musculación y espacios con cupo por hora', icon: Dumbbell },
       { value: 'caja', description: 'Reglas para cerrar la caja', icon: Wallet },
       { value: 'facturacion', description: 'Factura electrónica con ARCA', icon: Receipt },
     ],
@@ -96,6 +98,7 @@ const parseSettingsTab = (value: unknown): SettingsTab => {
   if (raw === 'usuarios') return 'usuarios';
   if (raw === 'socios' || raw === 'members') return 'socios';
   if (raw === 'planes' || raw === 'plans') return 'planes';
+  if (raw === 'turnero' || raw === 'gimnasio') return 'turnero';
   if (raw === 'caja') return 'caja';
   if (raw === 'excepciones') return 'excepciones';
   if (raw === 'auditoria') return 'auditoria';

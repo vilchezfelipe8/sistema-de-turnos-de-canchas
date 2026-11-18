@@ -41,6 +41,7 @@ import { FiscalConfigController } from '../controllers/FiscalConfigController';
 import { FiscalBandejaController } from '../controllers/FiscalBandejaController';
 import { AdminBookingListController } from '../controllers/AdminBookingListController';
 import { FiscalHealthController } from '../controllers/FiscalHealthController';
+import { ActivityTurnController } from '../controllers/ActivityTurnController';
 
 const router = Router();
 
@@ -88,6 +89,7 @@ const classEnrollmentAdminController = new ClassEnrollmentAdminController();
 const classPassAdminController = new ClassPassAdminController();
 const classCreditUsageAdminController = new ClassCreditUsageAdminController();
 const subscriptionAdminController = new SubscriptionAdminController();
+const activityTurnController = new ActivityTurnController();
 const academyStudentAdminController = new AcademyStudentAdminController();
 const fiscalConfigController = new FiscalConfigController();
 const fiscalBandejaController = new FiscalBandejaController();
@@ -1459,5 +1461,14 @@ router.get('/:slug/admin/fiscal-bandeja/health',
     requireTenantRole('ADMIN'),
     fiscalHealthController.getHealth
 );
+
+// --- Turnero (actividades con cupo por franja, ej. Musculación) ---
+router.get('/:slug/admin/turn-schedules', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.listSchedules);
+router.post('/:slug/admin/turn-schedules', authMiddleware, verifyClubAccess, requireTenantRole('ADMIN'), activityTurnController.createSchedule);
+router.put('/:slug/admin/turn-schedules/:activityTypeId', authMiddleware, verifyClubAccess, requireTenantRole('ADMIN'), activityTurnController.updateSchedule);
+router.get('/:slug/admin/turns/:activityTypeId', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.adminDay);
+router.post('/:slug/admin/turns/:activityTypeId', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.adminBook);
+router.post('/:slug/admin/turns/item/:turnId/cancel', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.adminCancel);
+router.get('/:slug/admin/access-check', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.accessCheck);
 
 export default router;

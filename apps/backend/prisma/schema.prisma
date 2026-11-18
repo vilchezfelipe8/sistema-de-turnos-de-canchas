@@ -591,6 +591,7 @@ model User {
   academyClassCreditUsagesCreated ClassCreditUsage[] @relation("ClassCreditUsageCreatedByUser")
   verificationCodes UserVerificationCode[]
   pushSubscriptions PushSubscription[]
+  activityTurns ActivityTurn[] @relation("ActivityTurnUser")
   notificationPreference UserNotificationPreference?
   bookingReminderLogs BookingReminderLog[]
   fiscalIncidentsAssigned FiscalIncident[]
@@ -750,6 +751,8 @@ model Club {
   clubMembers ClubMember[]
   subscriptionPlans SubscriptionPlan[]
   subscriptions Subscription[]
+  activityTurnSchedules ActivityTurnSchedule[]
+  activityTurns ActivityTurn[]
   subscriptionInstallments SubscriptionInstallment[]
   courtBlocks   CourtBlock[]
 }
@@ -928,6 +931,8 @@ model ActivityType {
   classPasses            ClassPass[]
   formats                ActivityFormat[]
   subscriptionEntitlements SubscriptionPlanEntitlement[]
+  turnSchedule           ActivityTurnSchedule?
+  turns                  ActivityTurn[]
 
   @@index([clubId])
 }
@@ -1035,6 +1040,7 @@ model Client {
   clubMember    ClubMember?
   subscriptions Subscription[] @relation("SubscriptionClient")
   paidSubscriptions Subscription[] @relation("SubscriptionPayerClient")
+  activityTurns ActivityTurn[] @relation("ActivityTurnClient")
 
   @@index([clubId])
   @@index([userId])
@@ -3026,4 +3032,61 @@ model SubscriptionHistory {
 
   @@index([subscriptionId, createdAt])
   @@index([clubId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Turnero: actividades sin cancha con cupo por franja (ej. Musculación de 7 a 23,
+// turnos de 1 h, 20 lugares). Las franjas no se guardan: salen del horario.
+// ---------------------------------------------------------------------------
+
+enum ActivityTurnStatus {
+  BOOKED
+  CANCELLED
+}
+
+model ActivityTurnSchedule {
+  id                String       @id @default(cuid())
+  clubId            Int
+  club              Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  activityTypeId    Int          @unique
+  activityType      ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  slotMinutes       Int          @default(60)
+  capacity          Int
+  // [{ weekdays: [1,2,3,4,5], open: "07:00", close: "23:00" }] (0 = domingo). Hora del club.
+  windows           Json
+  // Hasta cuántos días adelante se puede reservar (0 = solo hoy).
+  bookAheadDays     Int          @default(7)
+  // Para entrar hace falta un turno reservado.
+  requiresTurn      Boolean      @default(true)
+  // Minutos antes del turno en que ya se puede entrar.
+  earlyEntryMinutes Int          @default(15)
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, isActive])
+}
+
+model ActivityTurn {
+  id              String             @id @default(cuid())
+  clubId          Int
+  club            Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  activityTypeId  Int
+  activityType    ActivityType       @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client             @relation("ActivityTurnClient", fields: [clientId], references: [id], onDelete: Restrict)
+  userId          Int?
+  user            User?              @relation("ActivityTurnUser", fields: [userId], references: [id], onDelete: SetNull)
+  startsAt        DateTime           @db.Timestamptz(3)
+  endsAt          DateTime           @db.Timestamptz(3)
+  status          ActivityTurnStatus @default(BOOKED)
+  checkedInAt     DateTime?          @db.Timestamptz(3)
+  cancelledAt     DateTime?          @db.Timestamptz(3)
+  // null = lo reservó el jugador desde la app.
+  createdByUserId Int?
+  createdAt       DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@index([activityTypeId, startsAt, status])
+  @@index([clubId, clientId, startsAt])
 }
