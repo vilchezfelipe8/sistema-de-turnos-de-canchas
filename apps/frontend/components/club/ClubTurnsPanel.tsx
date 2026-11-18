@@ -206,7 +206,7 @@ export default function ClubTurnsPanel({ slug, loggedIn, loginHref, onNotice }: 
       ) : upcoming.length === 0 ? (
         <p className="cl-review-empty">No quedan turnos para este día.</p>
       ) : (
-        <div className="cl-turn-grid">
+        <div className={`cl-turn-grid${loggedIn && (blocked || weekFull) ? ' is-locked' : ''}`}>
           {upcoming.map((slot) => {
             const isMine = Boolean(slot.myTurnId);
             const full = slot.available <= 0 && !isMine;

@@ -218,6 +218,7 @@ const PAGE_CSS = `
   .cl-turn-slot:hover:not(:disabled) { border-color:var(--accent-border); }
   .cl-turn-slot:disabled { cursor:default; }
   .cl-turn-slot.is-full { opacity:.5; }
+  .cl-turn-grid.is-locked .cl-turn-slot:not(.is-mine) { opacity:.5; }
   .cl-turn-slot.is-mine { background:var(--positive-bg); border-color:var(--accent-border); color:var(--accent-fg); }
   .cl-turn-time { font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; }
   .cl-turn-left { font-size:11px; font-weight:600; color:var(--text-muted); }
