@@ -222,7 +222,9 @@ function Invoke-Request($req, $stream) {
   }
 
   if (-not $originOk) {
-    Send-Response $stream 403 @{} (Get-Json @{ ok = $false; error = 'Origen no permitido' })
+    # Se deja leer el motivo (no abre nada) para que el kiosco muestre que falta autorizar la pagina.
+    $msg = "El agente no tiene autorizada esta pagina ($origin). Agregala en allowedOrigins de config.json."
+    Send-Response $stream 403 @{ 'Access-Control-Allow-Origin' = $origin; 'Vary' = 'Origin' } (Get-Json @{ ok = $false; error = $msg })
     return "rechazado: origen $origin"
   }
 

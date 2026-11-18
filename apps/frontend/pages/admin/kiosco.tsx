@@ -42,7 +42,9 @@ const callAgent = async (url: string, path: string, method: 'GET' | 'POST') => {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 3000);
   try {
-    const res = await fetch(`${agentBase(url)}${path}`, { method, signal: controller.signal, cache: 'no-store' });
+    const res = await fetch(`${agentBase(url)}${path}`, { method, signal: controller.signal, cache: 'no-store' }).catch(() => {
+      throw new Error('No responde. Revisá que el agente esté corriendo en esta PC.');
+    });
     const body = await res.json().catch(() => ({}));
     if (!res.ok || body?.ok === false) throw new Error(body?.error || `El agente respondió ${res.status}`);
     return body;
@@ -227,7 +229,7 @@ export default function KioskPage() {
       });
     } catch (error) {
       setAgentState('down');
-      setAgentTest({ ok: false, text: `No responde: ${extractErrorMessage(error, 'revisá que el agente esté corriendo.')}` });
+      setAgentTest({ ok: false, text: extractErrorMessage(error, 'No responde. Revisá que el agente esté corriendo en esta PC.') });
     } finally {
       setTestingAgent(false);
     }
