@@ -1,0 +1,14 @@
+{
+  "port": 7788,
+  "pulseMs": 600,
+  "allowedOrigins": ["https://pique.ar", "https://www.pique.ar"],
+  "relay": {
+    "type": "simulate",
+    "comPort": "COM3",
+    "baudRate": 9600,
+    "openHex": "A0 01 01 A2",
+    "closeHex": "A0 01 00 A1",
+    "openCommand": "",
+    "closeCommand": ""
+  }
+}

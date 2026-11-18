@@ -33,6 +33,24 @@ const writePrefs = (prefs: KioskPrefs) => {
   }
 };
 
+type AgentState = 'off' | 'checking' | 'ok' | 'down';
+
+const agentBase = (url: string) => url.trim().replace(/\/+$/, '');
+
+// Pedido al agente local con tope de tiempo: si no contesta, el kiosco sigue.
+const callAgent = async (url: string, path: string, method: 'GET' | 'POST') => {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 3000);
+  try {
+    const res = await fetch(`${agentBase(url)}${path}`, { method, signal: controller.signal, cache: 'no-store' });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body?.ok === false) throw new Error(body?.error || `El agente respondió ${res.status}`);
+    return body;
+  } finally {
+    window.clearTimeout(timer);
+  }
+};
+
 const shortDate = (key: string | null) => (key ? `${key.slice(8, 10)}/${key.slice(5, 7)}` : '');
 
 // Pitido corto: agudo si pasa, grave si no.
@@ -80,6 +98,18 @@ const KIOSK_CSS = `
   .ks-panel select, .ks-panel input { height:40px; border-radius:10px; border:1px solid #2c3a33; background:#0b0f0d; color:#fff; padding:0 10px; font-family:inherit; font-size:14px; }
   .ks-panel small { color:#7d8f85; font-size:12px; line-height:1.4; }
   .ks-panel a { color:#3ddc84; font-size:13px; font-weight:700; }
+  .ks-agent { display:inline-flex; align-items:center; gap:7px; height:40px; padding:0 12px; border-radius:12px; border:1px solid #26302b; background:#121815; color:#9fb0a6; font-size:13px; font-weight:700; }
+  .ks-dot { width:9px; height:9px; border-radius:50%; background:#7d8f85; }
+  .ks-agent.is-ok .ks-dot { background:#3ddc84; }
+  .ks-agent.is-down { color:#ffb4ae; border-color:#5a2a26; }
+  .ks-agent.is-down .ks-dot { background:#ff5a4f; }
+  .ks-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .ks-btn { height:36px; padding:0 14px; border-radius:10px; border:1px solid #2c3a33; background:#1d2621; color:#f2f5f3; font-family:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+  .ks-btn:disabled { opacity:.5; cursor:default; }
+  .ks-test { font-size:12px; font-weight:600; }
+  .ks-test.is-ok { color:#3ddc84; }
+  .ks-test.is-no { color:#ff8a80; }
+  .ks-result .ks-warn { margin-top:6px; padding:10px 16px; border-radius:12px; background:rgba(0,0,0,.25); font-size:clamp(16px,2.2vw,22px); font-weight:700; }
   .ks-empty { max-width:460px; font-size:18px; color:#9fb0a6; line-height:1.5; }
   .ks-empty a { color:#3ddc84; font-weight:700; }
 `;
@@ -97,6 +127,10 @@ export default function KioskPage() {
   const [result, setResult] = useState<CheckInResult | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [now, setNow] = useState(() => new Date());
+  const [agentState, setAgentState] = useState<AgentState>('off');
+  const [agentTest, setAgentTest] = useState<{ ok: boolean; text: string } | null>(null);
+  const [testingAgent, setTestingAgent] = useState(false);
+  const [turnstileFailed, setTurnstileFailed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const resetTimer = useRef<number | null>(null);
 
@@ -145,22 +179,70 @@ export default function KioskPage() {
     setValue('');
   }, []);
 
-  const openTurnstile = useCallback(() => {
-    const base = prefs.agentUrl.trim().replace(/\/+$/, '');
-    if (!base) return;
-    // El agente responde CORS (incluido Private Network Access), así que va como pedido normal.
-    void fetch(`${base}/open`, { method: 'POST' }).catch(() => undefined);
+  // Estado del agente: se revisa al configurarlo y cada 30 s.
+  useEffect(() => {
+    if (!agentBase(prefs.agentUrl)) {
+      setAgentState('off');
+      return;
+    }
+    let alive = true;
+    const check = () =>
+      callAgent(prefs.agentUrl, '/health', 'GET')
+        .then(() => alive && setAgentState('ok'))
+        .catch(() => alive && setAgentState('down'));
+    setAgentState('checking');
+    const first = window.setTimeout(check, 400);
+    const timer = window.setInterval(check, 30_000);
+    return () => {
+      alive = false;
+      window.clearTimeout(first);
+      window.clearInterval(timer);
+    };
   }, [prefs.agentUrl]);
+
+  // El agente responde CORS (incluido Private Network Access), así que va como pedido normal.
+  const openTurnstile = useCallback(async () => {
+    if (!agentBase(prefs.agentUrl)) return true;
+    try {
+      await callAgent(prefs.agentUrl, '/open', 'POST');
+      setAgentState('ok');
+      return true;
+    } catch (error) {
+      reportUiError({ area: 'KioskPage', action: 'openTurnstile' }, error);
+      setAgentState('down');
+      return false;
+    }
+  }, [prefs.agentUrl]);
+
+  const testAgent = async () => {
+    try {
+      setTestingAgent(true);
+      setAgentTest(null);
+      const health = await callAgent(prefs.agentUrl, '/health', 'GET');
+      await callAgent(prefs.agentUrl, '/open', 'POST');
+      setAgentState('ok');
+      setAgentTest({
+        ok: true,
+        text: health?.relay === 'simulate' ? 'Conectado, en modo simulación (no abre el molinete).' : 'Listo, el molinete abrió.',
+      });
+    } catch (error) {
+      setAgentState('down');
+      setAgentTest({ ok: false, text: `No responde: ${extractErrorMessage(error, 'revisá que el agente esté corriendo.')}` });
+    } finally {
+      setTestingAgent(false);
+    }
+  };
 
   const submit = async () => {
     const identifier = value.trim();
     if (!identifier || !slug || !activity || busy) return;
     try {
       setBusy(true);
+      setTurnstileFailed(false);
       const res = await ActivityTurnService.checkIn(slug, activity.activityTypeId, identifier);
       setResult(res);
       beep(res.allowed);
-      if (res.allowed) openTurnstile();
+      if (res.allowed) setTurnstileFailed(!(await openTurnstile()));
     } catch (error) {
       reportUiError({ area: 'KioskPage', action: 'checkIn' }, error);
       setResult({
@@ -203,6 +285,12 @@ export default function KioskPage() {
           <span className="ks-club">{activity?.name || 'Ingreso'}</span>
           <span className="ks-clock">{clock}</span>
           <div className="ks-tools">
+            {agentState !== 'off' ? (
+              <span className={`ks-agent is-${agentState}`} title="Agente del molinete">
+                <span className="ks-dot" />
+                {agentState === 'down' ? 'Molinete sin conexión' : 'Molinete'}
+              </span>
+            ) : null}
             <button
               type="button"
               className="ks-icon"
@@ -236,9 +324,20 @@ export default function KioskPage() {
               <input
                 value={prefs.agentUrl}
                 placeholder="http://127.0.0.1:7788"
-                onChange={(e) => updatePrefs({ agentUrl: e.target.value })}
+                onChange={(e) => {
+                  setAgentTest(null);
+                  updatePrefs({ agentUrl: e.target.value });
+                }}
               />
             </label>
+            {agentBase(prefs.agentUrl) ? (
+              <div className="ks-row">
+                <button type="button" className="ks-btn" disabled={testingAgent} onClick={() => void testAgent()}>
+                  {testingAgent ? 'Probando…' : 'Probar apertura'}
+                </button>
+                {agentTest ? <span className={`ks-test ${agentTest.ok ? 'is-ok' : 'is-no'}`}>{agentTest.text}</span> : null}
+              </div>
+            ) : null}
             <small>Si está configurado, cuando alguien puede pasar se le pide al agente que abra el molinete.</small>
             <Link href="/admin/ajustes?tab=turnero">Volver al panel</Link>
           </div>
@@ -314,6 +413,9 @@ export default function KioskPage() {
                 {result.planName}
                 {result.validUntil ? ` · al día hasta el ${shortDate(result.validUntil)}` : ''}
               </p>
+            ) : null}
+            {result.allowed && turnstileFailed ? (
+              <p className="ks-warn">El molinete no respondió. Probá de nuevo con tu DNI.</p>
             ) : null}
           </div>
         )}
