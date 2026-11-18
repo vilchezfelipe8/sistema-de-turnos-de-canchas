@@ -16,7 +16,9 @@ export type PushKind =
     | 'COURSE_REQUEST'
     | 'COURSE_ANSWER'
     // Planes: cuota nueva, mora y fin de plazo.
-    | 'PLAN_NOTICE';
+    | 'PLAN_NOTICE'
+    // Academia: el club canceló una clase a la que estaba anotado.
+    | 'CLASS_CANCELLED';
 
 export type PushAction = { action: string; title: string; url: string };
 
@@ -229,7 +231,13 @@ export class PushNotificationService {
 
     private async isAllowedByPreferences(userId: number, kind: PushKind) {
         // Cambios de estado de la reserva hechos por el club: siempre se avisan.
-        if (kind === 'BOOKING_CANCELLED' || kind === 'BOOKING_CONFIRMED' || kind === 'COURSE_ANSWER' || kind === 'PLAN_NOTICE') return true;
+        if (
+            kind === 'BOOKING_CANCELLED' ||
+            kind === 'BOOKING_CONFIRMED' ||
+            kind === 'COURSE_ANSWER' ||
+            kind === 'PLAN_NOTICE' ||
+            kind === 'CLASS_CANCELLED'
+        ) return true;
         const preferences = await prisma.userNotificationPreference.findUnique({ where: { userId } });
         if (!preferences) return true;
         if (kind === 'INVITATION') return preferences.invitations;
@@ -264,7 +272,7 @@ export class PushNotificationService {
                 await webpush.sendNotification(
                     { endpoint: subscription.endpoint, keys: { p256dh: subscription.p256dh, auth: subscription.auth } },
                     body,
-                    { TTL: PUSH_TTL_SECONDS, urgency: payload.kind === 'BOOKING_CANCELLED' ? 'high' : 'normal' }
+                    { TTL: PUSH_TTL_SECONDS, urgency: payload.kind === 'BOOKING_CANCELLED' || payload.kind === 'CLASS_CANCELLED' ? 'high' : 'normal' }
                 );
                 sent += 1;
                 await prisma.pushSubscription.update({ where: { id: subscription.id }, data: { lastSentAt: new Date() } });
