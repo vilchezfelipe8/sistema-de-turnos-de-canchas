@@ -118,14 +118,6 @@ type ClassPassFormState = {
   notes: string;
 };
 
-const CLASS_STATUS_OPTIONS: Array<{ value: AdminClassSessionStatus; label: string }> = [
-  { value: 'DRAFT', label: 'Borrador' },
-  { value: 'SCHEDULED', label: 'Programada' },
-  { value: 'CONFIRMED', label: 'Confirmada' },
-  { value: 'COMPLETED', label: 'Completada' },
-  { value: 'CANCELLED', label: 'Cancelada' },
-];
-
 const nowRounded = () => {
   const date = new Date();
   date.setSeconds(0, 0);
@@ -399,15 +391,14 @@ const durationFromForm = (form: ClassFormState) => {
 };
 
 const statusLabel = (status: AdminClassSessionStatus) => {
+  // Borrador y Confirmada quedan de datos viejos: para el club son "Programada".
   switch (status) {
     case 'DRAFT':
-      return 'Borrador';
     case 'SCHEDULED':
-      return 'Programada';
     case 'CONFIRMED':
-      return 'Confirmada';
+      return 'Programada';
     case 'COMPLETED':
-      return 'Completada';
+      return 'Dada';
     case 'CANCELLED':
       return 'Cancelada';
     default:
@@ -487,14 +478,12 @@ const effectiveClassPassStatus = (classPass: AdminClassPass): AdminClassPass['st
 
 const statusToneClasses = (status: AdminClassSessionStatus) => {
   switch (status) {
-    case 'CONFIRMED':
-      return 'border-p-positive bg-p-positive-bg text-p-positive';
     case 'COMPLETED':
       return 'border-p-accent bg-p-surface-2 text-p-accent';
     case 'CANCELLED':
       return 'border-p-error bg-p-error-bg text-[var(--error-fg)]';
     case 'DRAFT':
-      return 'border-p-border bg-p-surface-2 text-p-text-muted';
+    case 'CONFIRMED':
     case 'SCHEDULED':
     default:
       return 'border-p-border-strong bg-p-surface text-p-text';
@@ -943,6 +932,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   const [classFormMoreOpen, setClassFormMoreOpen] = useState(false);
   const [classCancelConfirm, setClassCancelConfirm] = useState<AdminClassSession | null>(null);
   const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
+  // Al cancelar una clase: quiénes ya habían pagado (se muestra en el panel de esa clase).
+  const [cancelPaidNote, setCancelPaidNote] = useState<{ classId: string; message: string } | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingClassId, setEditingClassId] = useState<string | null>(null);
   const [form, setForm] = useState<ClassFormState>(() => buildEmptyClassForm());
@@ -1680,7 +1671,6 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         durationMinutes,
         capacity,
         pricePerStudent: parsedPrice,
-        status: form.status,
         level: normalizeOptionalText(form.level),
         description: normalizeOptionalText(form.description),
         requiresApproval: form.requiresApproval,
@@ -1714,9 +1704,30 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       if (!clubSlug || statusBusyId) return;
       try {
         setStatusBusyId(classSession.id);
-        await ClubAdminService.setClassSessionStatus(clubSlug, classSession.id, nextStatus);
-        await loadClassSessions();
-        showAdminToast(nextStatus === 'CANCELLED' ? 'Clase cancelada.' : 'Estado actualizado.');
+        const result = await ClubAdminService.setClassSessionStatus(clubSlug, classSession.id, nextStatus);
+        await Promise.all([loadClassSessions(), loadEnrollments(classSession.id)]);
+        setCancelPaidNote(null);
+        if (nextStatus === 'CANCELLED') {
+          const summary = result.cancellation;
+          const parts = ['Clase cancelada.'];
+          if (summary?.notifiedStudents) {
+            parts.push(summary.notifiedStudents === 1 ? 'Le avisamos a 1 alumno.' : `Les avisamos a ${summary.notifiedStudents} alumnos.`);
+          }
+          if (summary?.creditsReturned) {
+            parts.push(summary.creditsReturned === 1 ? 'Volvió 1 clase al pack.' : `Volvieron ${summary.creditsReturned} clases a los packs.`);
+          }
+          showAdminToast(parts.join(' '));
+          // Lo ya pagado no se devuelve solo: queda a la vista en el panel para resolverlo desde Caja.
+          if (summary?.paid?.length) {
+            const list = summary.paid.map((row) => `${row.name} (${formatCurrency(row.amount)})`).join(', ');
+            setCancelPaidNote({
+              classId: classSession.id,
+              message: `${summary.paid.length === 1 ? 'Ya había pagado' : 'Ya habían pagado'}: ${list}. Devolvelo o dejalo a favor desde Caja.`,
+            });
+          }
+        } else {
+          showAdminToast('Clase reactivada. Volvé a anotar a los alumnos que vayan.');
+        }
       } catch (error) {
         reportUiError({ area: 'AdminClassesPage', action: 'updateStatus' }, error);
         setFeedback({ tone: 'error', message: extractErrorMessage(error, 'No se pudo actualizar el estado de la clase.') });
@@ -1724,7 +1735,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setStatusBusyId(null);
       }
     },
-    [clubSlug, loadClassSessions, statusBusyId]
+    [clubSlug, loadClassSessions, loadEnrollments, statusBusyId]
   );
 
   const openEnrollmentCreateModal = useCallback(() => {
@@ -2776,16 +2787,6 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               placeholder="Qué se trabaja, qué traer, etc."
               inputClassName={`${fieldInputClass} min-h-[96px] py-2`}
             />
-            {editingClassId && (
-              <SelectField
-                label="Estado"
-                value={form.status}
-                onChange={(value) => setForm((prev) => ({ ...prev, status: value as AdminClassSessionStatus }))}
-                error={fieldErrors.status}
-                options={CLASS_STATUS_OPTIONS}
-                inputClassName={fieldInputClass}
-              />
-            )}
           </div>
         )}
       </div>
@@ -3099,7 +3100,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         footer={
           selectedClass ? (
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {selectedClass.status !== 'CANCELLED' && selectedClass.status !== 'COMPLETED' && (
+              {selectedClass.status !== 'CANCELLED' && selectedClass.status !== 'COMPLETED' && !classIsPast(selectedClass) && (
                 <button
                   type="button"
                   onClick={() => setClassCancelConfirm(selectedClass)}
@@ -3108,14 +3109,27 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   Cancelar clase
                 </button>
               )}
-              <button
-                type="button"
-                onClick={openEnrollmentCreateModal}
-                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800"
-              >
-                <UserPlus size={14} />
-                Agregar alumno
-              </button>
+              {selectedClass.status === 'CANCELLED' ? (
+                classIsPast(selectedClass) ? null : (
+                  <button
+                    type="button"
+                    disabled={statusBusyId === selectedClass.id}
+                    onClick={() => void updateStatus(selectedClass, 'SCHEDULED')}
+                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
+                  >
+                    {statusBusyId === selectedClass.id ? 'Reactivando...' : 'Reactivar clase'}
+                  </button>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={openEnrollmentCreateModal}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800"
+                >
+                  <UserPlus size={14} />
+                  Agregar alumno
+                </button>
+              )}
               {selectedClass.seriesId && selectedClass.series?.status === 'ACTIVE' ? (
                 <>
                   {Number(selectedClass.series?.pendingRequests || 0) > 0 && (
@@ -3172,6 +3186,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             waitlistedCount={waitlistedCount}
             cancelledEnrollmentCount={cancelledEnrollmentCount}
             moneySummary={classMoneySummary}
+            cancelPaidNote={cancelPaidNote?.classId === selectedClass.id ? cancelPaidNote.message : null}
             onGoToStudents={() => setClassDrawerTab('students')}
             enrollmentsError={enrollmentsError}
             enrollmentFilter={enrollmentFilter}
@@ -4039,7 +4054,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <p>
               {formatClassWhen(classCancelConfirm.startsAt, classCancelConfirm.endsAt)}
               {classCancelConfirm.teacher?.displayName ? ` con ${classCancelConfirm.teacher.displayName}` : ''}. La cancha
-              queda libre. A los alumnos anotados avisales vos.
+              queda libre y los alumnos anotados quedan afuera: les avisamos por la app a los que tienen cuenta, la clase
+              vuelve a su pack y se anula lo que debían. Lo que ya pagaron lo devolvés desde Caja.
             </p>
           ) : null
         }
@@ -4397,6 +4413,7 @@ function ClassSessionDrawerContent({
   waitlistedCount,
   cancelledEnrollmentCount,
   moneySummary,
+  cancelPaidNote,
   onGoToStudents,
   enrollmentsError,
   enrollmentFilter,
@@ -4419,6 +4436,8 @@ function ClassSessionDrawerContent({
   waitlistedCount: number;
   cancelledEnrollmentCount: number;
   moneySummary: { settled: number; owing: number; owedAmount: number; collected: number };
+  /** Recién cancelada: quiénes ya habían pagado (para devolverlo desde Caja). */
+  cancelPaidNote: string | null;
   onGoToStudents: () => void;
   enrollmentsError: string;
   enrollmentFilter: EnrollmentFilter;
@@ -4462,6 +4481,20 @@ function ClassSessionDrawerContent({
             </p>
           </div>
 
+          {selectedClass.status === 'CANCELLED' ? (
+            <div className="rounded-2xl border border-p-border bg-p-surface-2 p-4">
+              <p className="text-[14px] font-semibold text-p-text">Clase cancelada</p>
+              <p className="mt-1 text-[13px] text-p-text-secondary">
+                {cancelledEnrollmentCount === 0
+                  ? 'No había alumnos anotados.'
+                  : cancelledEnrollmentCount === 1
+                    ? '1 alumno quedó afuera.'
+                    : `${cancelledEnrollmentCount} alumnos quedaron afuera.`}{' '}
+                La cancha quedó libre.
+              </p>
+              {cancelPaidNote ? <p className="mt-2 text-[13px] font-semibold text-p-text">{cancelPaidNote}</p> : null}
+            </div>
+          ) : (
           <div className="rounded-2xl border border-p-border bg-p-surface-2 p-4">
             <div className="flex items-baseline justify-between gap-3">
               <p className="text-[14px] font-semibold text-p-text">Anotados</p>
@@ -4512,6 +4545,7 @@ function ClassSessionDrawerContent({
               {activeEnrollmentCount ? 'Ver alumnos y marcar asistencia →' : 'Anotar alumnos →'}
             </button>
           </div>
+          )}
 
           {selectedClass.description ? (
             <div className="space-y-1">
@@ -4772,7 +4806,7 @@ function ClassListRow({
               classSession.court?.name || 'Sin cancha',
               classSession.classType === 'GROUP' ? 'Grupal' : 'Individual',
               classSession.level,
-              cancelled ? 'Cancelada' : classSession.status === 'DRAFT' ? 'Borrador' : null,
+              cancelled ? 'Cancelada' : null,
             ]
               .filter(Boolean)
               .join(' · ')}

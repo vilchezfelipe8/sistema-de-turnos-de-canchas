@@ -1862,7 +1862,17 @@ export class ClubAdminService {
     slug: string,
     id: string,
     status: AdminClassSessionStatus
-  ): Promise<AdminClassSession> {
+  ): Promise<
+    AdminClassSession & {
+      /** Solo al cancelar: qué pasó con los anotados. */
+      cancellation?: {
+        cancelledStudents: number;
+        notifiedStudents: number;
+        creditsReturned: number;
+        paid: Array<{ name: string; amount: number }>;
+      };
+    }
+  > {
     const res = await fetchWithAuth(`${apiBase()}/clubs/${slug}/admin/class-sessions/${id}/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

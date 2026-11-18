@@ -299,8 +299,9 @@ export class ClassEnrollmentAdminService {
 
   async create(clubId: number, classSessionId: string, actorUserId: number, input: CreateClassEnrollmentInput) {
     const classSession = await this.validation.assertClassSessionBelongsToClub(clubId, classSessionId);
-    if (classSession.status === 'CANCELLED' || classSession.status === 'COMPLETED') {
-      throw badRequest('No se pueden agregar alumnos a una clase cerrada.', ErrorCodes.INVALID_INPUT);
+    // Una clase dada (COMPLETED) admite anotar a quien vino sin estar anotado; una cancelada no.
+    if (classSession.status === 'CANCELLED') {
+      throw badRequest('No se pueden agregar alumnos a una clase cancelada.', ErrorCodes.INVALID_INPUT);
     }
 
     await this.validation.assertUserBelongsToClub(clubId, actorUserId);

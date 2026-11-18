@@ -1,5 +1,8 @@
 import { Prisma } from '@prisma/client';
+import { toZonedTime } from 'date-fns-tz';
 import { prisma } from '../../prisma';
+import { AccountService } from '../AccountService';
+import { pushNotificationService } from '../PushNotificationService';
 import { ErrorCodes, badRequest, conflict, notFound } from '../../errors';
 import { AcademyAdminValidationService } from './AcademyAdminValidation';
 import {
@@ -60,8 +63,11 @@ type ClassSessionSummary = {
   enrolledCount?: number;
 };
 
+const DEFAULT_TIME_ZONE = 'America/Argentina/Buenos_Aires';
+
 export class ClassSessionAdminService {
   private readonly validation = new AcademyAdminValidationService();
+  private readonly accountService = new AccountService();
 
   private mapRow(row: any): ClassSessionSummary {
     return {
@@ -277,7 +283,8 @@ export class ClassSessionAdminService {
   }
 
   async create(clubId: number, actorUserId: number, input: ClassSessionInput) {
-    const data = await this.validateInput(clubId, actorUserId, input);
+    // Una clase nueva siempre arranca programada: cancelarla o cerrarla tiene su propio camino.
+    const data = await this.validateInput(clubId, actorUserId, { ...input, status: 'SCHEDULED' });
     const created = await prisma.classSession.create({
       data: {
         clubId,
@@ -337,7 +344,8 @@ export class ClassSessionAdminService {
             ? null
             : Number(existing.pricePerStudent)
           : input.pricePerStudent,
-      status: (input.status ?? existing.status) as any,
+      // El estado no se edita a mano: se cancela, se reactiva o se cierra sola al pasar.
+      status: existing.status as any,
       level: input.level === undefined ? existing.level : input.level,
       description: input.description === undefined ? existing.description : input.description,
       requiresApproval: input.requiresApproval ?? existing.requiresApproval,
@@ -360,28 +368,198 @@ export class ClassSessionAdminService {
     return this.mapRow(updated);
   }
 
-  async setStatus(clubId: number, classSessionId: string, status: ClassSessionInput['status']) {
-    const existing = await prisma.classSession.findFirst({
+  /**
+   * Único cambio de estado a mano: cancelar (CANCELLED) o reactivar (SCHEDULED).
+   * Completada la pone el scheduler cuando la clase termina.
+   */
+  async setStatus(clubId: number, classSessionId: string, status: ClassSessionInput['status'], actorUserId: number) {
+    if (status === 'CANCELLED') return this.cancel(clubId, classSessionId, actorUserId);
+    if (status === 'SCHEDULED') return this.reactivate(clubId, classSessionId, actorUserId);
+    throw badRequest('La clase solo se puede cancelar o reactivar.', ErrorCodes.INVALID_INPUT);
+  }
+
+  private readonly sessionInclude = {
+    teacher: { select: { id: true, displayName: true, isActive: true } },
+    court: { select: { id: true, name: true } },
+    activityType: { select: { id: true, name: true } },
+    createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
+    series: { select: { id: true, weekdays: true, startTime: true, status: true, visibility: true, _count: { select: { members: { where: { leftAt: null, status: 'PENDING' as const } } } } } },
+  };
+
+  /**
+   * Cancela la clase y todo lo que cuelga de ella: los alumnos quedan cancelados a tiempo, se
+   * devuelven las clases que se habían usado de packs o planes, se anula lo que faltaba pagar
+   * y se avisa por push a los alumnos con cuenta. Lo ya pagado queda en su cuenta para devolverlo
+   * desde Caja.
+   */
+  async cancel(clubId: number, classSessionId: string, actorUserId: number) {
+    const session = await prisma.classSession.findFirst({
       where: { id: String(classSessionId), clubId },
-      select: { id: true },
+      select: {
+        id: true,
+        status: true,
+        startsAt: true,
+        endsAt: true,
+        teacher: { select: { displayName: true } },
+        activityType: { select: { name: true } },
+      },
     });
-    if (!existing) {
-      throw notFound('Clase no encontrada.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    if (!session) throw notFound('Clase no encontrada.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    if (session.status === 'CANCELLED') throw conflict('La clase ya está cancelada.', ErrorCodes.INVALID_INPUT);
+    if (session.endsAt.getTime() <= Date.now()) {
+      throw conflict('La clase ya pasó: no se puede cancelar.', ErrorCodes.INVALID_INPUT);
     }
 
+    const now = new Date();
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.classSession.update({ where: { id: session.id }, data: { status: 'CANCELLED' } });
+      const enrollments = await tx.classEnrollment.findMany({
+        where: { classSessionId: session.id, clubId, enrollmentStatus: { not: 'CANCELLED' } },
+        select: {
+          id: true,
+          enrollmentStatus: true,
+          studentUserId: true,
+          studentClient: { select: { name: true } },
+          creditUsages: { select: { id: true, classPassId: true, creditsUsed: true } },
+        },
+      });
+
+      let creditsReturned = 0;
+      const notify: Array<{ userId: number; creditReturned: boolean }> = [];
+      const paid: Array<{ name: string; amount: number }> = [];
+      for (const enrollment of enrollments) {
+        await tx.classEnrollment.update({
+          where: { id: enrollment.id },
+          data: {
+            enrollmentStatus: 'CANCELLED',
+            attendanceStatus: 'CANCELLED_ON_TIME',
+            attendedAt: null,
+            cancelledAt: now,
+          },
+        });
+
+        // Clases usadas de un pack o plan: vuelven al pack.
+        for (const usage of enrollment.creditUsages) {
+          await tx.classCreditUsage.delete({ where: { id: usage.id } });
+          const pass = await tx.classPass.update({
+            where: { id: usage.classPassId },
+            data: { usedCredits: { decrement: usage.creditsUsed }, remainingCredits: { increment: usage.creditsUsed } },
+            select: { id: true, status: true },
+          });
+          if (pass.status === 'DEPLETED') await tx.classPass.update({ where: { id: pass.id }, data: { status: 'ACTIVE' } });
+          creditsReturned += usage.creditsUsed;
+        }
+        if (enrollment.creditUsages.length) {
+          await tx.classEnrollment.updateMany({
+            where: { id: enrollment.id, paymentStatus: 'COVERED_BY_CREDIT' },
+            data: { paymentStatus: 'UNPAID' },
+          });
+        }
+
+        // Lo que faltaba pagar se anula; lo pagado queda a favor en la cuenta.
+        const account = await tx.account.findFirst({
+          where: { clubId, sourceType: 'CLASS_ENROLLMENT', sourceId: enrollment.id },
+          select: { paidAmount: true },
+        });
+        const paidAmount = Number(account?.paidAmount || 0);
+        if (paidAmount > 0.009) paid.push({ name: enrollment.studentClient?.name || 'Alumno', amount: paidAmount });
+        if (account) await this.accountService.cancelItemsForSourceTx(tx, { sourceType: 'CLASS_ENROLLMENT', sourceId: enrollment.id });
+
+        if (enrollment.studentUserId && enrollment.enrollmentStatus === 'ENROLLED') {
+          notify.push({ userId: enrollment.studentUserId, creditReturned: enrollment.creditUsages.length > 0 });
+        }
+      }
+
+      const updated = await tx.classSession.findUniqueOrThrow({ where: { id: session.id }, include: this.sessionInclude });
+      return { updated, cancelledStudents: enrollments.length, creditsReturned, paid, notify };
+    });
+
+    // Aviso a los alumnos (fuera de la transacción: si falla el push la clase igual queda cancelada).
+    if (result.notify.length) {
+      try {
+        const settings = await prisma.clubSettings.findUnique({ where: { clubId }, select: { timeZone: true } });
+        const local = toZonedTime(session.startsAt, String(settings?.timeZone || DEFAULT_TIME_ZONE));
+        const when = `el ${String(local.getDate()).padStart(2, '0')}/${String(local.getMonth() + 1).padStart(2, '0')} a las ${String(local.getHours()).padStart(2, '0')}:${String(local.getMinutes()).padStart(2, '0')}`;
+        const what = `${session.activityType?.name || 'Clase'}${session.teacher?.displayName ? ` con ${session.teacher.displayName}` : ''}`;
+        const seen = new Set<number>();
+        for (const row of result.notify) {
+          if (seen.has(row.userId)) continue;
+          seen.add(row.userId);
+          await pushNotificationService.enqueue(prisma, {
+            clubId,
+            userId: row.userId,
+            kind: 'CLASS_CANCELLED',
+            aggregateType: 'ClassSession',
+            aggregateId: session.id,
+            content: {
+              title: 'Se canceló tu clase',
+              body: `${what} ${when}.${row.creditReturned ? ' Te devolvimos la clase al pack.' : ''}`,
+              url: '/perfil',
+              tag: `class-${session.id}-cancelled`,
+            },
+          });
+        }
+      } catch (error) {
+        console.error('[academia] No se pudo avisar la cancelación de la clase', error);
+      }
+    }
+
+    return {
+      ...this.mapRow(result.updated),
+      cancellation: {
+        cancelledStudents: result.cancelledStudents,
+        notifiedStudents: new Set(result.notify.map((row) => row.userId)).size,
+        creditsReturned: result.creditsReturned,
+        paid: result.paid,
+      },
+    };
+  }
+
+  /** Vuelve a programar una clase cancelada que todavía no pasó (si la cancha sigue libre). */
+  async reactivate(clubId: number, classSessionId: string, actorUserId: number) {
+    const existing = await prisma.classSession.findFirst({ where: { id: String(classSessionId), clubId } });
+    if (!existing) throw notFound('Clase no encontrada.', ErrorCodes.CLASS_SESSION_NOT_FOUND);
+    if (existing.status !== 'CANCELLED') throw conflict('La clase no está cancelada.', ErrorCodes.INVALID_INPUT);
+    if (existing.endsAt.getTime() <= Date.now()) {
+      throw conflict('La clase ya pasó: no se puede reactivar.', ErrorCodes.INVALID_INPUT);
+    }
+    if (existing.seriesId) {
+      const series = await prisma.classSeries.findUnique({ where: { id: existing.seriesId }, select: { status: true } });
+      if (series?.status === 'ENDED') throw conflict('El curso de esta clase ya terminó.', ErrorCodes.INVALID_INPUT);
+    }
+    // Revisa que la cancha siga libre en ese horario.
+    await this.validateInput(
+      clubId,
+      actorUserId,
+      {
+        teacherId: existing.teacherId,
+        visibility: existing.visibility as 'PUBLIC' | 'PRIVATE',
+        classType: existing.classType as 'INDIVIDUAL' | 'GROUP',
+        activityTypeId: existing.activityTypeId,
+        courtId: existing.courtId,
+        startsAt: existing.startsAt,
+        endsAt: existing.endsAt,
+        durationMinutes: existing.durationMinutes,
+        capacity: existing.capacity,
+        pricePerStudent: existing.pricePerStudent == null ? null : Number(existing.pricePerStudent),
+        status: 'SCHEDULED',
+      },
+      existing.id
+    );
     const updated = await prisma.classSession.update({
-      where: { id: String(classSessionId) },
-      data: {
-        status: status as any,
-      },
-      include: {
-        teacher: { select: { id: true, displayName: true, isActive: true } },
-        court: { select: { id: true, name: true } },
-        activityType: { select: { id: true, name: true } },
-        createdByUser: { select: { id: true, email: true, firstName: true, lastName: true } },
-        series: { select: { id: true, weekdays: true, startTime: true, status: true, visibility: true, _count: { select: { members: { where: { leftAt: null, status: 'PENDING' } } } } } },
-      },
+      where: { id: existing.id },
+      data: { status: 'SCHEDULED' },
+      include: this.sessionInclude,
     });
     return this.mapRow(updated);
+  }
+
+  /** Scheduler: las clases que ya terminaron quedan como dadas. La asistencia no se toca. */
+  async completePastSessions(now: Date = new Date()) {
+    const result = await prisma.classSession.updateMany({
+      where: { status: { in: ['DRAFT', 'SCHEDULED', 'CONFIRMED'] }, endsAt: { lte: now } },
+      data: { status: 'COMPLETED' },
+    });
+    return result.count;
   }
 }

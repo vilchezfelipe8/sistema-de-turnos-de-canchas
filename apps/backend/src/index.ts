@@ -9,6 +9,7 @@ import { PendingBookingAutoCancelService } from './services/PendingBookingAutoCa
 import { BookingReminderService } from './services/BookingReminderService';
 import { FiscalCertExpiryChecker } from './services/FiscalCertExpiryChecker';
 import { ClassSeriesAdminService } from './services/academy/ClassSeriesAdminService';
+import { ClassSessionAdminService } from './services/academy/ClassSessionAdminService';
 import { subscriptionService } from './services/subscriptions/SubscriptionService';
 import { BookingService } from './services/BookingService';
 import { BookingRepository } from './repositories/BookingRepository';
@@ -217,7 +218,19 @@ const checkFiscalCertExpiry = async () => {
 };
 
 const classSeriesService = new ClassSeriesAdminService();
+const classSessionService = new ClassSessionAdminService();
 const CLASS_SERIES_EXTEND_INTERVAL_MS = 60 * 60 * 1000;
+
+// Clases: las que ya terminaron quedan como dadas (igual que los turnos confirmados).
+const completePastClasses = async () => {
+  try {
+    await classSessionService.completePastSessions(new Date());
+    metricsService.recordSchedulerRun('complete_past_classes', 'success');
+  } catch (error) {
+    console.error('❌ Error cerrando clases pasadas:', error);
+    metricsService.recordSchedulerRun('complete_past_classes', 'error');
+  }
+};
 
 // Cursos: mantiene generadas las clases de las próximas semanas.
 const extendClassSeries = async () => {
@@ -237,6 +250,11 @@ const startScheduler = async () => {
 
   setInterval(async () => {
     await completePastBookings();
+  }, BOOKINGS_COMPLETION_INTERVAL_MS);
+
+  await completePastClasses();
+  setInterval(async () => {
+    await completePastClasses();
   }, BOOKINGS_COMPLETION_INTERVAL_MS);
 
   setInterval(async () => {

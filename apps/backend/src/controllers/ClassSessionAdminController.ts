@@ -170,7 +170,7 @@ export class ClassSessionAdminController {
         return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
       }
 
-      const updated = await this.service.setStatus(clubId, classSessionId, parsed.data.status);
+      const updated = await this.service.setStatus(clubId, classSessionId, parsed.data.status, this.resolveActorUserId(req));
       return res.json(updated);
     } catch (error) {
       return sendAppError(res, error, 'No se pudo actualizar el estado de la clase.');
