@@ -8,9 +8,12 @@ import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { getActiveClubSlug, hasOperatorAccess } from '../../utils/session';
 import { ActivityTurnService, type CheckInResult, type TurnSchedule } from '../../services/ActivityTurnService';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import { agentBase, callAgent, hasFingerprintReader, type AgentHealth, type FingerprintEvent } from '../../services/TurnstileAgent';
+import KioskFingerprintEnroll from '../../components/admin/kiosk/KioskFingerprintEnroll';
 
 // Pantalla de ingreso para la PC del molinete: el socio escribe su DNI (o escanea su código
-// de la app) y ve si puede pasar. Si hay un agente local configurado, se le pide abrir.
+// de la app, o apoya el dedo si hay lector) y ve si puede pasar. Si hay un agente local
+// configurado (tools/molinete), se le pide abrir.
 
 const STORAGE_KEY = 'pique.kiosk.v1';
 type KioskPrefs = { activityTypeId: number | null; agentUrl: string };
@@ -34,24 +37,6 @@ const writePrefs = (prefs: KioskPrefs) => {
 };
 
 type AgentState = 'off' | 'checking' | 'ok' | 'down';
-
-const agentBase = (url: string) => url.trim().replace(/\/+$/, '');
-
-// Pedido al agente local con tope de tiempo: si no contesta, el kiosco sigue.
-const callAgent = async (url: string, path: string, method: 'GET' | 'POST') => {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 3000);
-  try {
-    const res = await fetch(`${agentBase(url)}${path}`, { method, signal: controller.signal, cache: 'no-store' }).catch(() => {
-      throw new Error('No responde. Revisá que el agente esté corriendo en esta PC.');
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok || body?.ok === false) throw new Error(body?.error || `El agente respondió ${res.status}`);
-    return body;
-  } finally {
-    window.clearTimeout(timer);
-  }
-};
 
 const shortDate = (key: string | null) => (key ? `${key.slice(8, 10)}/${key.slice(5, 7)}` : '');
 
@@ -133,6 +118,12 @@ export default function KioskPage() {
   const [agentTest, setAgentTest] = useState<{ ok: boolean; text: string } | null>(null);
   const [testingAgent, setTestingAgent] = useState(false);
   const [turnstileFailed, setTurnstileFailed] = useState(false);
+  const [agentHealth, setAgentHealth] = useState<AgentHealth | null>(null);
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const [fpSync, setFpSync] = useState<{ ok: boolean; text: string } | null>(null);
+  const lastSeqRef = useRef<number | null>(null);
+  const busyRef = useRef(false);
+  const checkInRef = useRef<(identifier: string) => Promise<void>>(async () => undefined);
   const inputRef = useRef<HTMLInputElement>(null);
   const resetTimer = useRef<number | null>(null);
 
@@ -165,14 +156,14 @@ export default function KioskPage() {
   // El campo tiene que tener siempre el foco (también con el resultado en pantalla):
   // el lector de QR escribe como un teclado y el que viene atrás no espera.
   useEffect(() => {
-    if (showSettings) return;
+    if (showSettings || enrollOpen) return;
     const focus = () => inputRef.current?.focus();
     focus();
     const timer = window.setInterval(() => {
       if (document.activeElement !== inputRef.current) focus();
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [showSettings, activity]);
+  }, [showSettings, enrollOpen, activity]);
 
   const clearResult = useCallback(() => {
     if (resetTimer.current) window.clearTimeout(resetTimer.current);
@@ -185,12 +176,17 @@ export default function KioskPage() {
   useEffect(() => {
     if (!agentBase(prefs.agentUrl)) {
       setAgentState('off');
+      setAgentHealth(null);
       return;
     }
     let alive = true;
     const check = () =>
-      callAgent(prefs.agentUrl, '/health', 'GET')
-        .then(() => alive && setAgentState('ok'))
+      callAgent<AgentHealth>(prefs.agentUrl, '/health', 'GET')
+        .then((health) => {
+          if (!alive) return;
+          setAgentState('ok');
+          setAgentHealth(health);
+        })
         .catch(() => alive && setAgentState('down'));
     setAgentState('checking');
     const first = window.setTimeout(check, 400);
@@ -216,6 +212,80 @@ export default function KioskPage() {
     }
   }, [prefs.agentUrl]);
 
+  const reader = hasFingerprintReader(agentHealth) ? agentHealth!.fingerprint! : null;
+  const readerOn = Boolean(reader && agentState === 'ok');
+
+  // Le pasa al agente las huellas del club (la comparación se hace en esta PC).
+  const syncFingerprints = useCallback(async () => {
+    if (!slug || !agentBase(prefs.agentUrl)) return;
+    try {
+      const data = await ActivityTurnService.fingerprintSync(slug);
+      const res = await callAgent<{ loaded: number; skipped: number }>(prefs.agentUrl, '/fingerprint/templates', 'POST', { fingerprints: data.fingerprints }, 15000);
+      setFpSync({ ok: true, text: `${res.loaded} ${res.loaded === 1 ? 'huella cargada' : 'huellas cargadas'} en el lector.` });
+    } catch (error) {
+      reportUiError({ area: 'KioskPage', action: 'syncFingerprints' }, error);
+      setFpSync({ ok: false, text: extractErrorMessage(error, 'No se pudieron pasar las huellas al lector.') });
+    }
+  }, [slug, prefs.agentUrl]);
+
+  useEffect(() => {
+    if (!readerOn || !canUse) return;
+    void syncFingerprints();
+    const timer = window.setInterval(() => void syncFingerprints(), 5 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [readerOn, canUse, syncFingerprints]);
+
+  // Pregunta al agente si alguien apoyó el dedo.
+  useEffect(() => {
+    if (!readerOn || enrollOpen || !activity) return;
+    let alive = true;
+    let running = false;
+    const poll = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const after = lastSeqRef.current ?? 0;
+        const data = await callAgent<{ seq: number; events: FingerprintEvent[] }>(prefs.agentUrl, `/fingerprint/events?after=${after}`, 'GET');
+        if (!alive) return;
+        // La primera vez solo se toma la posición: lo de antes de abrir el kiosco no cuenta.
+        if (lastSeqRef.current === null || data.seq < after) {
+          lastSeqRef.current = data.seq;
+          return;
+        }
+        lastSeqRef.current = data.seq;
+        const last = (data.events || []).filter((evt) => evt.seq > after).pop();
+        if (!last || busyRef.current) return;
+        if (last.kind === 'match' && last.fingerprintId) {
+          await checkInRef.current(`FP:${last.fingerprintId}`);
+        } else {
+          showLocalDenied('No reconocimos tu huella. Probá de nuevo o entrá con tu DNI.');
+        }
+      } catch {
+        // El estado del agente lo maneja el chequeo de /health.
+      } finally {
+        running = false;
+      }
+    };
+    const timer = window.setInterval(() => void poll(), 600);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readerOn, enrollOpen, activity, prefs.agentUrl]);
+
+  const scheduleReset = () => {
+    if (resetTimer.current) window.clearTimeout(resetTimer.current);
+    resetTimer.current = window.setTimeout(clearResult, 5000);
+  };
+
+  const showLocalDenied = (message: string) => {
+    setTurnstileFailed(false);
+    setResult({ allowed: false, code: 'FP_UNKNOWN', message, firstName: null, name: null, planName: null, validUntil: null, turn: null });
+    beep(false);
+    scheduleReset();
+  };
+
   const testAgent = async () => {
     try {
       setTestingAgent(true);
@@ -235,10 +305,10 @@ export default function KioskPage() {
     }
   };
 
-  const submit = async () => {
-    const identifier = value.trim();
-    if (!identifier || !slug || !activity || busy) return;
+  const checkIn = async (identifier: string) => {
+    if (!identifier || !slug || !activity || busyRef.current) return;
     try {
+      busyRef.current = true;
       setBusy(true);
       setTurnstileFailed(false);
       const res = await ActivityTurnService.checkIn(slug, activity.activityTypeId, identifier);
@@ -259,12 +329,15 @@ export default function KioskPage() {
       });
       beep(false);
     } finally {
+      busyRef.current = false;
       setBusy(false);
       setValue('');
-      if (resetTimer.current) window.clearTimeout(resetTimer.current);
-      resetTimer.current = window.setTimeout(clearResult, 5000);
+      scheduleReset();
     }
   };
+  checkInRef.current = checkIn;
+
+  const submit = () => checkIn(value.trim());
 
   const updatePrefs = (patch: Partial<KioskPrefs>) => {
     const next = { ...prefs, ...patch };
@@ -290,7 +363,7 @@ export default function KioskPage() {
             {agentState !== 'off' ? (
               <span className={`ks-agent is-${agentState}`} title="Agente del molinete">
                 <span className="ks-dot" />
-                {agentState === 'down' ? 'Molinete sin conexión' : 'Molinete'}
+                {agentState === 'down' ? 'Molinete sin conexión' : reader ? (reader.ready ? 'Molinete · Huella' : 'Molinete · Lector sin conexión') : 'Molinete'}
               </span>
             ) : null}
             <button
@@ -341,6 +414,31 @@ export default function KioskPage() {
               </div>
             ) : null}
             <small>Si está configurado, cuando alguien puede pasar se le pide al agente que abra el molinete.</small>
+            {reader ? (
+              <>
+                <label>Lector de huellas</label>
+                {reader.ready ? (
+                  <div className="ks-row">
+                    <button
+                      type="button"
+                      className="ks-btn"
+                      onClick={() => {
+                        setShowSettings(false);
+                        setEnrollOpen(true);
+                      }}
+                    >
+                      Registrar huella
+                    </button>
+                    <button type="button" className="ks-btn" onClick={() => void syncFingerprints()}>
+                      Actualizar huellas
+                    </button>
+                  </div>
+                ) : (
+                  <small className="ks-test is-no">{reader.error || 'El lector no está listo.'}</small>
+                )}
+                {fpSync ? <small className={`ks-test ${fpSync.ok ? 'is-ok' : 'is-no'}`}>{fpSync.text}</small> : null}
+              </>
+            ) : null}
             <Link href="/admin/ajustes?tab=turnero">Volver al panel</Link>
           </div>
         )}
@@ -383,7 +481,11 @@ export default function KioskPage() {
                   placeholder="Tu DNI"
                   readOnly={busy}
                 />
-                <p className="ks-hint">Escribí tu DNI y apretá Enter, o acercá tu código de la app.</p>
+                <p className="ks-hint">
+                  {readerOn && reader?.ready
+                    ? 'Apoyá tu dedo en el lector, o escribí tu DNI y apretá Enter.'
+                    : 'Escribí tu DNI y apretá Enter, o acercá tu código de la app.'}
+                </p>
               </form>
             </>
           )}
@@ -421,6 +523,14 @@ export default function KioskPage() {
             ) : null}
           </div>
         )}
+        {enrollOpen && slug ? (
+          <KioskFingerprintEnroll
+            slug={slug}
+            agentUrl={prefs.agentUrl}
+            onClose={() => setEnrollOpen(false)}
+            onChanged={() => void syncFingerprints()}
+          />
+        ) : null}
       </div>
     </>
   );

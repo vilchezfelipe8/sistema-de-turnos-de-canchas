@@ -136,8 +136,33 @@ export const ActivityTurnService = {
       'No se pudieron cargar los ingresos.'
     ),
 
+  // Huellas (lector del molinete)
+  fingerprintSync: (slug: string) =>
+    request<{ count: number; fingerprints: FingerprintTemplate[] }>(`/clubs/${slug}/admin/fingerprints`, { method: 'GET' }, 'No se pudieron cargar las huellas.'),
+
+  fingerprintLookup: (slug: string, dni: string) =>
+    request<FingerprintOwner[]>(`/clubs/${slug}/admin/fingerprints/lookup?dni=${enc(dni)}`, { method: 'GET' }, 'No se pudo buscar el cliente.'),
+
+  fingerprintEnroll: (slug: string, body: { clientId: string; template: string; format: string; finger: number | null; consent: boolean }) =>
+    request<{ id: string; clientId: string; name: string }>(
+      `/clubs/${slug}/admin/fingerprints`,
+      { method: 'POST', body: JSON.stringify(body) },
+      'No se pudo guardar la huella.'
+    ),
+
+  fingerprintRemove: (slug: string, id: string) =>
+    request<{ ok: true }>(`/clubs/${slug}/admin/fingerprints/${enc(id)}`, { method: 'DELETE' }, 'No se pudo borrar la huella.'),
+
   myAccessCode: (slug: string) =>
     request<{ code: string; svg: string; name: string }>(`/clubs/slug/${enc(slug)}/access-code`, { method: 'GET' }, 'No se pudo armar tu código.'),
+};
+
+export type FingerprintTemplate = { id: string; clientId: string; format: string; template: string };
+
+export type FingerprintOwner = {
+  id: string;
+  name: string;
+  fingerprints: Array<{ id: string; finger: number | null; createdAt: string }>;
 };
 
 export type CheckInResult = {

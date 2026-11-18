@@ -1469,6 +1469,10 @@ router.put('/:slug/admin/turn-schedules/:activityTypeId', authMiddleware, verify
 router.get('/:slug/admin/turns/:activityTypeId', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.adminDay);
 router.post('/:slug/admin/turns/:activityTypeId', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.adminBook);
 router.post('/:slug/admin/turns/item/:turnId/cancel', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.adminCancel);
+router.get('/:slug/admin/fingerprints', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.fingerprintSync);
+router.get('/:slug/admin/fingerprints/lookup', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.fingerprintLookup);
+router.post('/:slug/admin/fingerprints', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.fingerprintEnroll);
+router.delete('/:slug/admin/fingerprints/:id', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.fingerprintRemove);
 router.post('/:slug/admin/access/check-in', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.checkIn);
 router.get('/:slug/admin/access/logs', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.accessLogs);
 router.get('/:slug/admin/access-check', authMiddleware, verifyClubAccess, requireTenantRole(['ADMIN', 'STAFF']), activityTurnController.accessCheck);

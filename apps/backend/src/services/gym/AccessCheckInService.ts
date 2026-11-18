@@ -5,6 +5,7 @@ import { ErrorCodes, badRequest, notFound } from '../../errors';
 import { localDateKey } from '../MemberService';
 import { isDateKey } from '../../domain/subscriptionSchedule';
 import { normalizeDni } from '../../utils/dni';
+import { ACCESS_FINGERPRINT_PREFIX, fingerprintService } from './FingerprintService';
 import { AccessResult, activityAccessService, clubTimeZone, localTimeLabel } from './ActivityAccessService';
 
 /** Prefijo del código QR que el socio muestra desde la app. */
@@ -21,12 +22,18 @@ export type CheckInResult = {
   turn: { startsAt: string; endsAt: string; label: string } | null;
 };
 
+type AccessMethod = 'DNI' | 'QR' | 'FINGERPRINT';
+
 const firstNameOf = (name: string) => name.trim().split(/\s+/)[0] || name;
 
 /** Ingreso por kiosco o molinete: identifica al socio, valida y deja registro. */
 export class AccessCheckInService {
-  private parseIdentifier(raw: string): { method: 'DNI' | 'QR'; value: string } | null {
+  private parseIdentifier(raw: string): { method: AccessMethod; value: string } | null {
     const text = String(raw || '').trim();
+    if (text.toUpperCase().startsWith(ACCESS_FINGERPRINT_PREFIX)) {
+      const value = text.slice(ACCESS_FINGERPRINT_PREFIX.length).trim();
+      return value ? { method: 'FINGERPRINT', value } : null;
+    }
     if (text.toUpperCase().startsWith(ACCESS_QR_PREFIX)) {
       const value = text.slice(ACCESS_QR_PREFIX.length).trim();
       return value ? { method: 'QR', value } : null;
@@ -35,7 +42,8 @@ export class AccessCheckInService {
     return dni ? { method: 'DNI', value: dni } : null;
   }
 
-  private async findClients(clubId: number, parsed: { method: 'DNI' | 'QR'; value: string }) {
+  private async findClients(clubId: number, parsed: { method: AccessMethod; value: string }) {
+    if (parsed.method === 'FINGERPRINT') return fingerprintService.clientOf(clubId, parsed.value);
     if (parsed.method === 'QR') {
       return prisma.client.findMany({ where: { clubId, id: parsed.value }, select: { id: true, name: true } });
     }
@@ -85,7 +93,11 @@ export class AccessCheckInService {
     if (clients.length === 0) {
       const result = denied(
         'NOT_FOUND',
-        parsed.method === 'QR' ? 'Este código no es de este club.' : 'No encontramos ese DNI. Pedí que te registren.'
+        parsed.method === 'QR'
+          ? 'Este código no es de este club.'
+          : parsed.method === 'FINGERPRINT'
+            ? 'Esa huella ya no está registrada. Entrá con tu DNI.'
+            : 'No encontramos ese DNI. Pedí que te registren.'
       );
       await log({ clientId: null, result: 'DENIED', code: result.code, message: result.message });
       return result;

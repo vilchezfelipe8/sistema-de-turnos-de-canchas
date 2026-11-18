@@ -5,6 +5,7 @@ import { ErrorCodes, notFound, sendAppError, validationError, zodValidationAppEr
 import { activityTurnService } from '../services/gym/ActivityTurnService';
 import { activityAccessService } from '../services/gym/ActivityAccessService';
 import { accessCheckInService } from '../services/gym/AccessCheckInService';
+import { FINGERPRINT_FORMATS, fingerprintService } from '../services/gym/FingerprintService';
 import { sanitizeString } from '../utils/sanitize';
 
 const time = z.string().regex(/^([01]\d|2[0-4]):[0-5]\d$/);
@@ -27,6 +28,14 @@ const scheduleSchema = z.object({
 const bookSchema = z.object({ startsAt: z.string().min(10) });
 const checkInSchema = z.object({ activityTypeId: z.number().int().positive(), identifier: z.string().trim().min(1).max(120) });
 const adminBookSchema = z.object({ startsAt: z.string().min(10), clientId: z.string().trim().min(1) });
+
+const enrollSchema = z.object({
+  clientId: z.string().trim().min(1),
+  template: z.string().trim().min(1).max(8192),
+  format: z.enum(FINGERPRINT_FORMATS),
+  finger: z.number().int().min(0).max(9).nullable().default(null),
+  consent: z.boolean(),
+});
 
 type ClubRequest = Request & { clubId?: number };
 
@@ -205,6 +214,40 @@ export class ActivityTurnController {
       return res.json(code);
     } catch (error) {
       return sendAppError(res, error, 'No se pudo armar tu código.');
+    }
+  };
+
+  fingerprintSync = async (req: ClubRequest, res: Response) => {
+    try {
+      return res.json(await fingerprintService.listForSync(clubIdOf(req)));
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudieron cargar las huellas.');
+    }
+  };
+
+  fingerprintLookup = async (req: ClubRequest, res: Response) => {
+    try {
+      return res.json(await fingerprintService.lookup(clubIdOf(req), String(req.query.dni || '')));
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo buscar el cliente.');
+    }
+  };
+
+  fingerprintEnroll = async (req: ClubRequest, res: Response) => {
+    try {
+      const parsed = enrollSchema.safeParse(req.body);
+      if (!parsed.success) return sendAppError(res, zodValidationAppError(parsed.error, 'Revisá los campos marcados.'));
+      return res.status(201).json(await fingerprintService.enroll(clubIdOf(req), parsed.data, userIdOf(req)));
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo guardar la huella.');
+    }
+  };
+
+  fingerprintRemove = async (req: ClubRequest, res: Response) => {
+    try {
+      return res.json(await fingerprintService.remove(clubIdOf(req), String(req.params.id)));
+    } catch (error) {
+      return sendAppError(res, error, 'No se pudo borrar la huella.');
     }
   };
 
