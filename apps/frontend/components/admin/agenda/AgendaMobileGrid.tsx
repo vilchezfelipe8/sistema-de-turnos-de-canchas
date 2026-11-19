@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Lock, Plus, Repeat, Search, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Lock, Plus, Repeat, Search } from 'lucide-react';
 import type { Booking, Court } from './types/agendaTypes';
 import { minutesFromDayStart, slotMinutes, slotToTime, startHour, totalSlots } from './utils/agendaDateUtils';
 import { bookingColor, isSettledPastBooking } from './utils/agendaDisplayUtils';
@@ -36,18 +36,10 @@ type AgendaMobileGridProps = {
   onFindFreeSlot?: () => void;
 };
 
-type FreeSelection = {
-  courtId: string;
-  startSlot: number;
-  maxEndSlot: number;
-  durationSlots: number;
-};
-
 /** Alto en px de un slot de 15 minutos en mobile (68px por hora). */
 const MOBILE_SLOT_PX = 17;
 const GUTTER_PX = 44;
 const MIN_COLUMN_PX = 84;
-const DURATION_OPTIONS_MIN = [60, 90, 120];
 const EPSILON = 0.009;
 
 const formatLocalDate = (date: Date) => {
@@ -63,12 +55,6 @@ const isSameDay = (a: Date, b: Date) =>
 const formatCompactAmount = (amount: number) =>
   amount >= 1000 ? `$${Math.round(amount / 1000)}k` : `$${Math.round(amount)}`;
 
-const formatDuration = (minutes: number) => {
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (!hours) return `${rest} min`;
-  return rest ? `${hours} h ${rest}` : `${hours} h`;
-};
 
 function paymentPillClass(state: Booking['paymentState']) {
   if (state === 'paid') return 'bg-lima-200/90 text-ink-900';
@@ -96,7 +82,6 @@ export default function AgendaMobileGrid({
   const dateInputRef = useRef<HTMLInputElement | null>(null);
   const lastAutoScrollKeyRef = useRef('');
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [freeSelection, setFreeSelection] = useState<FreeSelection | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick(Date.now()), 60_000);
@@ -106,7 +91,6 @@ export default function AgendaMobileGrid({
   const dateKey = formatLocalDate(selectedDate);
 
   useEffect(() => {
-    setFreeSelection(null);
   }, [dateKey, sportFilter]);
 
   const now = new Date(nowTick);
@@ -157,7 +141,6 @@ export default function AgendaMobileGrid({
     const tappedSlot = Math.max(0, Math.min(totalSlots - 1, rawSlot));
     const courtBookings = bookingsByCourt.get(court.id) || [];
     if (tappedSlot < pastSlotCount) {
-      setFreeSelection(null);
       return;
     }
     const rules = courtRules?.get(court.id);
@@ -171,7 +154,6 @@ export default function AgendaMobileGrid({
         (slot) => rules.durations.includes(slot.durationMinutes) && slot.startSlot <= tappedSlot && tappedSlot < slot.endSlot && isFree(slot)
       );
       if (candidates.length === 0) {
-        setFreeSelection(null);
         return;
       }
       startSlot = Math.max(...candidates.map((slot) => slot.startSlot));
@@ -189,33 +171,11 @@ export default function AgendaMobileGrid({
       ? Number(court.defaultDurationMinutes)
       : ruleDurationsHere[0] ?? Number(court.defaultDurationMinutes || 60);
     const defaultSlots = Math.max(1, Math.round(defaultMinutes / slotMinutes));
-    setFreeSelection({
-      courtId: court.id,
-      startSlot,
-      maxEndSlot,
-      durationSlots: Math.min(defaultSlots, maxEndSlot - startSlot),
-    });
+    onCreateAt(court.id, startSlot, startSlot + Math.min(defaultSlots, maxEndSlot - startSlot));
   };
-
-  const selectionCourt = freeSelection ? courts.find((court) => court.id === freeSelection.courtId) : null;
-  const durationOptions = useMemo(() => {
-    const rules = freeSelection ? courtRules?.get(freeSelection.courtId) : undefined;
-    if (rules && freeSelection) {
-      // Solo las duraciones que el club ofrece a ese horario.
-      const fromRules = rules.ruleSlots
-        .filter((slot) => slot.startSlot === freeSelection.startSlot && rules.durations.includes(slot.durationMinutes))
-        .map((slot) => slot.durationMinutes);
-      const unique = Array.from(new Set(fromRules)).sort((a, b) => a - b);
-      if (unique.length > 0) return unique;
-    }
-    const defaults = new Set(DURATION_OPTIONS_MIN);
-    if (selectionCourt?.defaultDurationMinutes) defaults.add(Number(selectionCourt.defaultDurationMinutes));
-    return Array.from(defaults).sort((a, b) => a - b);
-  }, [courtRules, freeSelection, selectionCourt?.defaultDurationMinutes]);
 
   const dateLabel = selectedDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
   const showSportChips = availableSports.length > 2;
-  const hasSheetOpen = Boolean(freeSelection);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-p-bg">
@@ -367,7 +327,6 @@ export default function AgendaMobileGrid({
 
               {courts.map((court) => {
                 const courtBookings = bookingsByCourt.get(court.id) || [];
-                const isSelectionColumn = freeSelection?.courtId === court.id;
                 return (
                   <div
                     key={`mobile-grid-col-${court.id}`}
@@ -423,7 +382,6 @@ export default function AgendaMobileGrid({
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
-                            setFreeSelection(null);
                             onOpenBooking(booking);
                           }}
                           className={`absolute left-[3px] right-[3px] flex flex-col gap-0.5 overflow-hidden rounded-[9px] px-1.5 py-1 text-left leading-tight ${bookingColor(
@@ -462,20 +420,6 @@ export default function AgendaMobileGrid({
                       );
                     })}
 
-                    {isSelectionColumn && freeSelection && (
-                      <div
-                        className="pointer-events-none absolute left-[3px] right-[3px] flex flex-col items-center justify-center rounded-[9px] border-2 border-p-brand bg-p-positive-bg text-p-accent"
-                        style={{
-                          top: freeSelection.startSlot * MOBILE_SLOT_PX + 2,
-                          height: freeSelection.durationSlots * MOBILE_SLOT_PX - 4,
-                        }}
-                      >
-                        <span className="text-[11px] font-extrabold">Nuevo</span>
-                        <span className="text-[10px] font-bold tabular-nums">
-                          {slotToTime(freeSelection.startSlot)}–{slotToTime(freeSelection.startSlot + freeSelection.durationSlots)}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -491,92 +435,14 @@ export default function AgendaMobileGrid({
         )}
       </div>
 
-      {!hasSheetOpen && (
-        <button
-          type="button"
-          onClick={onCreateBooking}
-          className="absolute bottom-4 right-4 z-30 inline-flex h-12 items-center gap-2 rounded-2xl bg-p-brand px-4 text-[14px] font-extrabold text-p-brand-on shadow-p-lg"
-        >
-          <Plus size={17} strokeWidth={2.75} />
-          Nueva reserva
-        </button>
-      )}
-
-      {/* ── Hoja: hueco libre ── */}
-      {freeSelection && selectionCourt && (
-        <section className="absolute inset-x-0 bottom-0 z-40 space-y-3 rounded-t-[22px] border border-b-0 border-p-border bg-p-surface px-4 pb-4 pt-2.5 shadow-p-lg">
-          <span className="mx-auto block h-1 w-10 rounded-full bg-p-border-strong" />
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-[16px] font-extrabold text-p-text">
-                {selectionCourt.name}
-                {selectionCourt.sport ? <span className="font-semibold text-p-text-muted"> · {selectionCourt.sport}</span> : null}
-              </p>
-              <p className="mt-0.5 text-[12px] font-semibold capitalize text-p-text-secondary">
-                {dateLabel} · {slotToTime(freeSelection.startSlot)} a {slotToTime(freeSelection.startSlot + freeSelection.durationSlots)}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setFreeSelection(null)}
-              aria-label="Cerrar"
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-p-border text-p-text-muted"
-            >
-              <X size={14} />
-            </button>
-          </div>
-          <div>
-            <p className="mb-1.5 text-[11px] font-bold text-p-text-muted">Duración</p>
-            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${durationOptions.length}, minmax(0, 1fr))` }}>
-              {durationOptions.map((minutes) => {
-                const slots = Math.max(1, Math.round(minutes / slotMinutes));
-                const fits = freeSelection.startSlot + slots <= freeSelection.maxEndSlot;
-                const active = freeSelection.durationSlots === slots;
-                return (
-                  <button
-                    key={`mobile-grid-duration-${minutes}`}
-                    type="button"
-                    disabled={!fits}
-                    onClick={() => setFreeSelection((current) => (current ? { ...current, durationSlots: slots } : current))}
-                    className={`h-9 rounded-[10px] border text-[12px] font-bold transition disabled:cursor-not-allowed disabled:text-p-text-muted disabled:line-through disabled:opacity-50 ${
-                      active
-                        ? 'border-lima-300/60 bg-p-positive-bg text-p-accent'
-                        : 'border-p-border bg-p-surface-2 text-p-text-secondary'
-                    }`}
-                  >
-                    {formatDuration(minutes)}
-                  </button>
-                );
-              })}
-            </div>
-            {freeSelection.maxEndSlot - freeSelection.startSlot < Math.round((durationOptions[0] ?? DURATION_OPTIONS_MIN[0]) / slotMinutes) && (
-              <p className="mt-1.5 text-[11px] text-p-text-muted">
-                Hay {formatDuration((freeSelection.maxEndSlot - freeSelection.startSlot) * slotMinutes)} libres hasta la próxima reserva.
-              </p>
-            )}
-          </div>
-          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-2">
-            <button
-              type="button"
-              onClick={() => setFreeSelection(null)}
-              className={`${adminButton('secondary', 'lg')} !h-[46px]`}
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const selection = freeSelection;
-                setFreeSelection(null);
-                onCreateAt(selection.courtId, selection.startSlot, selection.startSlot + selection.durationSlots);
-              }}
-              className="h-[46px] rounded-xl bg-p-brand text-[14px] font-extrabold text-p-brand-on"
-            >
-              Continuar reserva
-            </button>
-          </div>
-        </section>
-      )}
+      <button
+        type="button"
+        onClick={onCreateBooking}
+        className="absolute bottom-4 right-4 z-30 inline-flex h-12 items-center gap-2 rounded-2xl bg-p-brand px-4 text-[14px] font-extrabold text-p-brand-on shadow-p-lg"
+      >
+        <Plus size={17} strokeWidth={2.75} />
+        Nueva reserva
+      </button>
 
     </div>
   );

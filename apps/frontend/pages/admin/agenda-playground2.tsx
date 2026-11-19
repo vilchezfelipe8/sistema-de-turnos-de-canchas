@@ -1426,6 +1426,8 @@ function AdminAgendaPlaygroundPage() {
   // Al crear: el drawer del borrador sale y entra el de la reserva creada (no se transforma en el lugar).
   // Solo oculta el drawer; no dispara la limpieza de cerrar (drawerOpen sigue en true).
   const [drawerHandoff, setDrawerHandoff] = useState(false);
+  // "Reservar y cobrar": la reserva creada espera oculta mientras se cobra y entra al cerrar el cobro.
+  const revealBookingDrawerOnAccountCloseRef = useRef(false);
   // Drawer de edición: horario/cancha plegados detrás de "Modificar" y acciones secundarias en "Más acciones".
   const [simplifiedScheduleEditorOpen, setSimplifiedScheduleEditorOpen] = useState(false);
   const [simplifiedMoreActionsOpen, setSimplifiedMoreActionsOpen] = useState(false);
@@ -2983,6 +2985,10 @@ function AdminAgendaPlaygroundPage() {
 
   const closeAgendaAccountDrawer = useCallback(() => {
     setAccountDrawerOpen(false);
+    if (revealBookingDrawerOnAccountCloseRef.current) {
+      revealBookingDrawerOnAccountCloseRef.current = false;
+      setDrawerHandoff(false);
+    }
     setAccountDrawerAccountId(null);
     setAccountDrawerInitialView('overview');
     setAccountDrawerContext(undefined);
@@ -2991,11 +2997,12 @@ function AdminAgendaPlaygroundPage() {
 
   const openAgendaAccountDrawer = useCallback(async (
     bookingId: number,
-    initialView: AccountDrawerInitialView = 'overview'
-  ) => {
+    initialView: AccountDrawerInitialView = 'overview',
+    bookingTitle?: string
+  ): Promise<boolean> => {
     if (!Number.isFinite(bookingId) || bookingId <= 0) {
       showAgendaToast('No se encontró una reserva válida para abrir la cuenta.');
-      return;
+      return false;
     }
 
     const paymentLockedByPendingReservation = Boolean(
@@ -3007,7 +3014,7 @@ function AdminAgendaPlaygroundPage() {
 
     if (initialView === 'payment' && paymentLockedByPendingReservation) {
       showAgendaToast('Primero confirmá la reserva para habilitar cobros.');
-      return;
+      return false;
     }
 
     try {
@@ -3015,21 +3022,23 @@ function AdminAgendaPlaygroundPage() {
       const bookingAccount = Array.isArray(accounts) ? accounts[0] : null;
       if (!bookingAccount?.id) {
         showAgendaToast('No se encontró la cuenta de esta reserva.');
-        return;
+        return false;
       }
 
       accountDrawerBookingIdRef.current = bookingId;
       setAccountDrawerAccountId(String(bookingAccount.id));
       setAccountDrawerInitialView(initialView);
       setAccountDrawerContext({
-        title: String(editingBooking?.title || '').trim() || `Reserva #${bookingId}`,
+        title: String(bookingTitle || editingBooking?.title || '').trim() || `Reserva #${bookingId}`,
         subtitle: selectedDate.toLocaleDateString('es-AR'),
         accountStatus: bookingAccount.status === 'CLOSED' ? 'CLOSED' : 'OPEN',
       });
       setAccountDrawerOpen(true);
+      return true;
     } catch (error) {
       reportUiError({ area: 'AgendaPlayground', action: 'openAgendaAccountDrawer' }, error);
       showAgendaToast('No se pudo abrir la cuenta de la reserva.');
+      return false;
     }
   }, [
     bookingFinancial?.confirmationMode,
@@ -4393,7 +4402,7 @@ function AdminAgendaPlaygroundPage() {
 
   /** Duraciones que se pueden elegir con un botón para el inicio actual. */
   const drawerDurationChoices = useMemo(() => {
-    if (!drawerRuleSlots) return [] as Array<{ durationMinutes: number; endSlot: number }>;
+    if (!drawerRuleSlots) return [] as Array<{ durationMinutes: number; endSlot: number; blocked: boolean }>;
     const byDuration = new Map<number, number>();
     for (const slot of drawerRuleSlots) {
       if (slot.startSlot !== selectedStartSlot || !drawerAllowedDurations.includes(slot.durationMinutes)) continue;
@@ -4401,8 +4410,20 @@ function AdminAgendaPlaygroundPage() {
     }
     return Array.from(byDuration.entries())
       .sort((a, b) => a[0] - b[0])
-      .map(([durationMinutes, endSlot]) => ({ durationMinutes, endSlot }));
-  }, [drawerAllowedDurations, drawerRuleSlots, selectedStartSlot]);
+      .map(([durationMinutes, endSlot]) => ({
+        durationMinutes,
+        endSlot,
+        blocked: Boolean(
+          selectedCourtId &&
+            hasOverlapForRange({
+              courtId: selectedCourtId,
+              startSlot: selectedStartSlot,
+              endSlot,
+              ignoreBookingId: editingBookingId || null,
+            })
+        ),
+      }));
+  }, [drawerAllowedDurations, drawerRuleSlots, editingBookingId, hasOverlapForRange, selectedCourtId, selectedStartSlot]);
 
   /** Cambiar la hora de inicio mantiene la duración si sigue siendo válida; si no, toma la válida más parecida. */
   const applyDrawerStartSlot = (nextStart: number) => {
@@ -5641,6 +5662,23 @@ function AdminAgendaPlaygroundPage() {
           setDrawerHandoff(true);
           await new Promise((resolve) => window.setTimeout(resolve, OVERLAY_EXIT_MS + 40));
           openBookingInDrawer(createdBooking);
+          const chargeNow = chargeAfterCreateRef.current && pendingParticipantDrafts.length === 0;
+          if (chargeNow) {
+            // Del borrador directo al cobro; la reserva entra cuando se cierra el cobro.
+            chargeAfterCreateRef.current = false;
+            const opened = await openAgendaAccountDrawer(Number(createdBooking.id), 'payment', createdBooking.title);
+            revealBookingDrawerOnAccountCloseRef.current = opened;
+            showAgendaToast('Reserva creada.', 'success');
+            await refreshPersistedBookingView(Number(createdBooking.id), {
+              schedule: true,
+              participants: true,
+              financial: true,
+              consumptions: true,
+              history: true,
+              forceDrawerSections: true,
+            });
+            return;
+          }
           setDrawerHandoff(false);
           if (pendingParticipantDrafts.length > 0) {
             const syncResult = await syncDraftParticipantsToPersistedBooking(
@@ -5672,7 +5710,7 @@ function AdminAgendaPlaygroundPage() {
           showAgendaToast('Reserva creada.', 'success');
           if (chargeAfterCreateRef.current) {
             chargeAfterCreateRef.current = false;
-            await openAgendaAccountDrawer(Number(createdBooking.id), 'payment');
+            await openAgendaAccountDrawer(Number(createdBooking.id), 'payment', createdBooking.title);
           }
           return;
         }
@@ -5838,7 +5876,7 @@ function AdminAgendaPlaygroundPage() {
     } finally {
       setIsSubmittingBooking(false);
       setSettlingCreatedBooking(false);
-      setDrawerHandoff(false);
+      if (!revealBookingDrawerOnAccountCloseRef.current) setDrawerHandoff(false);
     }
   };
 
@@ -8810,6 +8848,8 @@ function AdminAgendaPlaygroundPage() {
                                             key={`edit-duration-${choice.durationMinutes}`}
                                             type="button"
                                             aria-pressed={active}
+                                            disabled={choice.blocked && !active}
+                                            title={choice.blocked ? 'Se pisa con otra reserva' : undefined}
                                             onClick={() => {
                                               setSelectedEndSlot(choice.endSlot);
                                               setScheduleInputsDirty(true);
@@ -8926,6 +8966,8 @@ function AdminAgendaPlaygroundPage() {
                                           key={`create-duration-${choice.durationMinutes}`}
                                           type="button"
                                           aria-pressed={active}
+                                          disabled={choice.blocked && !active}
+                                          title={choice.blocked ? 'Se pisa con otra reserva' : undefined}
                                           onClick={() => {
                                             setSelectedEndSlot(choice.endSlot);
                                             setScheduleInputsDirty(true);
