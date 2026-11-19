@@ -10,6 +10,7 @@ import {
 } from '../../../services/MemberAdminService';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import AdminSegmentedControl from '../ui/AdminSegmentedControl';
+import { AdminSearchInput } from '../ui/AdminPersonPicker';
 
 type MembersRosterPanelProps = {
   clubSlug: string;
@@ -147,12 +148,12 @@ export default function MembersRosterPanel({ clubSlug, onSelectClient, canManage
       {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
 
       <div className="flex flex-wrap gap-2">
-        <input
-          className={`${inputClass} min-w-[200px] flex-1`}
+        <AdminSearchInput
+          wrapperClassName="min-w-[200px] flex-1"
           placeholder="Buscar por nombre, DNI o N° de socio"
           value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
+          onChange={(value) => {
+            setQuery(value);
             setPage(1);
           }}
         />

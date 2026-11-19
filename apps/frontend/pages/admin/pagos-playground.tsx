@@ -31,6 +31,7 @@ import {
   type CashShiftBreakdown,
 } from '../../modules/caja/components/CashCloseRecap';
 import CashShiftPanel from '../../modules/caja/components/CashShiftPanel';
+import { AdminPersonList, AdminPersonOption, AdminSearchInput, AdminSelectedPerson } from '../../components/admin/ui/AdminPersonPicker';
 import AccountDrawer, {
   type AccountDrawerContext,
   type AccountDrawerInitialView,
@@ -2278,16 +2279,12 @@ export default function AdminPaymentsPlaygroundPage() {
                     />
                   )}
 
-                  <label className="relative min-w-[200px] flex-1 sm:max-w-[320px]">
-                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                    <input
-                      type="text"
-                      value={accountsSearchTerm}
-                      onChange={(event) => setAccountsSearchTerm(event.target.value)}
-                      placeholder="Buscar cliente o cancha"
-                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-                    />
-                  </label>
+                  <AdminSearchInput
+                    value={accountsSearchTerm}
+                    onChange={(value) => setAccountsSearchTerm(value)}
+                    placeholder="Buscar cliente o cancha"
+                    wrapperClassName="min-w-[200px] flex-1 sm:max-w-[320px]"
+                  />
 
                   <button
                     type="button"
@@ -2471,16 +2468,12 @@ export default function AdminPaymentsPlaygroundPage() {
                           { id: 'CARD', label: 'Tarjeta' },
                         ] as Array<{ id: MovementMethodFilter; label: string }>).map((option) => ({ value: option.id, label: option.label }))}
                       />
-                      <label className="relative min-w-[180px] flex-1 sm:max-w-[260px]">
-                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                        <input
-                          type="text"
-                          value={cashSearchTerm}
-                          onChange={(event) => setCashSearchTerm(event.target.value)}
-                          placeholder="Buscar"
-                          className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-                        />
-                      </label>
+                      <AdminSearchInput
+                        value={cashSearchTerm}
+                        onChange={(value) => setCashSearchTerm(value)}
+                        placeholder="Buscar"
+                        wrapperClassName="min-w-[180px] flex-1 sm:max-w-[260px]"
+                      />
                       <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
                         <button
                           type="button"
@@ -2580,16 +2573,12 @@ export default function AdminPaymentsPlaygroundPage() {
                       onOffset={setCashPeriodOffset}
                     />
                   )}
-                  <label className="relative min-w-[180px] flex-1 sm:max-w-[280px]">
-                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                    <input
-                      type="text"
-                      value={refundSearchTerm}
-                      onChange={(event) => setRefundSearchTerm(event.target.value)}
-                      placeholder="Buscar cliente o motivo"
-                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-                    />
-                  </label>
+                  <AdminSearchInput
+                    value={refundSearchTerm}
+                    onChange={(value) => setRefundSearchTerm(value)}
+                    placeholder="Buscar cliente o motivo"
+                    wrapperClassName="min-w-[180px] flex-1 sm:max-w-[280px]"
+                  />
                   <button
                     type="button"
                     onClick={openRefundRequestSelector}
@@ -3451,62 +3440,42 @@ export default function AdminPaymentsPlaygroundPage() {
             {/* Cliente opcional */}
             <AdminDrawerSection title="Cliente">
               {posSelectedClient ? (
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-semibold text-p-text">
-                      {posSelectedClient.name || posSelectedClient.id}
-                    </p>
-                    {(posSelectedClient.phone || posSelectedClient.email) && (
-                      <p className="truncate text-[11px] text-p-text-muted">
-                        {posSelectedClient.phone || posSelectedClient.email}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handlePosClearClient}
-                    disabled={posSubmitting}
-                    title="Limpiar — volver a Consumidor final"
-                    className="shrink-0 flex h-7 w-7 items-center justify-center rounded-lg border border-p-border bg-p-surface text-p-text-muted transition hover:bg-p-error-bg hover:text-p-error disabled:opacity-60"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
+                <AdminSelectedPerson
+                  name={posSelectedClient.name || String(posSelectedClient.id)}
+                  detail={posSelectedClient.phone || posSelectedClient.email || undefined}
+                  changeLabel="Quitar"
+                  onChange={handlePosClearClient}
+                  disabled={posSubmitting}
+                />
               ) : (
                 <div className="relative" ref={posClientWrapperRef}>
-                  <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                  <input
-                    type="text"
+                  <AdminSearchInput
                     value={posClientSearch}
-                    onChange={handlePosClientSearchChange}
+                    onChange={(value) =>
+                      handlePosClientSearchChange({ target: { value } } as React.ChangeEvent<HTMLInputElement>)
+                    }
                     onFocus={() => posClientResults.length > 0 && setPosClientDropdownOpen(true)}
                     disabled={posSubmitting}
-                    placeholder="Buscar por nombre o teléfono… (opcional)"
-                    className="h-9 w-full rounded-xl border border-p-border bg-p-surface pl-8 pr-3 text-[13px] text-p-text outline-none focus:border-p-accent disabled:opacity-60"
+                    placeholder="Buscá por nombre o teléfono (opcional)"
+                    aria-label="Buscar cliente"
                   />
                   {posClientDropdownOpen && posClientResults.length > 0 && (
-                    <div
-                      className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-y-auto rounded-xl border border-p-border bg-p-surface shadow-lg"
+                    <AdminPersonList
+                      variant="floating"
+                      count={posClientResults.length}
+                      className="absolute left-0 right-0 top-full mt-1"
                       style={{ zIndex: ADMIN_Z_INDEX.dropdown }}
+                      maxHeight={208}
                     >
                       {posClientResults.map((client) => (
-                        <button
+                        <AdminPersonOption
                           key={client.id}
-                          type="button"
+                          name={client.name || String(client.id)}
+                          detail={client.phone || client.email || undefined}
                           onClick={() => handlePosSelectClient(client)}
-                          className="flex w-full flex-col px-3 py-2.5 text-left transition hover:bg-p-surface-2 first:rounded-t-xl last:rounded-b-xl"
-                        >
-                          <span className="text-[12px] font-semibold text-p-text">
-                            {client.name || client.id}
-                          </span>
-                          {(client.phone || client.email) && (
-                            <span className="text-[11px] text-p-text-muted">
-                              {client.phone || client.email}
-                            </span>
-                          )}
-                        </button>
+                        />
                       ))}
-                    </div>
+                    </AdminPersonList>
                   )}
                 </div>
               )}

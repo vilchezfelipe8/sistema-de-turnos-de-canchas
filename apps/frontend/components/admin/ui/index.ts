@@ -24,3 +24,4 @@ export type { MovementsTimelineItem, MovementsTimelineItemType } from './Movemen
 export { adminChip } from './adminChip';
 export type { AdminChipSize } from './adminChip';
 export { default as AdminMenu, AdminMenuItem, AdminMenuDivider } from './AdminMenu';
+export { AdminSearchInput, AdminPersonList, AdminPersonOption, AdminPersonCreateOption, AdminSelectedPerson } from './AdminPersonPicker';

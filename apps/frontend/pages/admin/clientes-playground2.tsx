@@ -45,6 +45,7 @@ import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import AdminMenu, { AdminMenuItem } from '../../components/admin/ui/AdminMenu';
+import { AdminPersonList, AdminPersonOption, AdminSearchInput } from '../../components/admin/ui/AdminPersonPicker';
 import AccountDrawer, {
   type AccountDrawerContext,
   type AccountDrawerInitialView,
@@ -1377,16 +1378,11 @@ export default function AdminClientesPlayground2Page() {
                             Nuevo cliente
                           </button>
                         </div>
-                        <div className="relative">
-                          <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                          <input
-                            type="text"
-                            value={searchTerm}
-                            onChange={(event) => setSearchTerm(event.target.value)}
-                            placeholder="Buscar por nombre, teléfono o DNI"
-                            className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-                          />
-                        </div>
+                        <AdminSearchInput
+                          value={searchTerm}
+                          onChange={(value) => setSearchTerm(value)}
+                          placeholder="Buscar por nombre, teléfono o DNI"
+                        />
                         <AdminSegmentedControl
                           variant="filter"
                           ariaLabel="Filtrar"
@@ -2478,62 +2474,34 @@ export default function AdminClientesPlayground2Page() {
               <p><span className="font-semibold text-p-text">Cliente:</span> {selectedClient ? getClientName(selectedClient) : '-'}</p>
               <p className="mt-1"><span className="font-semibold text-p-text">Política:</span> el vínculo es manual y no se reemplaza automáticamente.</p>
             </div>
-            <label className="block">
-              <span className="mb-1.5 block text-[12px] font-medium text-p-text-secondary">Buscar usuario</span>
-              <input
-                type="text"
-                value={linkSearchTerm}
-                onChange={(event) => {
-                  setLinkSearchTerm(event.target.value);
-                  setLinkError('');
-                }}
-                className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
-                placeholder="Nombre, email o teléfono"
-              />
-            </label>
-            <div className="max-h-64 space-y-2 overflow-auto">
-              {linkSearchLoading ? <p className="text-[12px] text-p-text-muted">Buscando usuarios...</p> : null}
-              {!linkSearchLoading && linkSearchTerm.trim().length >= 2 && linkSearchResults.length === 0 ? (
-                <p className="text-[12px] text-p-text-muted">No se encontraron usuarios permitidos para vincular con esa búsqueda.</p>
-              ) : null}
-              {linkSearchResults.length > 0 ? (
-                <p className="pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-p-text-muted">Usuarios encontrados</p>
-              ) : null}
-              {linkSearchResults.map((row) => {
-                const selected = Number(linkSelectedUser?.userId || 0) === Number(row?.userId || 0);
-                return (
-                  <button
-                    key={String(row?.personKey || row?.userId)}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => setLinkSelectedUser(row)}
-                    className={`w-full cursor-pointer rounded-xl border p-3 text-left text-[13px] transition-[background-color,border-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/50 active:bg-[var(--accent-bg-strong)] active:shadow-none ${
-                      selected
-                        ? 'border-lima-400 bg-p-positive-bg shadow-p-card'
-                        : 'border-p-border-strong bg-p-surface hover:border-lima-300 hover:bg-p-positive-bg hover:shadow-p-card'
-                    }`}
-                  >
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="min-w-0">
-                        <span className="block truncate font-semibold text-p-text">{String(row?.displayName || `Usuario ${row?.userId || ''}`)}</span>
-                        <span className="mt-0.5 block truncate text-p-text-muted">{String(row?.email || row?.phone || '-')}</span>
-                        {Array.isArray(row?.badges) && row.badges.length > 0 ? (
-                          <span className="mt-1 block text-[11px] text-p-text-muted">{row.badges.join(' · ')}</span>
-                        ) : null}
-                      </span>
-                      <span
-                        aria-hidden="true"
-                        className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 bg-p-surface transition-colors ${
-                          selected ? 'border-p-accent' : 'border-p-border-strong'
-                        }`}
-                      >
-                        <span className={`h-2 w-2 rounded-full transition-colors ${selected ? 'bg-p-accent' : 'bg-transparent'}`} />
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <AdminSearchInput
+              size="lg"
+              autoFocus
+              aria-label="Buscar usuario de la app"
+              value={linkSearchTerm}
+              onChange={(value) => {
+                setLinkSearchTerm(value);
+                setLinkError('');
+              }}
+              placeholder="Buscá por nombre, email o teléfono"
+            />
+            <AdminPersonList
+              loading={linkSearchLoading}
+              query={linkSearchTerm}
+              count={linkSearchResults.length}
+              empty="No hay usuarios de la app con ese dato."
+            >
+              {linkSearchResults.map((row) => (
+                <AdminPersonOption
+                  key={String(row?.personKey || row?.userId)}
+                  name={String(row?.displayName || `Usuario ${row?.userId || ''}`)}
+                  detail={String(row?.email || row?.phone || '')}
+                  badges={Array.isArray(row?.badges) ? row.badges : undefined}
+                  selected={Number(linkSelectedUser?.userId || 0) === Number(row?.userId || 0)}
+                  onClick={() => setLinkSelectedUser(row)}
+                />
+              ))}
+            </AdminPersonList>
           </div>
         }
       />
@@ -2591,40 +2559,30 @@ export default function AdminClientesPlayground2Page() {
               <span className="font-semibold text-p-text">{selectedClient ? getClientName(selectedClient) : 'este cliente'}</span>{' '}
               pasan al cliente que elijas, y este deja de aparecer. No se puede deshacer.
             </p>
-            <label className="block">
-              <span className="mb-1.5 block text-[13px] font-medium text-p-text">¿Con quién lo unís?</span>
-              <input
-                type="text"
+            <div className="space-y-2">
+              <p className="text-[13px] font-semibold text-p-text">¿Con quién lo unís?</p>
+              <AdminSearchInput
+                size="lg"
+                autoFocus
+                aria-label="Buscar cliente para unir"
                 value={mergeSearchTerm}
-                onChange={(event) => {
-                  setMergeSearchTerm(event.target.value);
+                onChange={(value) => {
+                  setMergeSearchTerm(value);
                   setMergeError('');
                 }}
-                className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent"
                 placeholder="Buscá por nombre, teléfono o DNI"
               />
-            </label>
-            <div className="max-h-64 space-y-2 overflow-auto">
-              {mergeSearchLoading ? <p className="text-[12px] text-p-text-muted">Buscando...</p> : null}
-              {!mergeSearchLoading && mergeSearchTerm.trim().length >= 2 && mergeSearchResults.length === 0 ? (
-                <p className="text-[12px] text-p-text-muted">No encontramos a nadie con ese dato.</p>
-              ) : null}
-              {mergeSearchResults.map((row: any) => {
-                const selected = String(mergeSelectedTarget?.id || '') === String(row?.id || '');
-                return (
-                  <button
+              <AdminPersonList loading={mergeSearchLoading} query={mergeSearchTerm} count={mergeSearchResults.length}>
+                {mergeSearchResults.map((row: any) => (
+                  <AdminPersonOption
                     key={String(row?.id || '')}
-                    type="button"
+                    name={String(row?.name || 'Sin nombre')}
+                    detail={String(row?.phone || row?.email || '')}
+                    selected={String(mergeSelectedTarget?.id || '') === String(row?.id || '')}
                     onClick={() => setMergeSelectedTarget(row)}
-                    className={`w-full rounded-xl border p-3 text-left text-[13px] transition ${
-                      selected ? 'border-p-accent bg-p-positive-bg' : 'border-p-border bg-p-surface-2 hover:bg-p-surface'
-                    }`}
-                  >
-                    <p className="font-semibold text-p-text">{String(row?.name || 'Sin nombre')}</p>
-                    <p className="mt-0.5 text-p-text-muted">{String(row?.phone || row?.email || '-')}</p>
-                  </button>
-                );
-              })}
+                  />
+                ))}
+              </AdminPersonList>
             </div>
             <label className="block">
               <span className="mb-1.5 block text-[13px] font-medium text-p-text">

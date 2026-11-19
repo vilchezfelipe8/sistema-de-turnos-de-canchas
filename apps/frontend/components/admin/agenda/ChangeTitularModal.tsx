@@ -1,5 +1,6 @@
-import { Check, Plus, Search, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import AdminOverlay from '../ui/AdminOverlay';
+import { AdminPersonCreateOption, AdminPersonList, AdminPersonOption, AdminSearchInput } from '../ui/AdminPersonPicker';
 import { modalCloseButtonCls, modalFooterCls, modalPanelScrollCls, modalPrimaryButtonCls, modalSecondaryButtonCls, modalTitleCls } from '../ui/adminModalStyles';
 import { AdminFeedbackBanner } from '../ui/AdminFeedback';
 
@@ -98,64 +99,35 @@ function ChangeTitularModalPanel({
       <div className="space-y-3 px-5 py-4">
         {!isDraftMode ? (
           <>
-            <div className="relative">
-              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-              <input
-                autoFocus
-                value={search}
-                onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="Buscá por nombre, teléfono o DNI"
-                disabled={submitting}
-                className="h-11 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[15px] text-p-text outline-none focus:border-p-border-strong"
-              />
-            </div>
+            <AdminSearchInput
+              size="lg"
+              autoFocus
+              value={search}
+              onChange={onSearchChange}
+              placeholder="Buscá por nombre, teléfono o DNI"
+              disabled={submitting}
+            />
 
             {showResults && (
-              <div className="max-h-[40vh] overflow-y-auto rounded-xl border border-p-border p-1">
-                {loading && <p className="px-3 py-2 text-[13px] text-p-text-muted">Buscando...</p>}
-                {!loading && candidates.length === 0 && search.trim().length >= 2 && (
-                  <p className="px-3 py-2 text-[13px] text-p-text-muted">No hay clientes con ese dato.</p>
-                )}
+              <AdminPersonList loading={loading} query={search} count={candidates.length} empty="No hay clientes con ese dato.">
                 {candidates.map((candidate) => {
-                  const isSelected = String(selectedKey) === String(candidate.key);
                   const memberBadge = (candidate.badges || []).find((badge) => /^socio/i.test(String(badge)));
-                  const detail = [candidate.phone || candidate.email, memberBadge].filter(Boolean).join(' · ');
                   return (
-                    <button
+                    <AdminPersonOption
                       key={`change-titular-candidate-${candidate.key}`}
-                      type="button"
+                      name={candidate.name}
+                      detail={candidate.phone || candidate.email}
+                      badges={memberBadge ? [memberBadge] : undefined}
+                      selected={String(selectedKey) === String(candidate.key)}
                       onClick={() => onSelectCandidate(String(candidate.key))}
                       disabled={submitting}
-                      aria-pressed={isSelected}
-                      className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition ${
-                        isSelected ? 'bg-p-positive-bg' : 'hover:bg-p-surface-2'
-                      } disabled:opacity-50`}
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[14px] font-semibold text-p-text">{candidate.name}</span>
-                        {detail && <span className="block truncate text-[12px] text-p-text-muted">{detail}</span>}
-                      </span>
-                      {isSelected && <Check size={16} className="shrink-0 text-p-accent" />}
-                    </button>
+                    />
                   );
                 })}
                 {search.trim().length >= 2 && (
-                  <>
-                    <div className="my-1 h-px bg-p-border" />
-                    <button
-                      type="button"
-                      onClick={onUseNewClient}
-                      disabled={submitting}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[14px] text-p-text hover:bg-p-surface-2 disabled:opacity-40"
-                    >
-                      <Plus size={15} className="shrink-0 text-p-accent" />
-                      <span className="truncate">
-                        Titular nuevo: <strong className="font-semibold">{search.trim()}</strong>
-                      </span>
-                    </button>
-                  </>
+                  <AdminPersonCreateOption label="Titular nuevo" value={search.trim()} onClick={onUseNewClient} disabled={submitting} />
                 )}
-              </div>
+              </AdminPersonList>
             )}
           </>
         ) : (

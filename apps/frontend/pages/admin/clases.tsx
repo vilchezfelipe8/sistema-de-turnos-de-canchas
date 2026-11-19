@@ -1,4 +1,5 @@
 import type { GetServerSideProps } from 'next';
+import { AdminPersonCreateOption, AdminPersonList, AdminPersonOption, AdminSearchInput, AdminSelectedPerson } from '../../components/admin/ui/AdminPersonPicker';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Pencil, Plus, Search, UserPlus, XCircle } from 'lucide-react';
 import {
@@ -2985,16 +2986,12 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               variant="filter"
               className="w-fit"
             />
-            <div className="relative w-full sm:w-[240px] sm:flex-none">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} strokeWidth={2.5} />
-              <input
-                type="text"
-                placeholder="Buscar profesor, cancha, deporte..."
-                className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-              />
-            </div>
+            <AdminSearchInput
+              placeholder="Buscar profesor, cancha, deporte..."
+              value={searchTerm}
+              onChange={(value) => setSearchTerm(value)}
+              wrapperClassName="w-full sm:w-[240px] sm:flex-none"
+            />
             <button
               type="button"
               onClick={openCreateModal}
@@ -3311,15 +3308,11 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <div className="space-y-4">
 
               {editingEnrollmentId ? (
-                <div className="rounded-xl border border-p-border bg-p-surface px-4 py-3">
-                  <p className="text-[12px] font-semibold text-p-text">Alumno</p>
-                  <p className="mt-1 text-[13px] font-medium text-p-text">
-                    {enrollmentForm.selectedStudent?.displayName || 'Sin alumno'}
-                  </p>
-                  <p className="mt-1 text-[12px] text-p-text-muted">
-                    {enrollmentForm.selectedStudent ? personSecondaryLine(enrollmentForm.selectedStudent) : 'Sin datos'}
-                  </p>
-                </div>
+                <AdminSelectedPerson
+                  name={enrollmentForm.selectedStudent?.displayName || 'Sin alumno'}
+                  detail={enrollmentForm.selectedStudent ? personSecondaryLine(enrollmentForm.selectedStudent) : 'Sin datos'}
+                  badges={enrollmentForm.selectedStudent ? personBadges(enrollmentForm.selectedStudent) : undefined}
+                />
               ) : (
                 <PersonSearchSelectField
                   label="Nombre o teléfono"
@@ -4902,100 +4895,49 @@ function PersonSearchSelectField({
   const safeQuery = String(query || '').trim();
   return (
     <div className="space-y-2">
-      <label className="text-[12px] font-semibold text-p-text">
+      <p className="text-[12px] font-semibold text-p-text">
         {label}
         {required ? ' *' : ''}
-      </label>
+      </p>
 
       {selected ? (
-        <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold text-p-text">{selected.displayName}</p>
-              <p className="mt-1 text-[12px] text-p-text-muted">{personSecondaryLine(selected)}</p>
-              {personBadges(selected).length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {personBadges(selected).map((badge) => (
-                    <span
-                      key={`${label}-${badge}`}
-                      className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-medium text-p-text-secondary"
-                    >
-                      {badge}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            {!disabled ? (
-              <button
-                type="button"
-                onClick={onClear}
-                className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
-              >
-                Cambiar
-              </button>
-            ) : null}
-          </div>
-        </div>
+        <AdminSelectedPerson
+          name={selected.displayName}
+          detail={personSecondaryLine(selected)}
+          badges={personBadges(selected)}
+          onChange={disabled ? undefined : onClear}
+        />
       ) : (
         <div className="space-y-2">
-          <input
-            type="text"
+          <AdminSearchInput
             value={query}
             disabled={disabled}
-            onChange={(event) => onQueryChange(event.target.value)}
+            onChange={onQueryChange}
             placeholder={placeholder}
-            className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent disabled:cursor-not-allowed disabled:bg-p-surface-2 disabled:text-p-text-muted"
+            aria-label={label}
           />
-          {loading ? (
-            <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-3 text-[12px] text-p-text-muted">
-              Buscando personas...
-            </div>
-          ) : safeQuery.length >= 2 ? (
-            results.length > 0 ? (
-              <div className="divide-y divide-p-border overflow-hidden rounded-xl border border-p-border bg-p-surface">
-                {results.map((candidate) => (
-                  <div key={`${label}-${candidate.personKey}`} className="px-3 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-[13px] font-semibold text-p-text">{candidate.displayName}</p>
-                        <p className="mt-1 text-[12px] text-p-text-muted">{personSecondaryLine(candidate)}</p>
-                        {personBadges(candidate).length > 0 ? (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {personBadges(candidate).map((badge) => (
-                              <span
-                                key={`${candidate.personKey}-${badge}`}
-                                className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-medium text-p-text-secondary"
-                              >
-                                {badge}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {candidate.disabledReason ? (
-                          <p className="mt-2 text-[11px] text-[var(--error-fg)]">{candidate.disabledReason}</p>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        disabled={Boolean(candidate.disabledReason)}
-                        onClick={() => onSelect(candidate)}
-                        className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-p-border px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Seleccionar
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-3 text-[12px] text-p-text-muted">
-                No encontramos coincidencias para esa búsqueda.
-              </div>
-            )
-          ) : helper ? (
-            <p className="text-[11px] text-p-text-muted">{helper}</p>
-          ) : null}
+          <AdminPersonList loading={loading} query={safeQuery} count={results.length} empty="No encontramos a nadie con ese dato.">
+            {results.map((candidate) =>
+              candidate.kind === 'newClientSuggestion' ? (
+                <AdminPersonCreateOption
+                  key={`${label}-${candidate.personKey}`}
+                  label="Alumno nuevo"
+                  value={candidate.displayName}
+                  onClick={() => onSelect(candidate)}
+                />
+              ) : (
+              <AdminPersonOption
+                key={`${label}-${candidate.personKey}`}
+                name={candidate.displayName}
+                detail={candidate.disabledReason || personSecondaryLine(candidate)}
+                badges={personBadges(candidate)}
+                disabled={Boolean(candidate.disabledReason)}
+                onClick={() => onSelect(candidate)}
+              />
+              )
+            )}
+          </AdminPersonList>
+          {safeQuery.length < 2 && helper ? <p className="text-[11px] text-p-text-muted">{helper}</p> : null}
         </div>
       )}
 

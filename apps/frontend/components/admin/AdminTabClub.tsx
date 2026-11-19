@@ -19,6 +19,7 @@ import { useRouter } from 'next/router';
 import { lockBodyScroll } from '../../utils/bodyScrollLock';
 import { useInSettingsSavePage, useSettingsSaveSlot } from '../../modules/ajustes/SettingsSaveContext';
 import { adminButton } from './ui/adminButton';
+import { AdminPersonList, AdminPersonOption, AdminSearchInput } from './ui/AdminPersonPicker';
 
 export type AdminTabClubSection =
   | 'identity'
@@ -3205,34 +3206,35 @@ export default function AdminTabClub({
                     <div className="md:col-span-2">
                       <label className={labelCls}>Buscar cliente</label>
                       <div className="relative z-30" ref={clientSearchWrapperRef}>
-                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                        <input
-                          type="text"
+                        <AdminSearchInput
                           value={clientSearch}
-                          onChange={handleDiscountClientSearchChange}
+                          onChange={(value) =>
+                            handleDiscountClientSearchChange({ target: { value } } as React.ChangeEvent<HTMLInputElement>)
+                          }
                           onFocus={() => setShowClientSearchDropdown(true)}
-                          className={`${inputCls} pl-9`}
-                          placeholder="Nombre o email..."
+                          placeholder="Buscá por nombre o email"
+                          aria-label="Buscar cliente"
                         />
                         {showClientSearchDropdown && clientSearchResults.length > 0 && (
-                          <div
-                            className="absolute left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border border-p-border bg-p-surface shadow-lg"
+                          <AdminPersonList
+                            variant="floating"
+                            count={clientSearchResults.length}
+                            className="absolute left-0 right-0 top-full mt-1"
                             style={{ zIndex: ADMIN_Z_INDEX.dropdown }}
+                            maxHeight={224}
                           >
                             {clientSearchResults.map((client) => (
-                              <button
+                              <AdminPersonOption
                                 key={client.id}
-                                type="button"
+                                name={client.name}
+                                detail={client.email || undefined}
+                                selected={String(selectedDiscountClient?.id ?? '') === String(client.id)}
                                 onClick={() => {
                                   void handleSelectDiscountClient(client);
                                 }}
-                                className="flex w-full flex-col px-3 py-2.5 text-left hover:bg-p-surface-2 transition first:rounded-t-xl last:rounded-b-xl"
-                              >
-                                <span className="text-[12px] font-medium text-p-text">{client.name}</span>
-                                <span className="text-[11px] text-p-text-muted">{client.email}</span>
-                              </button>
+                              />
                             ))}
-                          </div>
+                          </AdminPersonList>
                         )}
                       </div>
                     </div>

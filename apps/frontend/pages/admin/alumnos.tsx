@@ -32,6 +32,7 @@ import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { adminButton } from '../../components/admin/ui/adminButton';
 import { adminChip } from '../../components/admin/ui/adminChip';
+import { AdminSearchInput } from '../../components/admin/ui/AdminPersonPicker';
 
 const academyMetricCardClass = 'rounded-[22px] border-p-border bg-p-surface px-5 py-4 shadow-p-card';
 const academyPanelClass = 'overflow-hidden rounded-[24px] border-p-border bg-p-surface shadow-p-card';
@@ -490,16 +491,12 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
               variant="filter"
               className="w-fit"
             />
-            <div className="relative w-full sm:w-[260px] sm:flex-none">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} strokeWidth={2.5} />
-              <input
-                type="text"
-                placeholder="Buscar por nombre o teléfono..."
-                className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-              />
-            </div>
+            <AdminSearchInput
+              placeholder="Buscar por nombre o teléfono..."
+              value={searchTerm}
+              onChange={(value) => setSearchTerm(value)}
+              wrapperClassName="w-full sm:w-[260px] sm:flex-none"
+            />
           </AdminFilterToolbar>
         }
       >

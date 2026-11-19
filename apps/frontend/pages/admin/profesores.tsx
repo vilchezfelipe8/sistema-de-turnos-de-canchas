@@ -10,6 +10,7 @@ import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { adminButton } from '../../components/admin/ui/adminButton';
 import { adminChip } from '../../components/admin/ui/adminChip';
+import { AdminSearchInput } from '../../components/admin/ui/AdminPersonPicker';
 
 type TeacherStatusFilter = 'all' | 'active' | 'inactive';
 
@@ -412,16 +413,12 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
           )}
         </p>
         {summary.total > 0 && (
-          <label className="relative w-full sm:w-[240px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} />
-            <input
-              type="text"
-              placeholder="Buscar profesor"
-              className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-              value={searchTerm}
-              onChange={(event) => setSearchTerm(event.target.value)}
-            />
-          </label>
+          <AdminSearchInput
+            placeholder="Buscar profesor"
+            value={searchTerm}
+            onChange={(value) => setSearchTerm(value)}
+            wrapperClassName="w-full sm:w-[240px]"
+          />
         )}
         {summary.inactive > 0 && (
           <button

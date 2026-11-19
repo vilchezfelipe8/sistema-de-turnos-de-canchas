@@ -69,6 +69,8 @@ All in `apps/frontend/components/admin/ui/` (re-exported from `index.ts`). Consi
 | Custom modal body | `AdminOverlay` + `modalPanelCls`/`modalPanelScrollCls` and `modal*Cls` from `adminModalStyles.ts` |
 | Side panel (incl. agenda booking drawer) | `AdminDrawer` |
 | "⋯" / "Más acciones" menus | `AdminMenu` + `AdminMenuItem` + `AdminMenuDivider` |
+| Any search box (lists or people) | `AdminSearchInput` (md for list filters, lg for picking a person) |
+| Search + pick a person (client, app user, student, player…) | `AdminPersonList` + `AdminPersonOption` + `AdminPersonCreateOption`, chosen one shown with `AdminSelectedPerson` (all in `AdminPersonPicker.tsx`) |
 | Toasts | `showAdminToast()` |
 
 ### Motion

@@ -8,6 +8,7 @@ import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
 import AdminDrawer, { AdminDrawerSection } from '../../components/admin/ui/AdminDrawer';
 import AdminMenu, { AdminMenuDivider, AdminMenuItem } from '../../components/admin/ui/AdminMenu';
+import { AdminPersonCreateOption, AdminPersonList, AdminPersonOption, AdminSearchInput } from '../../components/admin/ui/AdminPersonPicker';
 import AdminOverlay from '../../components/admin/ui/AdminOverlay';
 import { modalCloseButtonCls, modalHeaderCls, modalPanelScrollCls, modalTitleCls } from '../../components/admin/ui/adminModalStyles';
 import AgendaBookingBlock from '../../components/admin/agenda/AgendaBookingBlock';
@@ -9502,111 +9503,83 @@ function AdminAgendaPlaygroundPage() {
                             <>
                               <div className="mt-3 grid grid-cols-1 gap-3">
                                 <div ref={simplifiedOwnerInputContainerRef} className="relative">
-                                <div className="h-12 rounded-xl border border-p-border bg-p-surface px-3 flex items-center gap-2">
-                                  <input
-                                    ref={simplifiedOwnerNameInputRef}
-                                    aria-label="Nombre del cliente"
-                                    value={ownerParticipant?.name || ''}
-                                    onChange={(event) => {
-                                      if (!ownerParticipant) return;
-                                      void runSimplifiedOwnerSearch(ownerParticipant.id, event.target.value);
-                                    }}
-                                    onFocus={() => {
-                                      if ((ownerParticipant?.name || '').trim().length > 0) {
-                                        setSimplifiedOwnerSuggestionsOpen(true);
-                                      }
-                                    }}
-                                    onBlur={() => {
-                                      window.setTimeout(() => setSimplifiedOwnerSuggestionsOpen(false), 120);
-                                    }}
-                                    placeholder="Buscá por nombre, teléfono o DNI"
-                                    className="w-full bg-transparent text-[15px] text-p-text outline-none"
-                                  />
-                                  {ownerHasTypedName ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (!ownerParticipant) return;
-                                        updateParticipant(ownerParticipant.id, {
-                                          name: '',
-                                          contact: '',
-                                          dni: undefined,
-                                          sourceType: 'guest',
-                                          entityRef: undefined,
-                                          selectedUserId: undefined,
-                                          personKind: undefined,
-                                          personKey: undefined,
-                                          personSearchQuery: undefined,
-                                          badges: undefined,
-                                        });
-                                        setSimplifiedOwnerAdded(false);
-                                        setSimplifiedEditingParticipantId(null);
-                                        setSimplifiedOwnerSuggestionsOpen(false);
-                                        setSimplifiedOwnerSearchLoading(false);
-                                        setSimplifiedOwnerSuggestions([]);
-                                        setSimplifiedNewParticipantOpen(false);
-                                        setSimplifiedNewParticipantName('');
-                                        setSimplifiedNewParticipantContact('');
-                                        setSimplifiedNewParticipantSourceTypeDraft('guest');
-                                        setSimplifiedNewParticipantEntityRefDraft('');
-                                        setSimplifiedNewParticipantSuggestionsOpen(false);
-                                        setSimplifiedNewParticipantSearchLoading(false);
-                                        setSimplifiedNewParticipantSuggestions([]);
-                                      }}
-                                      className="h-7 w-7 rounded-full text-p-text-muted grid place-items-center hover:bg-p-surface-2"
-                                      title="Limpiar titular"
-                                    >
-                                      <X size={14} />
-                                    </button>
-                                  ) : (
-                                    <Search size={18} className="text-p-text-muted" />
-                                  )}
-                                </div>
+                                <AdminSearchInput
+                                  ref={simplifiedOwnerNameInputRef}
+                                  size="lg"
+                                  aria-label="Nombre del cliente"
+                                  value={ownerParticipant?.name || ''}
+                                  onChange={(value) => {
+                                    if (!ownerParticipant) return;
+                                    void runSimplifiedOwnerSearch(ownerParticipant.id, value);
+                                  }}
+                                  onFocus={() => {
+                                    if ((ownerParticipant?.name || '').trim().length > 0) {
+                                      setSimplifiedOwnerSuggestionsOpen(true);
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    window.setTimeout(() => setSimplifiedOwnerSuggestionsOpen(false), 120);
+                                  }}
+                                  placeholder="Buscá por nombre, teléfono o DNI"
+                                  onClear={() => {
+                                    if (!ownerParticipant) return;
+                                    updateParticipant(ownerParticipant.id, {
+                                      name: '',
+                                      contact: '',
+                                      dni: undefined,
+                                      sourceType: 'guest',
+                                      entityRef: undefined,
+                                      selectedUserId: undefined,
+                                      personKind: undefined,
+                                      personKey: undefined,
+                                      personSearchQuery: undefined,
+                                      badges: undefined,
+                                    });
+                                    setSimplifiedOwnerAdded(false);
+                                    setSimplifiedEditingParticipantId(null);
+                                    setSimplifiedOwnerSuggestionsOpen(false);
+                                    setSimplifiedOwnerSearchLoading(false);
+                                    setSimplifiedOwnerSuggestions([]);
+                                    setSimplifiedNewParticipantOpen(false);
+                                    setSimplifiedNewParticipantName('');
+                                    setSimplifiedNewParticipantContact('');
+                                    setSimplifiedNewParticipantSourceTypeDraft('guest');
+                                    setSimplifiedNewParticipantEntityRefDraft('');
+                                    setSimplifiedNewParticipantSuggestionsOpen(false);
+                                    setSimplifiedNewParticipantSearchLoading(false);
+                                    setSimplifiedNewParticipantSuggestions([]);
+                                  }}
+                                />
                                 {simplifiedOwnerSuggestionsOpen &&
                                   simplifiedOwnerSuggestionsFloatingStyle &&
                                   createPortal(
-                                  <div
-                                    style={{
-                                      ...simplifiedOwnerSuggestionsFloatingStyle,
-                                      maxHeight: undefined,
-                                    }}
-                                    className="rounded-xl border border-p-border bg-p-surface shadow-lg overflow-hidden"
+                                  <AdminPersonList
+                                    variant="floating"
+                                    minChars={1}
+                                    loading={simplifiedOwnerSearchLoading}
+                                    query={ownerParticipant?.name || ''}
+                                    count={simplifiedOwnerSuggestions.length}
+                                    empty="No hay clientes con ese dato."
+                                    style={{ ...simplifiedOwnerSuggestionsFloatingStyle, maxHeight: undefined }}
+                                    maxHeight={simplifiedOwnerSuggestionsFloatingStyle.maxHeight}
                                   >
-                                    <div
-                                      style={{ maxHeight: simplifiedOwnerSuggestionsFloatingStyle.maxHeight }}
-                                      className="overflow-y-auto overscroll-contain p-1"
-                                    >
-                                      {simplifiedOwnerSearchLoading && (
-                                        <p className="px-3 py-2 text-[13px] text-p-text-muted">Buscando...</p>
-                                      )}
                                       {simplifiedOwnerSuggestions.slice(0, 8).map((suggestion) => (
-                                        <button
+                                        <AdminPersonOption
                                           key={`owner-suggestion-${suggestion.id}`}
-                                          type="button"
                                           onMouseDown={(event) => event.preventDefault()}
                                           onClick={() => {
                                             if (!ownerParticipant) return;
                                             applySimplifiedOwnerSuggestion(ownerParticipant.id, suggestion);
                                           }}
-                                          className="w-full text-left rounded-lg px-3 py-2 hover:bg-p-surface-2 focus:bg-p-surface-2 focus:outline-none"
-                                        >
-                                          <span className="block truncate text-[14px] font-semibold text-p-text">{suggestion.label}</span>
-                                          {(suggestion.secondary || (Array.isArray(suggestion.badges) && suggestion.badges.length > 0)) && (
-                                            <span className="mt-0.5 block truncate text-[12px] text-p-text-muted">
-                                              {describeOwnerSuggestion(suggestion.secondary, suggestion.badges)}
-                                            </span>
-                                          )}
-                                        </button>
+                                          name={suggestion.label}
+                                          detail={describeOwnerSuggestion(suggestion.secondary, suggestion.badges) || undefined}
+                                        />
                                       ))}
                                       {ownerHasTypedName && (
                                         <>
-                                          {simplifiedOwnerSuggestions.length === 0 && !simplifiedOwnerSearchLoading && (
-                                            <p className="px-3 py-2 text-[13px] text-p-text-muted">
-                                              No hay clientes con ese dato.
-                                            </p>
-                                          )}
-                                          <button
-                                            type="button"
+                                          <AdminPersonCreateOption
+                                            label="Cliente nuevo"
+                                            value={ownerParticipant.name.trim()}
                                             onMouseDown={(event) => event.preventDefault()}
                                             onClick={() => {
                                               if (!ownerParticipant) return;
@@ -9628,17 +9601,10 @@ function AdminAgendaPlaygroundPage() {
                                               setFormError('');
                                               window.setTimeout(() => simplifiedOwnerPhoneInputRef.current?.focus(), 0);
                                             }}
-                                            className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-p-border px-3 py-2.5 text-left text-[14px] hover:bg-p-surface-2"
-                                          >
-                                            <Plus size={15} className="shrink-0 text-p-accent" />
-                                            <span className="min-w-0 truncate text-p-text">
-                                              Cliente nuevo: <strong className="font-semibold">{ownerParticipant.name.trim()}</strong>
-                                            </span>
-                                          </button>
+                                          />
                                         </>
                                       )}
-                                    </div>
-                                  </div>,
+                                  </AdminPersonList>,
                                   document.body
                                 )}
                                 </div>
@@ -9739,14 +9705,15 @@ function AdminAgendaPlaygroundPage() {
                                   {!simplifiedNewPlayerAsGuest ? (
                                     <div ref={simplifiedNewParticipantInputContainerRef} className="relative">
                                       <div className="flex items-center gap-2">
-                                        <div className="relative flex-1">
-                                          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                                          <input
+                                          <AdminSearchInput
+                                            size="lg"
+                                            wrapperClassName="flex-1"
+                                            aria-label="Buscar jugador"
                                             autoFocus
                                             value={simplifiedNewParticipantName}
-                                            onChange={(event) => {
+                                            onChange={(value) => {
                                               setSimplifiedNewPlayerError('');
-                                              void runSimplifiedNewParticipantSearch(event.target.value);
+                                              void runSimplifiedNewParticipantSearch(value);
                                             }}
                                             onFocus={() => {
                                               if (simplifiedNewParticipantName.trim().length > 0) {
@@ -9763,9 +9730,7 @@ function AdminAgendaPlaygroundPage() {
                                               }
                                             }}
                                             placeholder="Buscá jugador por nombre, teléfono o DNI"
-                                            className="h-11 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[15px] outline-none focus:border-p-border-strong"
                                           />
-                                        </div>
                                         <button
                                           type="button"
                                           onClick={resetSimplifiedNewParticipantDraft}
@@ -9777,32 +9742,25 @@ function AdminAgendaPlaygroundPage() {
                                       {simplifiedNewParticipantSuggestionsOpen &&
                                         simplifiedNewParticipantSuggestionsFloatingStyle &&
                                         createPortal(
-                                        <div
-                                          style={{
-                                            ...simplifiedNewParticipantSuggestionsFloatingStyle,
-                                            maxHeight: undefined,
-                                          }}
-                                          className="rounded-xl border border-p-border bg-p-surface shadow-lg overflow-hidden"
+                                        <AdminPersonList
+                                          variant="floating"
+                                          minChars={1}
+                                          loading={simplifiedNewParticipantSearchLoading}
+                                          query={simplifiedNewParticipantName}
+                                          count={simplifiedNewParticipantSuggestions.length}
+                                          empty="No hay clientes con ese dato."
+                                          style={{ ...simplifiedNewParticipantSuggestionsFloatingStyle, maxHeight: undefined }}
+                                          maxHeight={simplifiedNewParticipantSuggestionsFloatingStyle.maxHeight}
                                         >
-                                          <div
-                                            style={{ maxHeight: simplifiedNewParticipantSuggestionsFloatingStyle.maxHeight }}
-                                            className="overflow-y-auto overscroll-contain p-1"
-                                          >
-                                            {simplifiedNewParticipantSearchLoading && (
-                                              <p className="px-3 py-2 text-[13px] text-p-text-muted">Buscando...</p>
-                                            )}
                                             {simplifiedNewParticipantSuggestions.slice(0, 8).map((suggestion) => {
                                               const memberNote = describeMemberStatus(suggestion.badges);
                                               return (
-                                                <button
+                                                <AdminPersonOption
                                                   key={`new-suggestion-${suggestion.id}`}
-                                                  type="button"
                                                   onMouseDown={(event) => event.preventDefault()}
                                                   onClick={() => void addSimplifiedPlayerFromSuggestion(suggestion)}
-                                                  className="w-full text-left rounded-lg px-3 py-2 hover:bg-p-surface-2 focus:bg-p-surface-2 focus:outline-none"
-                                                >
-                                                  <span className="block truncate text-[14px] font-semibold text-p-text">{suggestion.label}</span>
-                                                  <span className="mt-0.5 block truncate text-[12px] text-p-text-muted">
+                                                  name={suggestion.label}
+                                                  detail={<>
                                                     {describeOwnerSuggestion(suggestion.secondary, (suggestion.badges || []).filter((badge) => !/socio/i.test(String(badge))))}
                                                     {memberNote ? (
                                                       <span className={memberNote.tone === 'warning' ? 'text-p-warning' : 'text-p-positive'}>
@@ -9810,18 +9768,15 @@ function AdminAgendaPlaygroundPage() {
                                                         {memberNote.label}
                                                       </span>
                                                     ) : null}
-                                                  </span>
-                                                </button>
+                                                  </>}
+                                                />
                                               );
                                             })}
                                             {simplifiedNewParticipantName.trim().length > 0 && (
                                               <>
-                                                {simplifiedNewParticipantSuggestions.length === 0 && !simplifiedNewParticipantSearchLoading && (
-                                                  <p className="px-3 py-2 text-[13px] text-p-text-muted">No hay clientes con ese dato.</p>
-                                                )}
-                                                <div className="my-1 h-px bg-p-border" />
-                                                <button
-                                                  type="button"
+                                                <AdminPersonCreateOption
+                                                  label="Jugador nuevo"
+                                                  value={simplifiedNewParticipantName.trim()}
                                                   onMouseDown={(event) => event.preventDefault()}
                                                   onClick={() => {
                                                     setSimplifiedNewParticipantSourceTypeDraft('guest');
@@ -9837,17 +9792,10 @@ function AdminAgendaPlaygroundPage() {
                                                     setSimplifiedNewPlayerAsGuest(true);
                                                     setFormError('');
                                                   }}
-                                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[14px] text-p-text hover:bg-p-surface-2"
-                                                >
-                                                  <Plus size={15} className="shrink-0 text-p-accent" />
-                                                  <span className="truncate">
-                                                    Jugador nuevo: <strong className="font-semibold">{simplifiedNewParticipantName.trim()}</strong>
-                                                  </span>
-                                                </button>
+                                                />
                                               </>
                                             )}
-                                          </div>
-                                        </div>,
+                                        </AdminPersonList>,
                                         document.body
                                       )}
                                     </div>
@@ -10230,40 +10178,36 @@ function AdminAgendaPlaygroundPage() {
                             </p>
                             <div className="grid grid-cols-[1fr_20px] gap-2 items-center">
                               <div className="relative">
-                                <div className="h-11 rounded-xl border border-p-border px-3 flex items-center gap-2 text-p-text-muted">
-                                  <Search size={14} />
-                                  <input
-                                    value={participant.name}
-                                    onChange={(event) => void runParticipantSearch(participant.id, event.target.value)}
-                                    onFocus={() => {
-                                      const suggestions = participantSuggestionsById[participant.id];
-                                      if (Array.isArray(suggestions) && suggestions.length > 0) {
-                                        setParticipantSearchOpenId(participant.id);
-                                      }
-                                    }}
-                                    placeholder="Buscar nombre, correo o teléfono"
-                                    className="w-full bg-transparent outline-none text-[13px] text-p-text"
-                                  />
-                                </div>
+                                <AdminSearchInput
+                                  size="lg"
+                                  clearable={false}
+                                  aria-label="Buscar participante"
+                                  value={participant.name}
+                                  onChange={(value) => void runParticipantSearch(participant.id, value)}
+                                  onFocus={() => {
+                                    const suggestions = participantSuggestionsById[participant.id];
+                                    if (Array.isArray(suggestions) && suggestions.length > 0) {
+                                      setParticipantSearchOpenId(participant.id);
+                                    }
+                                  }}
+                                  placeholder="Buscá por nombre, teléfono o email"
+                                />
                                 {participantSearchOpenId === participant.id && (
-                                  <div className="absolute left-0 right-0 top-12 z-30 rounded-xl border border-p-border bg-p-surface shadow-lg p-1">
-                                    {participantSearchLoadingId === participant.id && (
-                                      <p className="px-2 py-1 text-[11px] text-p-text-muted">Buscando...</p>
-                                    )}
+                                  <AdminPersonList
+                                    variant="floating"
+                                    className="absolute left-0 right-0 top-12 z-30"
+                                    loading={participantSearchLoadingId === participant.id}
+                                    count={(participantSuggestionsById[participant.id] || []).length}
+                                  >
                                     {(participantSuggestionsById[participant.id] || []).slice(0, 8).map((suggestion) => (
-                                      <button
+                                      <AdminPersonOption
                                         key={suggestion.id}
-                                        type="button"
                                         onClick={() => applyParticipantSuggestion(participant.id, suggestion)}
-                                        className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-p-surface-2"
-                                      >
-                                        <span className="block text-[12px] font-semibold text-p-text">{suggestion.label}</span>
-                                        {suggestion.secondary && (
-                                          <span className="block text-[11px] text-p-text-muted">{suggestion.secondary}</span>
-                                        )}
-                                      </button>
+                                        name={suggestion.label}
+                                        detail={suggestion.secondary || undefined}
+                                      />
                                     ))}
-                                  </div>
+                                  </AdminPersonList>
                                 )}
                               </div>
                               {showParticipantActions && (

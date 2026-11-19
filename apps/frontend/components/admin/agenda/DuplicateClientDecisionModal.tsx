@@ -1,4 +1,5 @@
 import AdminOverlay from '../ui/AdminOverlay';
+import { AdminPersonList, AdminPersonOption } from '../ui/AdminPersonPicker';
 import { modalFooterCls, modalPanelScrollCls, modalPrimaryButtonCls, modalSecondaryButtonCls, modalTitleCls } from '../ui/adminModalStyles';
 import { AdminFeedbackBanner } from '../ui/AdminFeedback';
 
@@ -43,33 +44,22 @@ function DuplicateClientDecisionModalPanel({
         </p>
       </div>
 
-      <div className="max-h-[46vh] space-y-2 overflow-y-auto px-5 py-4">
-        {candidates.map((candidate) => {
-          const isSelected = String(selectedClientId) === String(candidate.id);
-          return (
-            <button
-              key={`duplicate-candidate-${candidate.id}`}
-              type="button"
-              onClick={() => onSelectClient(String(candidate.id))}
-              disabled={loading}
-              className={`w-full rounded-xl border px-3 py-2 text-left transition ${
-                isSelected
-                  ? 'border-p-accent bg-p-positive-bg'
-                  : 'border-p-border bg-p-surface hover:bg-p-surface-2'
-              } disabled:opacity-50`}
-            >
-              <p className="text-[13px] font-semibold text-p-text">{candidate.name}</p>
-              <p className="mt-0.5 text-[12px] text-p-text-muted">
-                {[candidate.phone, candidate.email].filter(Boolean).join(' · ') || 'Sin contacto visible'}
-              </p>
-            </button>
-          );
-        })}
-
-        {candidates.length === 0 && (
-          <p className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2 text-[12px] text-p-text-muted">
-            No llegaron candidatos detallados en la respuesta.
-          </p>
+      <div className="px-5 py-4">
+        {candidates.length === 0 ? (
+          <p className="text-[13px] text-p-text-muted">No llegaron candidatos detallados en la respuesta.</p>
+        ) : (
+          <AdminPersonList count={candidates.length}>
+            {candidates.map((candidate) => (
+              <AdminPersonOption
+                key={`duplicate-candidate-${candidate.id}`}
+                name={candidate.name}
+                detail={[candidate.phone, candidate.email].filter(Boolean).join(' · ') || 'Sin contacto visible'}
+                selected={String(selectedClientId) === String(candidate.id)}
+                onClick={() => onSelectClient(String(candidate.id))}
+                disabled={loading}
+              />
+            ))}
+          </AdminPersonList>
         )}
       </div>
 

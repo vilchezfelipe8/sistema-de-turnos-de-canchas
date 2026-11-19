@@ -20,6 +20,7 @@ import {
   type BookingListView,
 } from '../../services/AdminBookingListService';
 import { adminButton } from '../../components/admin/ui/adminButton';
+import { AdminSearchInput } from '../../components/admin/ui/AdminPersonPicker';
 
 // Reservas: todas las reservas de varios días, para buscar sin saber la fecha.
 
@@ -617,17 +618,13 @@ function BookingsContent({ slug }: { slug: string }) {
       <div className="flex flex-col gap-4">
 
         <div className="flex flex-col gap-2 sm:flex-row">
-          <label className="relative flex-1">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-            <input
-              type="search"
-              value={searchDraft}
-              onChange={(e) => setSearchDraft(e.target.value)}
-              placeholder="Nombre, teléfono o código"
-              aria-label="Buscar reservas"
-              className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
-            />
-          </label>
+          <AdminSearchInput
+            value={searchDraft}
+            onChange={(value) => setSearchDraft(value)}
+            placeholder="Nombre, teléfono o código"
+            aria-label="Buscar reservas"
+            wrapperClassName="flex-1"
+          />
           <div className={`flex items-center gap-2 ${view === 'FIXED' ? 'hidden' : ''}`}>
             <input
               type="date"
