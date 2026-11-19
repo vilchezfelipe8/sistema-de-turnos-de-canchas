@@ -14,6 +14,7 @@ import {
   MapPin,
   Calendar,
   Moon,
+  Settings,
   Sun,
   Users,
   X,
@@ -483,8 +484,9 @@ export default function AdminPlaygroundShell({
                         setProfileMenuOpen(false);
                         void router.push('/admin/ajustes');
                       }}
-                      className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text-secondary transition hover:bg-p-surface-2"
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] text-p-text-secondary transition hover:bg-p-surface-2"
                     >
+                      <Settings size={14} />
                       Configuración
                     </button>
                   )}
@@ -495,8 +497,9 @@ export default function AdminPlaygroundShell({
                       setProfileMenuOpen(false);
                       setLogoutConfirmOpen(true);
                     }}
-                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-semibold text-p-error transition hover:bg-p-error-bg"
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[13px] font-semibold text-p-error transition hover:bg-p-error-bg"
                   >
+                    <LogOut size={14} />
                     Cerrar sesión
                   </button>
                 </div>

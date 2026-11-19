@@ -180,14 +180,13 @@ cd apps/backend && npx prisma db seed
 - State setters: `set<FeatureName><StateDescription>` (e.g. `setAccountPaymentAmountDraft`)
 - Pending items derived via `useMemo` from account detail — never stored in raw state
 - Club-scoped: all API calls include active club context automatically via `apiClient`
-- Playground pages are large single-file components by design — do not split unless explicitly asked
 
 ---
 
 ## Admin Migration State (updated 2026-04-27)
 
 ### Already migrated ✅
-- `AdminPlaygroundShell` + `AdminRouteShell` — main shell, working well. **Do not touch.**
+- `AdminPlaygroundShell` + `AdminRouteShell` — main shell, working well.
 - `_app.tsx` — `ActiveClubProvider` + `AuthProvider` correctly nested, clean notices system.
 - `ActiveClubContext` — well implemented with `StorageEvent` sync.
 - `agenda.tsx` → re-exports `agenda-playground2.tsx`
@@ -277,8 +276,3 @@ Has `import { useParams } from 'react-router-dom'` used on line 321 — wrong ro
 2. Extract hooks from `agenda-playground2.tsx` (Phase 3): `useAgendaSchedule`, `useAgendaDragAndDrop`, `useBookingDrawerController`
 3. Auth migration to cookies — update this file when done
 
-**Do NOT:**
-- Touch `AdminPlaygroundShell` — it's well built and stable
-- Componentize `pagos-playground.tsx` or `agenda-playground2.tsx` now — finish structural cleanup first
-- Move Cuentas into Caja if it changes live URLs without a redirect in place first
-- Componentize `cuentas.tsx` all at once
