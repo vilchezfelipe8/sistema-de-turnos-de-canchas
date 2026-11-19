@@ -2901,6 +2901,8 @@ model SubscriptionPlan {
   grantsMemberCategoryId String?
   grantsMemberCategory   MemberCategory?         @relation(fields: [grantsMemberCategoryId], references: [id], onDelete: SetNull)
   isActive               Boolean                 @default(true)
+  // El jugador lo puede comprar desde la app del club (paga con Mercado Pago).
+  sellOnline             Boolean                 @default(false)
   sortOrder              Int                     @default(0)
   createdAt              DateTime                @default(now()) @db.Timestamptz(3)
   updatedAt              DateTime                @updatedAt @db.Timestamptz(3)
@@ -2969,6 +2971,9 @@ model Subscription {
   currentPeriodEnd DateTime               @db.Date
   autoRenew        Boolean                @default(true)
   pausesUsed       Int                    @default(0)
+  // Comprado desde la app y todavía sin pagar: no habilita nada (ni acceso, ni clases, ni socio)
+  // hasta que se pague la primera cuota (y la matrícula). Si no se paga, se cancela solo.
+  awaitingOnlinePayment Boolean           @default(false)
   cancelledAt      DateTime?              @db.Timestamptz(3)
   cancelReason     String?
   notes            String?

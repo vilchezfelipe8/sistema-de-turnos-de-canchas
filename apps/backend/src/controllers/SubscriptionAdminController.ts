@@ -26,6 +26,7 @@ const planSchema = z.object({
   suspendMemberAfterDays: optionalInt(1, 365).optional(),
   grantsMemberCategoryId: z.string().trim().min(1).optional().nullable(),
   sortOrder: z.number().int().optional(),
+  sellOnline: z.boolean().optional(),
   options: z
     .array(
       z.object({

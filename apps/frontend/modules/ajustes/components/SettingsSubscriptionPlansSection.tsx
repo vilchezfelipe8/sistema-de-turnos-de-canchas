@@ -50,6 +50,7 @@ type PlanDraft = {
   pauseMaxCount: string;
   suspendMemberAfterDays: string;
   grantsMemberCategoryId: string;
+  sellOnline: boolean;
   options: OptionDraft[];
   entitlements: EntitlementDraft[];
 };
@@ -66,6 +67,7 @@ const emptyDraft = (): PlanDraft => ({
   pauseMaxCount: '0',
   suspendMemberAfterDays: '',
   grantsMemberCategoryId: '',
+  sellOnline: false,
   options: [{ label: 'Mensual', installmentsCount: '1', installmentPrice: '' }],
   entitlements: [],
 });
@@ -82,6 +84,7 @@ const draftFromPlan = (plan: SubscriptionPlan): PlanDraft => ({
   pauseMaxCount: String(plan.pauseMaxCount),
   suspendMemberAfterDays: plan.suspendMemberAfterDays ? String(plan.suspendMemberAfterDays) : '',
   grantsMemberCategoryId: plan.grantsMemberCategory?.id || '',
+  sellOnline: plan.sellOnline === true,
   options: plan.options
     .filter((option) => option.isActive)
     .map((option) => ({
@@ -113,6 +116,7 @@ const draftToInput = (draft: PlanDraft): SubscriptionPlanInput => ({
   pauseMaxCount: Number(draft.pauseMaxCount || 0),
   suspendMemberAfterDays: draft.grantsMemberCategoryId && Number(draft.suspendMemberAfterDays) > 0 ? Number(draft.suspendMemberAfterDays) : null,
   grantsMemberCategoryId: draft.grantsMemberCategoryId || null,
+  sellOnline: draft.sellOnline,
   options: draft.options.map((option) => ({
     id: option.id || null,
     label: option.label.trim(),
@@ -150,6 +154,8 @@ export default function SettingsSubscriptionPlansSection() {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [activities, setActivities] = useState<ClubActivityType[]>([]);
   const [categories, setCategories] = useState<MemberCategory[]>([]);
+  // null = no se pudo saber (sin permiso o error): no bloqueamos el toggle.
+  const [mercadoPagoConnected, setMercadoPagoConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -160,12 +166,16 @@ export default function SettingsSubscriptionPlansSection() {
     if (!clubSlug) return;
     setLoading(true);
     try {
-      const [planRows, activityRows, categoryRows] = await Promise.all([
+      const [planRows, activityRows, categoryRows, integrations] = await Promise.all([
         SubscriptionAdminService.listPlans(clubSlug, true),
         ClubAdminService.getActivityTypes(clubSlug).catch(() => [] as ClubActivityType[]),
         MemberAdminService.listCategories(clubSlug).catch(() => [] as MemberCategory[]),
+        ClubAdminService.listPaymentIntegrations(clubSlug).catch(() => null),
       ]);
       setPlans(planRows);
+      setMercadoPagoConnected(
+        integrations ? integrations.some((row) => row.provider === 'MERCADO_PAGO' && row.connected) : null
+      );
       setActivities(activityRows);
       setCategories(categoryRows.filter((category) => category.isActive));
       setError('');
@@ -274,6 +284,18 @@ export default function SettingsSubscriptionPlansSection() {
                 <p className="font-semibold text-p-text">
                   {plan.name}
                   {!plan.isActive ? <span className="ml-2 text-[11px] font-semibold text-p-text-muted">Desactivado</span> : null}
+                  {plan.sellOnline ? (
+                    <span
+                      className={`ml-2 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                        mercadoPagoConnected === false
+                          ? 'border-p-warning bg-p-warning-bg text-p-warning'
+                          : 'border-p-border bg-p-surface-2 text-p-text-secondary'
+                      }`}
+                      title={mercadoPagoConnected === false ? 'No se muestra en la app hasta conectar Mercado Pago.' : undefined}
+                    >
+                      {mercadoPagoConnected === false ? 'Se vende en la app · falta Mercado Pago' : 'Se vende en la app'}
+                    </span>
+                  ) : null}
                 </p>
                 <p className="text-[12px] text-p-text-muted">
                   {BILLING_TYPE_LABELS[plan.billingType]} · {periodLabel(plan.periodMonths)}
@@ -419,6 +441,32 @@ export default function SettingsSubscriptionPlansSection() {
                 </label>
               ) : null}
             </div>
+            <label
+              className={`flex items-start gap-2 rounded-lg border border-p-border p-3 ${
+                mercadoPagoConnected === false && !draft.sellOnline ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 accent-p-brand"
+                checked={draft.sellOnline}
+                // Sin Mercado Pago no se puede encender, pero sí apagar un plan que ya estaba a la venta.
+                disabled={mercadoPagoConnected === false && !draft.sellOnline}
+                onChange={(e) => updateDraft({ sellOnline: e.target.checked })}
+              />
+              <span>
+                <span className="block text-[13px] font-semibold text-p-text">Se vende en la app</span>
+                <span className="block text-[11px] font-normal text-p-text-muted">
+                  El jugador lo compra desde la página del club y paga la matrícula y la primera cuota con Mercado Pago. Necesita
+                  Mercado Pago conectado. El plan se activa recién cuando el pago se acredita.
+                </span>
+                {mercadoPagoConnected === false ? (
+                  <span className="mt-1 block text-[11px] font-semibold text-p-warning">
+                    No disponible: el club no tiene Mercado Pago conectado. Conectalo en Ajustes → Integraciones.
+                  </span>
+                ) : null}
+              </span>
+            </label>
 
             <div className="space-y-2">
               <p className="text-[12px] font-semibold text-p-text-secondary">Formas de pago</p>

@@ -34,9 +34,20 @@ const formatClassDate = (iso: string) => {
   return `${day} ${time}`;
 };
 
+type Props = {
+  /** Solo los cursos de este club (pestaña Clases de la página del club). */
+  clubSlug?: string;
+  /** 'club': se muestra como panel de la página del club. */
+  variant?: 'profile' | 'club';
+  /** Cambia cuando hay que volver a cargar (por ejemplo, después de anotarse). */
+  reloadKey?: number;
+};
+
 /** "Mis cursos" del jugador: en qué cursos está (o pidió lugar), próximas clases y bajarse. */
-export default function MyCoursesCard() {
-  const [courses, setCourses] = useState<MyCourse[] | null>(null);
+export default function MyCoursesCard({ clubSlug, variant = 'profile', reloadKey = 0 }: Props = {}) {
+  const inClub = variant === 'club';
+  const [allCourses, setCourses] = useState<MyCourse[] | null>(null);
+  const courses = allCourses && clubSlug ? allCourses.filter((course) => course.clubSlug === clubSlug) : allCourses;
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -50,7 +61,7 @@ export default function MyCoursesCard() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, reloadKey]);
 
   // Desde el aviso "te sumó al curso" se llega con #mis-cursos: la tarjeta carga después, así que se baja a mano.
   useEffect(() => {
@@ -79,19 +90,27 @@ export default function MyCoursesCard() {
   if (!courses || courses.length === 0) return null;
 
   return (
-    <div className="p-public-card pf-card" id="mis-cursos" style={{ marginTop: 16 }}>
+    <div
+      className={inClub ? 'cl-panel' : 'p-public-card pf-card'}
+      id="mis-cursos"
+      style={inClub ? { scrollMarginTop: 88 } : { marginTop: 16 }}
+    >
       <style>{CSS}</style>
-      <h2 className="pf-card-title">
-        <GraduationCap size={18} aria-hidden="true" /> Mis cursos
-      </h2>
+      {inClub ? (
+        <h2 className="cl-panel-h">Mis clases</h2>
+      ) : (
+        <h2 className="pf-card-title">
+          <GraduationCap size={18} aria-hidden="true" /> Mis cursos
+        </h2>
+      )}
       <div className="mc-list">
         {courses.map((course) => {
           const busy = busyId === course.id;
           const pending = course.status !== 'ACTIVE';
           const awaitingPayment = course.status === 'AWAITING_PAYMENT';
-          const details = [course.clubName, course.teacher ? `con ${course.teacher}` : null, course.court, course.level].filter(Boolean);
+          const details = [inClub ? null : course.clubName, course.teacher ? `con ${course.teacher}` : null, course.court, course.level].filter(Boolean);
           return (
-            <article key={course.id} className="mc-row">
+            <article key={course.id} className={inClub ? 'cl-review-card' : 'mc-row'}>
               <div className="mc-head">
                 <div>
                   <p className="mc-title">
@@ -115,8 +134,8 @@ export default function MyCoursesCard() {
               )}
 
               <div className="mc-foot">
-                {course.clubSlug ? (
-                  <Link href={`/club/${course.clubSlug}`} className="mc-link">
+                {course.clubSlug && !inClub ? (
+                  <Link href={`/club/${course.clubSlug}?tab=clases`} className="mc-link">
                     {awaitingPayment ? 'Pagar en la página del club' : 'Ver club'}
                   </Link>
                 ) : (

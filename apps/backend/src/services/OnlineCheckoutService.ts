@@ -168,6 +168,106 @@ export class OnlineCheckoutService {
         return { ok: true, attemptId: attempt.id, status: 'ERROR', reason: ErrorCodes.CHECKOUT_AMOUNT_CHANGED };
       }
 
+      // Un solo pago para varias cuentas (compra de plan: matrícula + primera cuota).
+      const bundle = this.parseAttemptBundle(attempt.target);
+      if (bundle) {
+        const markError = async (reason: string, action: string, payload: Record<string, unknown> = {}) => {
+          await tx.onlinePaymentAttempt.update({
+            where: { id: attempt.id },
+            data: {
+              status: 'ERROR',
+              providerPaymentId,
+              providerStatus,
+              rawProviderData: rawPaymentJson,
+              processedAt: new Date(),
+              failureReason: reason
+            }
+          });
+          await tx.auditLog.create({
+            data: {
+              clubId,
+              userId: attempt.userId,
+              entity: 'ONLINE_PAYMENT_ATTEMPT',
+              entityId: attempt.id,
+              action,
+              payload: { provider: 'MERCADO_PAGO', providerPaymentId, approvedAmount, bundle, ...payload } as Prisma.InputJsonValue
+            }
+          });
+          return { ok: true, attemptId: attempt.id, status: 'ERROR', reason };
+        };
+
+        const bundleTotal = Number(bundle.reduce((sum, part) => sum + part.amount, 0).toFixed(2));
+        if (Math.abs(bundleTotal - approvedAmount) > EPSILON) {
+          return markError(ErrorCodes.CHECKOUT_AMOUNT_CHANGED, 'PAYMENT_ONLINE_AMOUNT_MISMATCH', { bundleTotal });
+        }
+        // Todas las cuentas tienen que seguir con ese saldo: si alguna cambió, no se imputa nada y lo revisa el club.
+        for (const part of bundle) {
+          const partAccount = await tx.account.findUnique({
+            where: { id: part.accountId },
+            select: { clubId: true, refunds: { select: { status: true } } }
+          });
+          if (!partAccount || partAccount.clubId !== clubId
+            || partAccount.refunds.some((refund) => refund.status !== 'FAILED' && refund.status !== 'CANCELLED')) {
+            return markError(ErrorCodes.CHECKOUT_NOT_AVAILABLE, 'PAYMENT_ONLINE_UPDATED', { accountId: part.accountId });
+          }
+          const { remaining } = await this.accountService.reconcilePaidAmountTx(tx, part.accountId, { updateStatus: true });
+          if (remaining + EPSILON < part.amount) {
+            return markError(
+              remaining <= EPSILON ? ErrorCodes.CHECKOUT_ALREADY_PAID : ErrorCodes.CHECKOUT_AMOUNT_CHANGED,
+              remaining <= EPSILON ? 'PAYMENT_ONLINE_ALREADY_PAID' : 'PAYMENT_ONLINE_AMOUNT_CHANGED',
+              { accountId: part.accountId, remaining }
+            );
+          }
+        }
+
+        const paymentMethod = this.mapMercadoPagoMethod(payment.payment_type_id);
+        const created: string[] = [];
+        for (const part of bundle) {
+          const createdPayment = await this.paymentService.createInTransaction(tx, {
+            clubId,
+            accountId: part.accountId,
+            amount: part.amount,
+            method: paymentMethod.method,
+            channel: paymentMethod.channel,
+            source: 'ONLINE',
+            externalReference: providerPaymentId,
+            idempotencyKey: `mercadopago:${providerPaymentId}:${part.accountId}`
+          });
+          if (createdPayment?.id) created.push(createdPayment.id);
+        }
+
+        await tx.onlinePaymentAttempt.update({
+          where: { id: attempt.id },
+          data: {
+            status: 'APPROVED',
+            providerPaymentId,
+            providerStatus,
+            rawProviderData: rawPaymentJson,
+            processedAt: new Date(),
+            // El pago de la cuenta principal del intento (la cuota); los demás quedan en la auditoría.
+            paymentId: created[bundle.findIndex((part) => part.accountId === attempt.accountId)] || created[0] || null,
+            failureReason: null
+          }
+        });
+        await tx.auditLog.create({
+          data: {
+            clubId,
+            userId: attempt.userId,
+            entity: 'ONLINE_PAYMENT_ATTEMPT',
+            entityId: attempt.id,
+            action: 'PAYMENT_ONLINE_APPROVED',
+            payload: {
+              provider: 'MERCADO_PAGO',
+              providerPaymentId,
+              localPaymentIds: created,
+              amount: approvedAmount,
+              bundle
+            } as Prisma.InputJsonValue
+          }
+        });
+        return { ok: true, attemptId: attempt.id, paymentId: created[0] || null, status: 'APPROVED' };
+      }
+
       const account = await tx.account.findUnique({
         where: { id: attempt.accountId },
         include: {
@@ -388,6 +488,19 @@ export class OnlineCheckoutService {
       }
     }
     return result;
+  }
+
+  /** `target.bundle`: el pago se reparte entre varias cuentas (cada una con su monto). */
+  private parseAttemptBundle(raw: unknown): Array<{ accountId: string; amount: number }> | null {
+    const value = raw && typeof raw === 'object' ? (raw as { bundle?: unknown }).bundle : null;
+    if (!Array.isArray(value) || value.length === 0) return null;
+    const parts = value
+      .map((item) => ({
+        accountId: String((item as { accountId?: unknown })?.accountId || '').trim(),
+        amount: Number(Number((item as { amount?: unknown })?.amount || 0).toFixed(2))
+      }))
+      .filter((item) => item.accountId && item.amount > 0);
+    return parts.length === value.length ? parts : null;
   }
 
   private parseAttemptMethodDiscount(raw: unknown): {

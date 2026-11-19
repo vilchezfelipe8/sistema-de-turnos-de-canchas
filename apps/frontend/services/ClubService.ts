@@ -129,6 +129,11 @@ export type MyPlan = {
   planName: string;
   optionLabel: string;
   billingType: 'RECURRING' | 'FIXED_TERM' | null;
+  /** Comprado desde la app y todavía sin pagar: no habilita nada hasta pagarlo. */
+  awaitingPayment?: boolean;
+  /** Compra sin pagar: lo que hay que pagar para activarlo (matrícula y primera cuota). */
+  purchaseAmount?: number | null;
+  planId?: string;
   status: 'ACTIVE' | 'PAST_DUE' | 'PAUSED';
   hasOverdue: boolean;
   beneficiaryName: string | null;
@@ -151,7 +156,52 @@ export type MyPlan = {
   classes: Array<{ name: string; remaining: number; total: number; expiresAt: string | null }>;
 };
 
+/** Plan que el club vende (pestaña Gimnasio). */
+export type ClubPlan = {
+  id: string;
+  name: string;
+  description: string | null;
+  billingType: 'RECURRING' | 'FIXED_TERM';
+  periodMonths: number;
+  enrollmentFee: number | null;
+  /** "Musculación libre", "8 clases grupales de Funcional por mes". */
+  includes: string[];
+  options: Array<{ id: string; label: string; installmentsCount: number; installmentPrice: number; totalPrice: number }>;
+  /** Se puede comprar desde la app (el club lo habilitó y cobra con Mercado Pago). */
+  buyOnline: boolean;
+  /** Lo que ya tiene el jugador de este plan. */
+  mine: 'ACTIVE' | 'AWAITING_PAYMENT' | null;
+};
+
+export type ClubPlansResponse = { canPayOnline: boolean; plans: ClubPlan[] };
+
 export class ClubService {
+  static async getClubPlans(slug: string): Promise<ClubPlansResponse> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/plans`);
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudieron cargar los planes');
+    }
+    return res.json();
+  }
+
+  /** Compra el plan: devuelve el link de Mercado Pago (matrícula, si hay, y primera cuota). */
+  static async purchaseClubPlan(slug: string, planId: string, optionId: string): Promise<{ subscriptionId: string; initPoint: string; amount: number }> {
+    const res = await fetchWithAuth(
+      `${apiBase()}/clubs/slug/${encodeURIComponent(slug)}/plans/${encodeURIComponent(planId)}/purchase`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ optionId, returnTo: 'club' }),
+      }
+    );
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || 'No se pudo comprar el plan');
+    }
+    return res.json();
+  }
+
   static async getClubById(id: number): Promise<Club> {
     const response = await fetch(`${apiBase()}/clubs/${id}`);
     if (!response.ok) {
@@ -272,8 +322,15 @@ export class ClubService {
   }
 
   /** Link de Mercado Pago para pagar la cuota pendiente del plan. */
-  static async payMyPlanInstallment(subscriptionId: string): Promise<{ initPoint: string; amount: number }> {
-    const res = await fetchWithAuth(`${apiBase()}/clubs/subscriptions/me/${encodeURIComponent(subscriptionId)}/checkout`, { method: 'POST' });
+  static async payMyPlanInstallment(
+    subscriptionId: string,
+    returnTo: 'club' | 'perfil' = 'perfil'
+  ): Promise<{ initPoint: string; amount: number }> {
+    const res = await fetchWithAuth(`${apiBase()}/clubs/subscriptions/me/${encodeURIComponent(subscriptionId)}/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ returnTo }),
+    });
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
       throw new Error(error.error || 'No se pudo armar el pago de la cuota');

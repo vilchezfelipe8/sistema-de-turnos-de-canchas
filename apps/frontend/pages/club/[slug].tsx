@@ -29,7 +29,19 @@ import BusyLabel from '../../components/ui/BusyLabel';
 import Skeleton, { SkeletonText } from '../../components/ui/Skeleton';
 import Modal from '../../components/ui/Modal';
 import ClubCoursesPanel from '../../components/club/ClubCoursesPanel';
-import ClubTurnsPanel from '../../components/club/ClubTurnsPanel';
+import ClubGymTab from '../../components/club/ClubGymTab';
+import MyCoursesCard from '../../components/club/MyCoursesCard';
+import { ActivityTurnService } from '../../services/ActivityTurnService';
+import type { ClubPlansResponse } from '../../services/ClubService';
+
+// Pestañas de la página del club. Canchas siempre; Clases y Gimnasio solo si el club los usa.
+type ClubTab = 'canchas' | 'clases' | 'gimnasio';
+const TAB_LABELS: Record<ClubTab, string> = { canchas: 'Canchas', clases: 'Clases', gimnasio: 'Gimnasio' };
+const parseTab = (value: unknown): ClubTab | null =>
+  value === 'canchas' || value === 'clases' || value === 'gimnasio' ? value : null;
+
+// Qué tiene el club además de canchas (null = cargando).
+type ClubSections = { courses: number | null; turns: number | null; plans: ClubPlansResponse | null };
 
 type ClubPageProps = { appSlug: string | null; appName: string | null };
 
@@ -154,6 +166,9 @@ const PAGE_CSS = `
   .cl-icon-btn.cl-fav-on { background:var(--positive-bg); border-color:var(--accent-border); color:var(--accent-fg); }
   .cl-icon-btn.cl-fav-on svg { fill:currentColor; }
   .cl-icon-btn:disabled { opacity:.5; cursor:not-allowed; }
+  /* Pestañas (Canchas / Clases / Gimnasio): mismas fichas que el turnero */
+  .cl-tabs { margin:0 0 20px; }
+  .cl-tabs .cl-turn-chip { min-height:40px; padding:0 18px; font-size:13px; }
   /* Grid */
   .cl-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:24px; align-items:start; }
   .cl-grid > * { min-width:0; }
@@ -290,8 +305,10 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
   const [canReviewClub, setCanReviewClub] = useState(false);
   const [hasExistingClubReview, setHasExistingClubReview] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
-  // Cursos publicados: si hay, se muestra un acceso arriba (la sección queda abajo en la columna lateral).
-  const [courseCount, setCourseCount] = useState(0);
+  // Cursos, turnero y planes del club: deciden qué pestañas se muestran.
+  const [sections, setSections] = useState<ClubSections>({ courses: null, turns: null, plans: null });
+  // "Mis clases" se refresca al anotarse o bajarse de un curso.
+  const [coursesVersion, setCoursesVersion] = useState(0);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
   const [reviewRating, setReviewRating] = useState(5);
@@ -332,6 +349,41 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
     if (!club || typeof slug !== 'string') return;
     updateClubAppIdentity({ slug, name: club.name, logoUrl: club.logoUrl || null });
   }, [club, slug]);
+
+  // Qué secciones tiene el club (cursos, turnero, planes). Con sesión, los planes marcan los propios.
+  useEffect(() => {
+    if (!slug || typeof slug !== 'string') return;
+    let cancelled = false;
+    const count = <T,>(promise: Promise<T[]>) => promise.then((rows) => rows.length).catch(() => 0);
+    void Promise.all([
+      count(ClubService.getClubCourses(slug)),
+      count(ActivityTurnService.listPublic(slug).then((result) => result.activities)),
+      ClubService.getClubPlans(slug).catch(() => ({ canPayOnline: false, plans: [] })),
+    ]).then(([courses, turns, plans]) => {
+      if (!cancelled) setSections({ courses, turns, plans });
+    });
+    return () => { cancelled = true; };
+  }, [slug, user?.id]);
+
+  const sectionsLoaded = sections.courses !== null;
+  const availableTabs: ClubTab[] = [
+    'canchas',
+    ...((sections.courses ?? 0) > 0 ? (['clases'] as const) : []),
+    ...((sections.turns ?? 0) > 0 || (sections.plans?.plans.length ?? 0) > 0 ? (['gimnasio'] as const) : []),
+  ];
+  const requestedTab = parseTab(router.query.tab);
+  // Mientras se carga se respeta la pestaña pedida (ej. vuelta de Mercado Pago a ?tab=gimnasio).
+  const activeTab: ClubTab =
+    requestedTab && (!sectionsLoaded || availableTabs.includes(requestedTab)) ? requestedTab : 'canchas';
+
+  const selectTab = useCallback((tab: ClubTab) => {
+    const { tab: _current, ...rest } = router.query;
+    void router.replace(
+      { pathname: router.pathname, query: tab === 'canchas' ? rest : { ...rest, tab } },
+      undefined,
+      { shallow: true, scroll: false }
+    );
+  }, [router]);
 
   const loadReviews = useCallback(async (clubSlug: string) => {
     try {
@@ -588,8 +640,49 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
           <div style={{ maxWidth: 760, width: '100%', margin: '0 auto', padding: '20px 12px 12px' }}>
             <BookingGrid clubSlug={slug as string} variant="clubApp" />
           </div>
+        ) : activeTab !== 'canchas' ? (
+          // Clases o Gimnasio dentro de la app instalada (también es donde vuelve Mercado Pago).
+          <div className="p-public-page cl-page" style={{ maxWidth: 640, margin: '0 auto' }}>
+            <div className="cl-turn-chips cl-tabs" role="tablist" aria-label="Secciones del club">
+              <Link href={`/club/${slug}`} shallow className="cl-turn-chip" style={{ display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
+                Inicio
+              </Link>
+              {availableTabs.filter((tab) => tab !== 'canchas').map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeTab === tab}
+                  className={`cl-turn-chip${activeTab === tab ? ' is-on' : ''}`}
+                  onClick={() => selectTab(tab)}
+                >
+                  {TAB_LABELS[tab]}
+                </button>
+              ))}
+            </div>
+            {activeTab === 'clases' ? (
+              <div className="cl-sidebar">
+                <ClubCoursesPanel
+                  slug={slug as string}
+                  loggedIn={Boolean(user?.id)}
+                  loginHref={loginHref}
+                  onNotice={showAppNotice}
+                  onChanged={() => setCoursesVersion((value) => value + 1)}
+                />
+                {user?.id ? <MyCoursesCard clubSlug={slug as string} variant="club" reloadKey={coursesVersion} /> : null}
+              </div>
+            ) : (
+              <ClubGymTab slug={slug as string} loggedIn={Boolean(user?.id)} loginHref={loginHref} onNotice={showAppNotice} plans={sections.plans} />
+            )}
+          </div>
         ) : (
-          <ClubAppHome club={club} slug={slug as string} user={user as any} loginHref={loginHref} />
+          <ClubAppHome
+            club={club}
+            slug={slug as string}
+            user={user as any}
+            loginHref={loginHref}
+            hasGym={availableTabs.includes('gimnasio')}
+          />
         )}
       </DarkPageLayout>
     );
@@ -666,10 +759,14 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
                     Cómo llegar
                   </a>
                 )}
-                {courseCount > 0 && (
-                  <a href="#cursos" className="cl-directions">
+                {(sections.courses ?? 0) > 0 && activeTab !== 'clases' && (
+                  <a
+                    href="?tab=clases"
+                    className="cl-directions"
+                    onClick={(event) => { event.preventDefault(); selectTab('clases'); }}
+                  >
                     <GraduationCap size={14} />
-                    {courseCount === 1 ? 'Ver el curso' : `Ver ${courseCount} cursos`}
+                    {sections.courses === 1 ? 'Ver el curso' : `Ver ${sections.courses} cursos`}
                   </a>
                 )}
               </div>
@@ -695,10 +792,54 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
           </div>
         </div>
 
+        {/* ── PESTAÑAS ── (solo si el club tiene algo más que canchas) */}
+        {availableTabs.length > 1 && (
+          <div className="cl-turn-chips cl-tabs" role="tablist" aria-label="Secciones del club">
+            {availableTabs.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                id={`club-tab-${tab}`}
+                aria-selected={activeTab === tab}
+                aria-controls="club-tab-panel"
+                className={`cl-turn-chip${activeTab === tab ? ' is-on' : ''}`}
+                onClick={() => selectTab(tab)}
+              >
+                {TAB_LABELS[tab]}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* ── MAIN GRID ── */}
         <div className="cl-grid">
 
-          <BookingGrid clubSlug={slug} />
+          <div id="club-tab-panel" role={availableTabs.length > 1 ? 'tabpanel' : undefined} aria-labelledby={availableTabs.length > 1 ? `club-tab-${activeTab}` : undefined} style={{ minWidth: 0 }}>
+            {activeTab === 'canchas' ? (
+              <BookingGrid clubSlug={slug} />
+            ) : activeTab === 'clases' ? (
+              <div className="cl-sidebar">
+                {/* Cursos que el club publica en la app: anotarse o pedir lugar */}
+                <ClubCoursesPanel
+                  slug={slug}
+                  loggedIn={Boolean(user?.id)}
+                  loginHref={`/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`}
+                  onNotice={showAppNotice}
+                  onChanged={() => setCoursesVersion((value) => value + 1)}
+                />
+                {user?.id ? <MyCoursesCard clubSlug={slug} variant="club" reloadKey={coursesVersion} /> : null}
+              </div>
+            ) : (
+              <ClubGymTab
+                slug={slug}
+                loggedIn={Boolean(user?.id)}
+                loginHref={`/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`}
+                onNotice={showAppNotice}
+                plans={sections.plans}
+              />
+            )}
+          </div>
 
           <div className="cl-sidebar">
 
@@ -752,23 +893,6 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
                 )}
               </div>
             </section>
-
-            {/* Turnero (ej. Musculación): reservar la franja con lugar */}
-            <ClubTurnsPanel
-              slug={slug}
-              loggedIn={Boolean(user?.id)}
-              loginHref={`/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`}
-              onNotice={showAppNotice}
-            />
-
-            {/* Cursos que el club publica en la app: anotarse o pedir lugar */}
-            <ClubCoursesPanel
-              slug={slug}
-              loggedIn={Boolean(user?.id)}
-              loginHref={`/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`}
-              onNotice={showAppNotice}
-              onCount={setCourseCount}
-            />
 
             {/* Reseñas: lo que opinan y, si podés, el acceso a dejar la tuya */}
             {showReviewsPanel && (
