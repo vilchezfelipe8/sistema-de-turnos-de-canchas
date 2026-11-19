@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Save } from 'lucide-react';
 import { AdminFeedbackBanner } from '../../../components/admin/ui/AdminFeedback';
 import SettingsSection from './SettingsSection';
 import { useAuth } from '../../../contexts/AuthContext';
 import { BookingWindowService, type BookingWindowPolicy } from '../../../services/BookingWindowService';
-import { showAdminToast } from '../../../utils/adminToast';
+import { useSettingsSaveSlot } from '../SettingsSaveContext';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
 
 const selectClass =
   'h-9 rounded-lg border border-p-border bg-p-surface px-2 text-[13px] text-p-text outline-none focus:border-p-text-secondary disabled:opacity-50';
-const primaryButtonClass =
-  'inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50';
 
 // Horarios cada 30 minutos para elegir apertura y cierre.
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
@@ -48,6 +45,11 @@ export default function SettingsBookingWindowSection() {
   const canManage = hasAdminAccess(user as any);
 
   const [policy, setPolicy] = useState<BookingWindowPolicy>(DEFAULT_POLICY);
+  const [savedPolicy, setSavedPolicy] = useState<BookingWindowPolicy>(DEFAULT_POLICY);
+  const applyPolicy = (next: BookingWindowPolicy) => {
+    setPolicy(next);
+    setSavedPolicy(next);
+  };
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -56,7 +58,7 @@ export default function SettingsBookingWindowSection() {
     if (!clubSlug) return;
     setLoading(true);
     try {
-      setPolicy(await BookingWindowService.getPolicy(clubSlug));
+      applyPolicy(await BookingWindowService.getPolicy(clubSlug));
       setError('');
     } catch (err) {
       reportUiError({ area: 'SettingsBookingWindowSection', action: 'load' }, err);
@@ -70,20 +72,37 @@ export default function SettingsBookingWindowSection() {
     void load();
   }, [load]);
 
-  const handleSave = async () => {
-    if (!clubSlug || saving) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!clubSlug) return false;
     try {
       setSaving(true);
       setError('');
-      setPolicy(await BookingWindowService.savePolicy(clubSlug, policy));
-      showAdminToast('Ventanas de reserva guardadas.');
+      applyPolicy(await BookingWindowService.savePolicy(clubSlug, policy));
+      return true;
     } catch (err) {
       reportUiError({ area: 'SettingsBookingWindowSection', action: 'save' }, err);
       setError(extractErrorMessage(err, 'No se pudo guardar la configuración.'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // Un cambio por bloque: activación, semana, fin de semana y alcance.
+  const changes =
+    Number(policy.enabled !== savedPolicy.enabled) +
+    Number(JSON.stringify(policy.weekdays) !== JSON.stringify(savedPolicy.weekdays)) +
+    Number(policy.weekendMode !== savedPolicy.weekendMode || JSON.stringify(policy.weekend) !== JSON.stringify(savedPolicy.weekend)) +
+    Number(policy.daysAhead !== savedPolicy.daysAhead || policy.closesAt !== savedPolicy.closesAt);
+
+  useSettingsSaveSlot('booking-window', {
+    changes,
+    save: handleSave,
+    discard: () => {
+      setPolicy(savedPolicy);
+      setError('');
+    },
+  });
 
   if (!canManage) return null;
 
@@ -103,11 +122,6 @@ export default function SettingsBookingWindowSection() {
       <SettingsSection
         title="Ventanas de reserva"
         description="Definí desde qué hora puede reservar cada jugador desde la app. Los socios vigentes del padrón pueden tener prioridad. Fuera de su horario el jugador no ve los turnos, solo un aviso. No afecta al mostrador ni a los turnos fijos."
-        action={
-          <button type="button" className={primaryButtonClass} disabled={disabled} onClick={() => void handleSave()}>
-            <Save size={14} /> Guardar
-          </button>
-        }
       >
         <label className="flex items-center gap-2 text-[13px] font-semibold text-p-text">
           <input

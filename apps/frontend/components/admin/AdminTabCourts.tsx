@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Activity, Ban, Power, Save } from 'lucide-react';
+import { Activity, Ban, Power } from 'lucide-react';
 import { getCourts, reactivateCourt, suspendCourt, updateCourtPrice } from '../../services/CourtService';
 import { isAuthSessionInvalidatedError } from '../../utils/apiClient';
 import { extractErrorMessage } from '../../utils/uiError';
@@ -9,6 +9,7 @@ import AdminAppModal from './ui/AdminAppModal';
 import { MetricCard } from './ui';
 import SettingsSection from '../../modules/ajustes/components/SettingsSection';
 import SettingsInfoNote from '../../modules/ajustes/components/SettingsInfoNote';
+import { useSettingsSaveSlot } from '../../modules/ajustes/SettingsSaveContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,7 +74,7 @@ type CourtCardProps = {
   court: Court;
   priceEdit: string;
   onPriceChange: (value: string) => void;
-  onPriceSave: () => void;
+  priceChanged: boolean;
   onSuspend: () => void;
   onReactivate: () => void;
 };
@@ -82,7 +83,7 @@ function CourtCard({
   court,
   priceEdit,
   onPriceChange,
-  onPriceSave,
+  priceChanged,
   onSuspend,
   onReactivate,
 }: CourtCardProps) {
@@ -135,19 +136,11 @@ function CourtCard({
               <input
                 type="number"
                 min={0}
-                className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-7 pr-3 text-[13px] font-semibold text-p-text outline-none transition focus:border-p-accent"
+                className={`h-10 w-full rounded-xl border bg-p-surface pl-7 pr-3 text-[13px] font-semibold text-p-text outline-none transition focus:border-p-accent ${priceChanged ? 'border-p-warning' : 'border-p-border'}`}
                 value={priceEdit}
                 onChange={(e) => onPriceChange(e.target.value)}
               />
             </div>
-            <button
-              type="button"
-              onClick={onPriceSave}
-              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-900"
-            >
-              <Save size={13} />
-              Guardar
-            </button>
           </div>
         </div>
 
@@ -304,21 +297,40 @@ export default function AdminTabCourts() {
     });
   };
 
-  const handlePriceSave = async (id: number) => {
+  const savedPriceOf = (court: Court) =>
+    court.price !== undefined && court.price !== null ? String(court.price) : '';
+  const changedCourts = courts.filter((court) => (priceEdits[court.id] ?? '').trim() !== savedPriceOf(court));
+
+  // Guarda los precios cambiados desde la barra de la página.
+  const handlePricesSave = async (): Promise<boolean> => {
+    const invalid = changedCourts.find((court) => {
+      const parsed = Number(priceEdits[court.id]);
+      return String(priceEdits[court.id] ?? '').trim() === '' || !Number.isFinite(parsed) || parsed < 0;
+    });
+    if (invalid) {
+      showError(`Ingresá un precio válido para ${invalid.name}.`);
+      return false;
+    }
     try {
-      const raw = priceEdits[id];
-      const parsed = Number(raw);
-      if (!Number.isFinite(parsed) || parsed < 0) {
-        showError('Ingresá un precio válido.');
-        return;
+      for (const court of changedCourts) {
+        // eslint-disable-next-line no-await-in-loop
+        await updateCourtPrice(court.id, Number(priceEdits[court.id]));
       }
-      await updateCourtPrice(id, parsed);
-      showAdminToast('Precio actualizado.');
-      await loadCourts();
+      const data = (await getCourts()) as Court[];
+      setCourts(data);
+      setPriceEdits(Object.fromEntries(data.map((court) => [court.id, savedPriceOf(court)])));
+      return true;
     } catch (error: unknown) {
       showError(extractErrorMessage(error, 'No se pudo actualizar el precio.'));
+      return false;
     }
   };
+
+  useSettingsSaveSlot('court-prices', {
+    changes: changedCourts.length,
+    save: handlePricesSave,
+    discard: () => setPriceEdits(Object.fromEntries(courts.map((court) => [court.id, savedPriceOf(court)]))),
+  });
 
   // ── Derived metrics ──
   const activeCourts = courts.filter((c) => !c.isUnderMaintenance).length;
@@ -384,7 +396,7 @@ export default function AdminTabCourts() {
                 onPriceChange={(value) =>
                   setPriceEdits((prev) => ({ ...prev, [court.id]: value }))
                 }
-                onPriceSave={() => void handlePriceSave(court.id)}
+                priceChanged={(priceEdits[court.id] ?? '').trim() !== savedPriceOf(court)}
                 onSuspend={() => handleSuspend(court.id)}
                 onReactivate={() => handleReactivate(court.id)}
               />

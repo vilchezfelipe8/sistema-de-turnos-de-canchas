@@ -17,6 +17,7 @@ import { normalizeSessionUser } from '../../utils/session';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { useRouter } from 'next/router';
 import { lockBodyScroll } from '../../utils/bodyScrollLock';
+import { useInSettingsSavePage, useSettingsSaveSlot } from '../../modules/ajustes/SettingsSaveContext';
 
 export type AdminTabClubSection =
   | 'identity'
@@ -1112,6 +1113,9 @@ export default function AdminTabClub({
 
   const configChanges = [...buildConfigChanges()].sort((a, b) => Number(Boolean(b.critical)) - Number(Boolean(a.critical)));
   const hasUnsavedChanges = configChanges.length > 0;
+  // Dentro de Ajustes la barra de guardado y el aviso al salir son de la página.
+  const managedBySettingsPage = useInSettingsSavePage();
+  const ownSaveBarVisible = hasUnsavedChanges && !managedBySettingsPage;
 
   const restoreFromSnapshot = () => {
     const base = initialConfigRef.current;
@@ -1147,19 +1151,19 @@ export default function AdminTabClub({
   };
 
   useEffect(() => {
-    if (!hasUnsavedChanges) return;
+    if (!ownSaveBarVisible) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [hasUnsavedChanges]);
+  }, [ownSaveBarVisible]);
 
   useEffect(() => {
     const onRouteChangeStart = (url: string) => {
       if (allowNavigationRef.current) return;
-      if (!hasUnsavedChanges) return;
+      if (!ownSaveBarVisible) return;
       if (url === router.asPath) return;
 
       pendingRouteRef.current = url;
@@ -1196,7 +1200,7 @@ export default function AdminTabClub({
 
     router.events.on('routeChangeStart', onRouteChangeStart);
     return () => router.events.off('routeChangeStart', onRouteChangeStart);
-  }, [hasUnsavedChanges, router]);
+  }, [ownSaveBarVisible, router]);
 
   useEffect(() => {
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -1417,13 +1421,13 @@ export default function AdminTabClub({
     }
   };
 
-  const handleUpdateClub = async (e?: React.FormEvent, skipConfirm = false) => {
+  const handleUpdateClub = async (e?: React.FormEvent, skipConfirm = false): Promise<boolean> => {
     e?.preventDefault();
-    if (!club) { showError('No se pudo identificar el club'); return; }
+    if (!club) { showError('No se pudo identificar el club'); return false; }
     if (!skipConfirm) {
       if (!hasUnsavedChanges) {
         showInfo('No hay cambios pendientes para guardar.');
-        return;
+        return false;
       }
       const criticalChanges = configChanges.filter((change) => change.critical);
       const topChanges = configChanges.slice(0, 12);
@@ -1471,7 +1475,7 @@ export default function AdminTabClub({
           await handleUpdateClub(undefined, true);
         }
       });
-      return;
+      return false;
     }
     try {
       const fixedBookingSettingsByActivity = activitySettings.reduce((acc, activity) => {
@@ -1495,7 +1499,7 @@ export default function AdminTabClub({
       if (clubForm.bookingConfirmationMode === 'DEPOSIT_REQUIRED') {
         if (!Number.isFinite(normalizedDepositPercent) || normalizedDepositPercent <= 0 || normalizedDepositPercent > 100) {
           showError('En modo "Con seña", el porcentaje de seña es obligatorio y debe ser mayor a 0 y menor o igual a 100.');
-          return;
+          return false;
         }
       }
 
@@ -1510,39 +1514,39 @@ export default function AdminTabClub({
       if (clubForm.lightsEnabled) {
         if (!Number.isFinite(lightsExtraAmountRaw) || lightsExtraAmountRaw <= 0) {
           showError('Si activás recargo nocturno, el monto extra debe ser mayor a 0.');
-          return;
+          return false;
         }
         if (!/^\d{2}:\d{2}$/.test(String(clubForm.lightsFromHour || ''))) {
           showError('Si activás recargo nocturno, debés seleccionar desde qué hora aplica.');
-          return;
+          return false;
         }
         if (!LIGHTS_FROM_HOUR_OPTIONS.includes(String(clubForm.lightsFromHour || ''))) {
           showError('La hora de inicio del recargo nocturno debe ser una de las opciones permitidas.');
-          return;
+          return false;
         }
       }
       if (clubForm.autoCancelPendingBookingsEnabled) {
         if (!Number.isFinite(cancelMinutesRaw) || cancelMinutesRaw <= 0) {
           showError('Si activás auto-cancelación, los minutos antes del turno deben ser mayores a 0.');
-          return;
+          return false;
         }
       }
       if (!Number.isFinite(simpleAdvanceUserRaw) || simpleAdvanceUserRaw < 0) {
         showError('La anticipación máxima para usuarios debe ser 0 o mayor.');
-        return;
+        return false;
       }
       if (!Number.isFinite(simpleAdvanceAdminRaw) || simpleAdvanceAdminRaw < 0) {
         showError('La anticipación máxima para admins debe ser 0 o mayor.');
-        return;
+        return false;
       }
       if (clubForm.autoCancelPendingBookingsEnabled && clubForm.autoCancelPendingWarningEnabled) {
         if (!Number.isFinite(warningMinutesRaw) || warningMinutesRaw <= 0) {
           showError('Si activás aviso previo, los minutos de aviso deben ser mayores a 0.');
-          return;
+          return false;
         }
         if (warningMinutesRaw <= cancelMinutesRaw) {
           showError('El aviso previo debe configurarse con más minutos que la cancelación automática.');
-          return;
+          return false;
         }
       }
 
@@ -1551,27 +1555,27 @@ export default function AdminTabClub({
       if (clubForm.clubOperationalStatus === 'TEMPORARY_CLOSED') {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedClosureStartDate) || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedClosureEndDate)) {
           showError('En cierre temporal debés completar fecha de inicio y fin con formato válido.');
-          return;
+          return false;
         }
         if (normalizedClosureStartDate > normalizedClosureEndDate) {
           showError('La fecha de inicio del cierre temporal no puede ser mayor a la fecha de fin.');
-          return;
+          return false;
         }
         const todayDateKey = getTodayDateKey();
         const previousTemporaryClosureStartDate = String(club.temporaryClosureStartDate || '').trim();
         const previousTemporaryClosureEndDate = String(club.temporaryClosureEndDate || '').trim();
         if (normalizedClosureStartDate < todayDateKey && normalizedClosureStartDate !== previousTemporaryClosureStartDate) {
           showError(`La fecha de inicio del cierre temporal no puede ser pasada (minimo permitido: ${todayDateKey}).`);
-          return;
+          return false;
         }
         if (normalizedClosureEndDate < todayDateKey && normalizedClosureEndDate !== previousTemporaryClosureEndDate) {
           showError(`La fecha de fin del cierre temporal no puede ser pasada (minimo permitido: ${todayDateKey}).`);
-          return;
+          return false;
         }
         const overlapsExceptionalDates = closureDatesSet.some((date) => date >= normalizedClosureStartDate && date <= normalizedClosureEndDate);
         if (overlapsExceptionalDates) {
           showError('Hay fechas de cierre puntual que se superponen con el cierre temporal. Eliminá las superpuestas para continuar.');
-          return;
+          return false;
         }
       }
       const todayDateKeyForClosureDates = getTodayDateKey();
@@ -1583,11 +1587,11 @@ export default function AdminTabClub({
       const newlyAddedPastClosureDate = closureDatesSet.find((date) => date < todayDateKeyForClosureDates && !previousClosureDatesSet.has(date));
       if (newlyAddedPastClosureDate) {
         showError(`No podes agregar cierres puntuales en fechas pasadas (${newlyAddedPastClosureDate}). Minimo permitido: ${todayDateKeyForClosureDates}.`);
-        return;
+        return false;
       }
       if (clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' && closureDatesSet.length > 0) {
         showError('No podés guardar fechas de cierre puntual cuando el club está en cierre permanente.');
-        return;
+        return false;
       }
 
         const payload: any = {
@@ -1671,11 +1675,57 @@ export default function AdminTabClub({
         activityScheduleForm
       });
       await loadPersistentConfigHistory(updatedClub.id);
-      showAdminToast('Información del club actualizada correctamente.');
+      if (!managedBySettingsPage) showAdminToast('Información del club actualizada correctamente.');
+      return true;
     } catch (error: any) {
       showError(extractErrorMessage(error, 'No se pudo actualizar la información del club.'));
+      return false;
     }
   };
+
+  // Guardado desde la barra de la página: los cambios críticos piden confirmación.
+  const saveFromSettingsPage = () => new Promise<boolean>((resolve) => {
+    const criticalChanges = configChanges.filter((change) => change.critical);
+    if (criticalChanges.length === 0) {
+      void handleUpdateClub(undefined, true).then(resolve);
+      return;
+    }
+    setModalState({
+      show: true,
+      title: 'Confirmar cambios importantes',
+      message: (
+        <div className="space-y-2">
+          <p className="text-[13px] text-p-text">Estos cambios afectan cómo opera el club:</p>
+          <ul className="space-y-1 rounded-xl border border-p-border bg-p-surface-2 p-3 text-[12px] text-p-text-secondary">
+            {criticalChanges.map((change) => (
+              <li key={`${change.label}-${change.after}`}>
+                {change.label}: {change.before} → <span className="font-semibold text-p-text">{change.after}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ),
+      isWarning: true,
+      cancelText: 'Cancelar',
+      confirmText: 'Guardar cambios',
+      holdToConfirm: true,
+      holdDuration: 1400,
+      onConfirm: async () => {
+        closeModal();
+        resolve(await handleUpdateClub(undefined, true));
+      },
+      onCancel: () => {
+        closeModal();
+        resolve(false);
+      },
+    });
+  });
+
+  useSettingsSaveSlot('club', {
+    changes: configChanges.length,
+    save: saveFromSettingsPage,
+    discard: restoreFromSnapshot,
+  });
 
   const handleJumpToNextException = async (activity: ClubActivityType) => {
     const summary = activityExceptionSummary[activity.id];
@@ -2262,10 +2312,10 @@ export default function AdminTabClub({
       {/* ── Fixed unsaved-changes bar ── Oculta mientras el drawer de excepciones está abierto para evitar confusión con el footer del drawer */}
       <div
         className={`fixed bottom-0 left-0 right-0 transition-transform duration-200 ease-out lg:left-[var(--admin-shell-sidebar-left,168px)] ${
-          hasUnsavedChanges && !Boolean(exceptionModalActivity) ? 'translate-y-0' : 'translate-y-full'
+          ownSaveBarVisible && !Boolean(exceptionModalActivity) ? 'translate-y-0' : 'translate-y-full'
         }`}
         style={{ zIndex: ADMIN_Z_INDEX.stickyBar }}
-        aria-hidden={!hasUnsavedChanges || Boolean(exceptionModalActivity)}
+        aria-hidden={!ownSaveBarVisible || Boolean(exceptionModalActivity)}
       >
         <div className="flex items-center gap-3 border-t border-p-border bg-p-surface px-5 py-3 shadow-p-lg">
           <span className="h-2 w-2 shrink-0 rounded-full bg-p-warning" />
@@ -2291,7 +2341,7 @@ export default function AdminTabClub({
         </div>
       </div>
 
-      <div className={`flex w-full flex-col gap-4 transition-[padding-bottom] duration-200 ${hasUnsavedChanges && !Boolean(exceptionModalActivity) ? 'pb-16' : ''}`}>
+      <div className={`flex w-full flex-col gap-4 transition-[padding-bottom] duration-200 ${ownSaveBarVisible && !Boolean(exceptionModalActivity) ? 'pb-16' : ''}`}>
         {/* Header */}
         {(!hideHeader || isSectionVisible('reservations')) && (
         <div className={`flex items-start gap-4 ${hideHeader ? 'justify-end -mb-2' : 'justify-between'}`}>

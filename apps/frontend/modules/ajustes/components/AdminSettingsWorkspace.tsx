@@ -1,5 +1,6 @@
 import AdminTabCourts from '../../../components/admin/AdminTabCourts';
 import { getSettingsTabMeta, type SettingsTab } from '../settingsNav';
+import { SettingsSaveProvider } from '../SettingsSaveContext';
 import SettingsClubMembersSection from './SettingsClubMembersSection';
 import SettingsSubscriptionPlansSection from './SettingsSubscriptionPlansSection';
 import SettingsTurnSchedulesSection from './SettingsTurnSchedulesSection';
@@ -82,7 +83,9 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
         </div>
       </header>
       <p className="mb-4 text-[12px] text-p-text-muted lg:hidden">{meta.description}</p>
-      <SettingsTabContent key={tab} tab={tab} />
+      <SettingsSaveProvider key={tab}>
+        <SettingsTabContent tab={tab} />
+      </SettingsSaveProvider>
     </div>
   );
 }
