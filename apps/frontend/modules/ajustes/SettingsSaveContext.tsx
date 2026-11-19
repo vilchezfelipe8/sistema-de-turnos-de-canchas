@@ -19,6 +19,8 @@ type SaveSlot = {
 type SettingsSaveContextValue = {
   setSlot: (id: string, slot: SaveSlot | null) => void;
   saving: boolean;
+  /** Sube cada vez que la página termina de guardar. */
+  savedVersion: number;
 };
 
 const SettingsSaveContext = createContext<SettingsSaveContextValue | null>(null);
@@ -26,6 +28,9 @@ const SettingsSaveContext = createContext<SettingsSaveContextValue | null>(null)
 const NAVIGATION_ABORT = '__SETTINGS_UNSAVED_ABORT__';
 
 export const useInSettingsSavePage = () => useContext(SettingsSaveContext) !== null;
+
+/** Para recargar datos que dependen de otra tarjeta de la misma página. */
+export const useSettingsSavedVersion = () => useContext(SettingsSaveContext)?.savedVersion ?? 0;
 
 /** Registra una tarjeta en la barra de guardado de la página (si la hay). */
 export function useSettingsSaveSlot(id: string, slot: SaveSlot) {
@@ -65,6 +70,7 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [slots, setSlots] = useState<Record<string, SaveSlot>>({});
   const [saving, setSaving] = useState(false);
+  const [savedVersion, setSavedVersion] = useState(0);
   const [modal, setModal] = useState<ModalState>({ show: false });
   const allowNavigationRef = useRef(false);
 
@@ -103,6 +109,7 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
       }
     } finally {
       setSaving(false);
+      setSavedVersion((value) => value + 1);
     }
     if (allOk) showAdminToast('Cambios guardados.');
   };
@@ -166,7 +173,7 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
     };
   }, [hasChanges, router, discardAll]);
 
-  const value = useMemo(() => ({ setSlot, saving }), [setSlot, saving]);
+  const value = useMemo(() => ({ setSlot, saving, savedVersion }), [setSlot, saving, savedVersion]);
 
   return (
     <SettingsSaveContext.Provider value={value}>

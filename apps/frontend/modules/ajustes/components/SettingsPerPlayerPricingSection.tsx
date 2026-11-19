@@ -146,8 +146,8 @@ export default function SettingsPerPlayerPricingSection() {
       {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
 
       <SettingsSection
-        title="Modo de precio de los turnos"
-        description="Por cancha: un precio por turno según cancha y horario. Por jugador: cada jugador paga según la modalidad y su categoría (socio / no socio)."
+        title="Cómo se cobra el turno"
+        description="Por cancha: un precio por turno, según la cancha. Por jugador: cada uno paga según la modalidad y si es socio."
       >
         <div className="flex flex-wrap gap-2">
           <button type="button" className={optionClass(pricingMode === 'PER_COURT')} disabled={loading || saving} onClick={() => setPricingMode('PER_COURT')}>
@@ -166,13 +166,11 @@ export default function SettingsPerPlayerPricingSection() {
           />
           Cobrar solo en el mostrador (la app no ofrece pago online)
         </label>
-      </SettingsSection>
 
       {pricingMode === 'PER_PLAYER' ? (
-        <SettingsSection
-          title="Precio por jugador"
-          description="Precio que paga cada jugador por turno. Si una categoría no tiene precio, paga el de no socio. El recargo por luces se reparte entre los jugadores."
-        >
+        <div className="mt-5 border-t border-p-border pt-5">
+          <p className="text-[13px] font-semibold text-p-text">Precio por jugador</p>
+          <p className="mb-3 mt-0.5 text-[12px] text-p-text-muted">Si una categoría no tiene precio, paga el de no socio. Las luces se reparten entre los jugadores.</p>
           {activeFormats.length === 0 ? (
             <p className="text-[13px] text-p-text-muted">Primero cargá las modalidades en Ajustes &gt; Horarios.</p>
           ) : (
@@ -224,8 +222,9 @@ export default function SettingsPerPlayerPricingSection() {
               <AdminFeedbackBanner tone="warning" compact>{warnings.join(' ')}</AdminFeedbackBanner>
             </div>
           ) : null}
-        </SettingsSection>
+        </div>
       ) : null}
+      </SettingsSection>
     </div>
   );
 }

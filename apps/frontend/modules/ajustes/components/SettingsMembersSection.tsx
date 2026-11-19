@@ -3,7 +3,7 @@ import { ShieldCheck, UserMinus, UserPlus } from 'lucide-react';
 import AdminAppModal from '../../../components/admin/ui/AdminAppModal';
 import AdminDataTable from '../../../components/admin/ui/AdminDataTable';
 import AdminEmptyState from '../../../components/admin/ui/AdminEmptyState';
-import AdminPanel from '../../../components/admin/ui/AdminPanel';
+import SettingsSection from './SettingsSection';
 import { AdminFeedbackBanner, AdminInlineError } from '../../../components/admin/ui/AdminFeedback';
 import { useAuth } from '../../../contexts/AuthContext';
 import { ClubAdminService, type ClubMember, type ClubMembershipRole } from '../../../services/ClubAdminService';
@@ -154,9 +154,9 @@ export default function SettingsMembersSection() {
 
   return (
     <div className="space-y-4">
-      <AdminPanel
-        title="Quién entra al panel"
-        description="Sumá a alguien de tu equipo con el email de su cuenta de Pique."
+      <SettingsSection
+        title="Sumar a alguien"
+        description="Con el email de su cuenta de Pique. Si todavía no tiene cuenta, pedile que se registre en la app."
       >
         <div className="grid gap-3 md:grid-cols-[minmax(0,1.3fr)_180px_auto]">
           <label className="block">
@@ -208,17 +208,12 @@ export default function SettingsMembersSection() {
           </AdminFeedbackBanner>
         ) : null}
 
-        <div className="mt-3">
-          <AdminFeedbackBanner tone="info" compact>
-            La persona tiene que haberse creado una cuenta en Pique con ese email. Si todavía no la tiene, pedile que se registre en la app.
-          </AdminFeedbackBanner>
-        </div>
-      </AdminPanel>
+      </SettingsSection>
 
-      <AdminPanel
+      <SettingsSection
         title="Tu equipo"
         description="El dueño puede cambiar cualquier rol. Un admin solo puede sumar o sacar staff."
-        bodyClassName="p-0"
+        bodyClassName="pt-3"
       >
         {loading ? (
           <div className="grid min-h-[180px] place-items-center p-4">
@@ -255,25 +250,12 @@ export default function SettingsMembersSection() {
                 )
               },
               {
-                key: 'status',
-                label: 'Estado',
-                width: 'w-[120px]',
-                render: () => (
-                  <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-p-positive">
-                    <ShieldCheck size={13} />
-                    Activo
-                  </span>
-                )
-              },
-              {
                 key: 'actions',
-                label: 'Acciones',
+                label: '',
                 align: 'right',
                 width: 'w-[240px]',
                 render: (member) => {
-                  if (!canManageMember(member)) {
-                    return <span className="text-[12px] text-p-text-muted">Sin acciones</span>;
-                  }
+                  if (!canManageMember(member)) return null;
                   return (
                     <div className="flex items-center justify-end gap-2">
                       <select
@@ -310,7 +292,7 @@ export default function SettingsMembersSection() {
             }}
           />
         )}
-      </AdminPanel>
+      </SettingsSection>
 
       <AdminAppModal
         show={Boolean(pendingRoleChange)}

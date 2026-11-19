@@ -91,14 +91,8 @@ function CourtCard({
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-p-border bg-p-surface">
-      {/* Status indicator stripe */}
-      <div
-        className={`absolute inset-y-0 left-0 w-[3px] ${
-          isMaintenance ? 'bg-p-error' : 'bg-p-positive'
-        }`}
-      />
 
-      <div className="p-5 pl-6">
+      <div className="p-4">
         {/* Header */}
         <div className="mb-3 flex items-start justify-between gap-2">
           <h3 className="text-[15px] font-semibold leading-snug text-p-text">
@@ -150,7 +144,7 @@ function CourtCard({
             <button
               type="button"
               onClick={onReactivate}
-              className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-p-positive px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-p-positive"
+              className="inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg border border-p-positive px-3 text-[12px] font-semibold text-p-positive transition hover:bg-p-positive-bg"
             >
               <Power size={13} strokeWidth={2.4} />
               Reactivar cancha
@@ -159,7 +153,7 @@ function CourtCard({
             <button
               type="button"
               onClick={onSuspend}
-              className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-p-error bg-p-surface px-3 text-[12px] font-semibold text-p-error transition hover:bg-p-error-bg"
+              className="inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg px-3 text-[12px] font-semibold text-p-text-muted transition hover:bg-p-error-bg hover:text-p-error"
             >
               <Ban size={13} strokeWidth={2.4} />
               Poner en mantenimiento
@@ -343,44 +337,15 @@ export default function AdminTabCourts() {
   return (
     <div className="flex w-full flex-col gap-4">
 
-      {/* ── Summary metrics ── */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <MetricCard
-          label="Total"
-          value={courts.length}
-          format="number"
-          valueColor="var(--accent-fg)"
-        />
-        <MetricCard
-          label="Operativas"
-          value={activeCourts}
-          format="number"
-          valueColor="var(--positive-fg)"
-        />
-        <MetricCard
-          label="Mantenimiento"
-          value={maintenanceCourts}
-          format="number"
-          valueColor={maintenanceCourts > 0 ? 'var(--warn-fg)' : undefined}
-        />
-        <MetricCard
-          label="Precio prom."
-          value={Math.round(averagePrice)}
-          format="money"
-        />
-      </div>
-
-      {/* ── Info: cálculo de precio ── */}
-      <SettingsInfoNote variant="info">
-        El precio definido es la base para la duración por defecto de cada actividad. Si la reserva
-        es más corta o larga, el sistema ajusta el importe de forma proporcional. Para Fútbol y
-        Tenis la base es siempre 60 min.
-      </SettingsInfoNote>
-
       {/* ── Courts list ── */}
       <SettingsSection
-        title="Canchas registradas"
-        description="Administrá precios, estado operativo y mantenimiento de cada cancha."
+        title={`Tus canchas${courts.length ? ` · ${courts.length}` : ''}`}
+        description="El precio es la base del turno (en fútbol y tenis, por 60 min). Si un turno dura más o menos, se ajusta solo."
+        action={maintenanceCourts > 0 ? (
+          <span className="rounded-full bg-p-warning-bg px-2 py-0.5 text-[11px] font-semibold text-p-warning">
+            {maintenanceCourts} en mantenimiento
+          </span>
+        ) : undefined}
       >
         {courts.length === 0 ? (
           <div className="flex items-center justify-center py-10 text-[13px] font-semibold text-p-text-muted">
@@ -405,10 +370,7 @@ export default function AdminTabCourts() {
         )}
       </SettingsSection>
 
-      {/* ── Alta de canchas ── */}
-      <SettingsInfoNote variant="neutral" title="Alta de canchas">
-        Deshabilitada en el panel. Para agregar nuevas canchas, comunicarse con soporte.
-      </SettingsInfoNote>
+      <p className="px-1 text-[12px] text-p-text-muted">¿Querés sumar o sacar una cancha? Escribinos y la cargamos nosotros.</p>
 
       {/* ── Modal ── */}
       <AdminAppModal

@@ -3,7 +3,7 @@ import { AdminFeedbackBanner } from '../../../components/admin/ui/AdminFeedback'
 import SettingsSection from './SettingsSection';
 import { useAuth } from '../../../contexts/AuthContext';
 import { PlayerPricingService, type OnlineDepositSettings } from '../../../services/PlayerPricingService';
-import { useSettingsSaveSlot } from '../SettingsSaveContext';
+import { useSettingsSavedVersion, useSettingsSaveSlot } from '../SettingsSaveContext';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
 
@@ -47,9 +47,11 @@ export default function SettingsOnlineDepositSection() {
     }
   }, [clubSlug]);
 
+  // Recargar después de guardar la página: el modo "Con seña" se elige en la tarjeta de arriba.
+  const savedVersion = useSettingsSavedVersion();
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, savedVersion]);
 
   const handleSave = async (): Promise<boolean> => {
     if (!clubSlug) return false;
@@ -82,6 +84,7 @@ export default function SettingsOnlineDepositSection() {
   });
 
   if (!canManage) return null;
+  if (!loading && !(settings.bookingConfirmationMode === 'DEPOSIT_REQUIRED' && Number(settings.bookingDepositPercent || 0) > 0) && !error) return null;
 
   const depositMode = settings.bookingConfirmationMode === 'DEPOSIT_REQUIRED' && Number(settings.bookingDepositPercent || 0) > 0;
   const onlineOff = settings.onlineCheckoutEnabled === false;

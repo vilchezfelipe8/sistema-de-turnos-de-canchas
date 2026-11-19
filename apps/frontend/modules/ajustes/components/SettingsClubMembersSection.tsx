@@ -3,6 +3,7 @@ import { BadgeCheck, Plus } from 'lucide-react';
 import AdminEmptyState from '../../../components/admin/ui/AdminEmptyState';
 import { AdminFeedbackBanner } from '../../../components/admin/ui/AdminFeedback';
 import SettingsSection from './SettingsSection';
+import SettingsSwitch from './SettingsSwitch';
 import { useAuth } from '../../../contexts/AuthContext';
 import { MemberAdminService, type MemberCategory } from '../../../services/MemberAdminService';
 import { showAdminToast } from '../../../utils/adminToast';
@@ -123,20 +124,22 @@ export default function SettingsClubMembersSection() {
     <div className="space-y-4">
       {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
 
-      <SettingsSection
-        title="Módulo de socios"
-        description="Habilita el padrón de socios, las categorías y el precio socio. Si está apagado, todos los jugadores pagan precio general."
-        action={
-          <button type="button" onClick={handleToggleModule} disabled={loading || saving} className={primaryButtonClass}>
-            <BadgeCheck size={14} />
-            {membersEnabled ? 'Desactivar' : 'Activar'}
-          </button>
-        }
-      >
-        <p className="text-[13px] text-p-text-secondary">
-          {loading ? 'Cargando...' : membersEnabled ? 'El módulo está activo.' : 'El módulo está desactivado.'}
-        </p>
-      </SettingsSection>
+      <section className="flex items-center justify-between gap-4 rounded-xl border border-p-border bg-p-surface p-5">
+        <div className="min-w-0">
+          <p className="text-[14px] font-semibold text-p-text">El club tiene socios</p>
+          <p className="mt-0.5 text-[12px] text-p-text-muted">
+            {membersEnabled
+              ? 'Hay padrón de socios con categorías y precio diferencial. Se cambia al instante.'
+              : 'Apagado: todos los jugadores pagan el mismo precio. Prendelo para cargar el padrón y el precio socio.'}
+          </p>
+        </div>
+        <SettingsSwitch
+          checked={membersEnabled}
+          onChange={() => void handleToggleModule()}
+          disabled={loading || saving}
+          label="El club tiene socios"
+        />
+      </section>
 
       {membersEnabled ? (
         <SettingsSection

@@ -121,7 +121,7 @@ export default function SettingsBookingWindowSection() {
 
       <SettingsSection
         title="Ventanas de reserva"
-        description="Definí desde qué hora puede reservar cada jugador desde la app. Los socios vigentes del padrón pueden tener prioridad. Fuera de su horario el jugador no ve los turnos, solo un aviso. No afecta al mostrador ni a los turnos fijos."
+        description="Desde qué hora puede reservar cada jugador desde la app. Sirve para darles prioridad a los socios. No afecta al mostrador ni a los turnos fijos."
       >
         <label className="flex items-center gap-2 text-[13px] font-semibold text-p-text">
           <input
@@ -133,7 +133,8 @@ export default function SettingsBookingWindowSection() {
           Activar ventanas de reserva
         </label>
 
-        <div className={`mt-4 space-y-4 ${policy.enabled ? '' : 'opacity-60'}`}>
+        {policy.enabled && (
+        <div className="mt-4 space-y-4">
           <div className="overflow-auto">
             <table className="text-[13px]">
               <thead>
@@ -249,6 +250,7 @@ export default function SettingsBookingWindowSection() {
             <span className="mt-1 block text-p-text-muted">Cierre a las 00:00 significa hasta la medianoche.</span>
           </div>
         </div>
+        )}
       </SettingsSection>
     </div>
   );

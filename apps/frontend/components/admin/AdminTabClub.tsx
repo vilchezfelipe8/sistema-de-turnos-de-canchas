@@ -2344,22 +2344,13 @@ export default function AdminTabClub({
 
       <div className={`flex w-full flex-col gap-4 transition-[padding-bottom] duration-200 ${ownSaveBarVisible && !Boolean(exceptionModalActivity) ? 'pb-16' : ''}`}>
         {/* Header */}
-        {(!hideHeader || isSectionVisible('reservations')) && (
+        {!hideHeader && (
         <div className={`flex items-start gap-4 ${hideHeader ? 'justify-end -mb-2' : 'justify-between'}`}>
           {!hideHeader && (
           <div>
             <h1 className="text-[15px] font-semibold text-p-text">{title}</h1>
             {subtitle && <p className="text-[12px] text-p-text-muted mt-0.5">{subtitle}</p>}
           </div>
-          )}
-          {isSectionVisible('reservations') && (
-            <button
-              type="button"
-              onClick={restoreBookingPolicyDefaults}
-              className="shrink-0 h-8 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] font-medium text-p-text-muted hover:bg-p-surface-2 transition"
-            >
-              Restaurar recomendados
-            </button>
           )}
         </div>
         )}
@@ -2608,90 +2599,89 @@ export default function AdminTabClub({
                   </div>
                 </div>
 
-                {/* Logo */}
+                {/* Imágenes */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Logo del club</p>
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-p-border bg-p-surface-2">
-                      {logoPreview
-                        // eslint-disable-next-line @next/next/no-img-element
-                        ? <img src={logoPreview} alt="Logo" className="h-full w-full object-contain p-1" />
-                        : <ImageIcon size={24} className="text-p-text-muted" />
-                      }
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="h-9 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text hover:bg-p-surface-2 transition"
-                        >
-                          Subir imagen
-                        </button>
+                  <p className={cardTitleCls}>Imágenes</p>
+                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-[160px_minmax(0,1fr)]">
+                    {/* Logo */}
+                    <div>
+                      <p className="mb-2 text-[12px] font-medium text-p-text">Logo</p>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        aria-label={logoPreview ? 'Cambiar logo' : 'Subir logo'}
+                        className="group relative flex aspect-square w-full max-w-[160px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-p-border-strong bg-p-surface-2 transition hover:border-p-accent"
+                      >
+                        {logoPreview
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={logoPreview} alt="Logo del club" className="h-full w-full object-contain p-2" />
+                          : (
+                            <span className="flex flex-col items-center gap-1 text-p-text-muted">
+                              <ImageIcon size={22} />
+                              <span className="text-[11px] font-medium">Subir logo</span>
+                            </span>
+                          )}
                         {logoPreview && (
-                          <button
-                            type="button"
-                            onClick={handleRemoveLogo}
-                            className="h-9 rounded-xl border border-p-error bg-p-error-bg px-3 text-[12px] font-medium text-p-error hover:bg-p-error-bg transition"
-                          >
-                            Eliminar
+                          <span className="absolute inset-0 grid place-items-center bg-ink-900/55 text-[12px] font-semibold text-ink-50 opacity-0 transition group-hover:opacity-100">
+                            Cambiar
+                          </span>
+                        )}
+                      </button>
+                      <div className="mt-2 flex items-center gap-3 text-[11px]">
+                        <span className="text-p-text-muted">512×512, hasta 2 MB</span>
+                        {logoPreview && (
+                          <button type="button" onClick={handleRemoveLogo} className="font-semibold text-p-error hover:underline">
+                            Quitar
                           </button>
                         )}
                       </div>
-                      <p className="text-[11px] text-p-text-muted">Recomendado: 512×512px, máx 2MB (PNG/JPG)</p>
                       {logoError && (
-                        <p className="flex items-center gap-1 text-[11px] text-p-error">
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-p-error">
                           <AlertTriangle size={11} /> {logoError}
                         </p>
                       )}
+                      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
                     </div>
-                    <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
-                  </div>
-                </div>
 
-                {/* Imagen del club */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Imagen de portada</p>
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                    <div className="flex h-36 w-full shrink-0 items-center justify-center overflow-hidden rounded-xl border border-p-border bg-p-surface-2 lg:w-64">
-                      {clubImagePreview
-                        // eslint-disable-next-line @next/next/no-img-element
-                        ? <img src={clubImagePreview} alt="Portada" className="h-full w-full object-cover" />
-                        : (
-                          <div className="flex flex-col items-center gap-1 text-p-text-muted">
-                            <ImageIcon size={28} />
-                            <span className="text-[11px]">Sin imagen</span>
-                          </div>
-                        )
-                      }
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => clubImageInputRef.current?.click()}
-                          className="h-9 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text hover:bg-p-surface-2 transition"
-                        >
-                          Subir imagen
-                        </button>
+                    {/* Portada */}
+                    <div className="min-w-0">
+                      <p className="mb-2 text-[12px] font-medium text-p-text">Portada</p>
+                      <button
+                        type="button"
+                        onClick={() => clubImageInputRef.current?.click()}
+                        aria-label={clubImagePreview ? 'Cambiar portada' : 'Subir portada'}
+                        className="group relative flex aspect-[16/9] w-full max-w-[400px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-p-border-strong bg-p-surface-2 transition hover:border-p-accent"
+                      >
+                        {clubImagePreview
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={clubImagePreview} alt="Portada del club" className="h-full w-full object-cover" />
+                          : (
+                            <span className="flex flex-col items-center gap-1 text-p-text-muted">
+                              <ImageIcon size={26} />
+                              <span className="text-[11px] font-medium">Subir portada</span>
+                            </span>
+                          )}
                         {clubImagePreview && (
-                          <button
-                            type="button"
-                            onClick={handleRemoveClubImage}
-                            className="h-9 rounded-xl border border-p-error bg-p-error-bg px-3 text-[12px] font-medium text-p-error hover:bg-p-error-bg transition"
-                          >
-                            Eliminar
+                          <span className="absolute inset-0 grid place-items-center bg-ink-900/55 text-[12px] font-semibold text-ink-50 opacity-0 transition group-hover:opacity-100">
+                            Cambiar
+                          </span>
+                        )}
+                      </button>
+                      <div className="mt-2 flex items-center gap-3 text-[11px]">
+                        <span className="text-p-text-muted">1600×900, hasta 4 MB. Es la foto grande de tu página.</span>
+                        {clubImagePreview && (
+                          <button type="button" onClick={handleRemoveClubImage} className="font-semibold text-p-error hover:underline">
+                            Quitar
                           </button>
                         )}
                       </div>
-                      <p className="text-[11px] text-p-text-muted">Recomendado: 1600×900px, máx 4MB (PNG/JPG)</p>
                       {clubImageError && (
-                        <p className="flex items-center gap-1 text-[11px] text-p-error">
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-p-error">
                           <AlertTriangle size={11} /> {clubImageError}
                         </p>
                       )}
+                      <input ref={clubImageInputRef} type="file" accept="image/*" className="hidden" onChange={handleClubImageFileChange} />
                     </div>
-                    <input ref={clubImageInputRef} type="file" accept="image/*" className="hidden" onChange={handleClubImageFileChange} />
                   </div>
                 </div>
               </div>
@@ -2703,7 +2693,16 @@ export default function AdminTabClub({
 
                 {/* Confirmación de reservas */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>¿Cómo se confirma una reserva?</p>
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>¿Cómo se confirma una reserva?</p>
+                    <button
+                      type="button"
+                      onClick={restoreBookingPolicyDefaults}
+                      className="shrink-0 text-[12px] font-semibold text-p-text-muted underline-offset-2 transition hover:text-p-text hover:underline"
+                    >
+                      Usar lo recomendado
+                    </button>
+                  </div>
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                       {BOOKING_CONFIRMATION_MODES.map((mode) => {
@@ -3167,7 +3166,7 @@ export default function AdminTabClub({
                   {loadingDiscountPolicies ? (
                     <p className="text-[12px] text-p-text-muted">Cargando...</p>
                   ) : discountPolicies.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">Todavía no hay descuentos. Creá el primero con el botón de arriba.</p>
+                    <p className="text-[12px] text-p-text-muted">Descuentos que le das a clientes puntuales (ej. 10% a un profe). Creá uno y después asignáselo a quien quieras.</p>
                   ) : (
                     <div className="space-y-2">
                       {discountPolicies.map((policy) => (
@@ -3180,7 +3179,7 @@ export default function AdminTabClub({
                               )}
                             </div>
                             <p className="mt-0.5 text-[11px] text-p-text-muted">
-                              {policy.scope} · {policy.amountType === 'PERCENT' ? `${policy.amountValue}%` : `$${policy.amountValue}`} · prio {policy.priority}
+                              {({ BOOKING: 'Turnos', PRODUCT: 'Productos', SERVICE: 'Servicios', ALL: 'Todo' } as Record<string, string>)[policy.scope] || policy.scope} · {policy.amountType === 'PERCENT' ? `${policy.amountValue}% menos` : `$${policy.amountValue} menos`}
                               {policy.isStackable ? ' · acumulable' : ''}
                             </p>
                           </div>
@@ -3197,7 +3196,8 @@ export default function AdminTabClub({
                   )}
                 </div>
 
-                {/* Asignación a clientes */}
+                {/* Asignación a clientes: solo si hay descuentos activos */}
+                {discountPolicies.some((policy) => policy.isActive) && (
                 <div className={cardCls}>
                   <p className={cardTitleCls}>Darle un descuento a un cliente</p>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -3309,6 +3309,7 @@ export default function AdminTabClub({
                     </div>
                   )}
                 </div>
+                )}
               </div>
             )}
 

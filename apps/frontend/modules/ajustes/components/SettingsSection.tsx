@@ -15,6 +15,8 @@ type SettingsSectionProps = {
   children: ReactNode;
   /** Clase adicional para el contenedor raíz. */
   className?: string;
+  /** Clase del cuerpo (por defecto con padding). */
+  bodyClassName?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -44,6 +46,7 @@ export default function SettingsSection({
   action,
   children,
   className = '',
+  bodyClassName = 'px-5 pb-5 pt-4',
 }: SettingsSectionProps) {
   return (
     <section
@@ -66,7 +69,7 @@ export default function SettingsSection({
       </div>
 
       {/* ── Body ── */}
-      <div className="px-5 pb-5 pt-4">{children}</div>
+      <div className={bodyClassName}>{children}</div>
     </section>
   );
 }
