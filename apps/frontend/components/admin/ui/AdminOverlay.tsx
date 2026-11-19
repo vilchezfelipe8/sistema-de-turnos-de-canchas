@@ -104,11 +104,14 @@ export default function AdminOverlay({
           if (startedHere && event.target === event.currentTarget && closeOnBackdrop && open) onCloseRef.current?.();
         }}
       />
-      {cloneElement(panel, {
-        className: `relative p-motion-dialog ${panel.props.className || ''}`,
-        'data-state': state,
-        ...(ariaLabel ? { 'aria-label': ariaLabel } : {}),
-      } as any)}
+      {/* El panel va siempre dentro de esta capa: queda arriba del fondo y anima igual,
+          sea un <div> o un componente que no reenvía className. */}
+      <div
+        data-state={state}
+        className="p-motion-dialog pointer-events-none relative flex w-full justify-center [&>*]:pointer-events-auto"
+      >
+        {ariaLabel ? cloneElement(panel, { 'aria-label': ariaLabel } as any) : panel}
+      </div>
     </div>
   );
 
