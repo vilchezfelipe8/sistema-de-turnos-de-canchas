@@ -8,8 +8,6 @@ import {
   ActivityTurnService,
   WEEKDAY_SHORT,
   windowsLabel,
-  type AccessLogDay,
-  type AdminTurnDay,
   type TurnSchedule,
   type TurnScheduleInput,
 } from '../../../services/ActivityTurnService';
@@ -20,7 +18,7 @@ import { adminChip } from '../../../components/admin/ui/adminChip';
 import { adminButton } from '../../../components/admin/ui/adminButton';
 import AdminTimeSelect from '../../../components/admin/ui/AdminTimeSelect';
 import AdminCheckbox from '../../../components/admin/ui/AdminCheckbox';
-import AdminDateInput from '../../../components/admin/ui/AdminDateInput';
+import Link from 'next/link';
 
 const inputClass =
   'h-9 w-full rounded-lg border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-text-secondary';
@@ -81,11 +79,6 @@ const toInput = (draft: Draft): TurnScheduleInput => ({
   isActive: draft.isActive,
 });
 
-const todayKey = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-};
-
 // Ajustes > Turnero: actividades sin cancha con cupo por franja (ej. Musculación).
 export default function SettingsTurnSchedulesSection() {
   const { user } = useAuth();
@@ -98,12 +91,6 @@ export default function SettingsTurnSchedulesSection() {
   const [error, setError] = useState('');
   const [formError, setFormError] = useState('');
   const [editing, setEditing] = useState<{ activityTypeId: number | null; draft: Draft } | null>(null);
-  const [viewing, setViewing] = useState<{ schedule: TurnSchedule; date: string } | null>(null);
-  const [dayData, setDayData] = useState<AdminTurnDay | null>(null);
-  const [dayError, setDayError] = useState('');
-  const [logsDate, setLogsDate] = useState<string | null>(null);
-  const [logs, setLogs] = useState<AccessLogDay | null>(null);
-  const [logsError, setLogsError] = useState('');
 
   const load = useCallback(async () => {
     if (!clubSlug) return;
@@ -122,22 +109,6 @@ export default function SettingsTurnSchedulesSection() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const loadDay = useCallback(async () => {
-    if (!clubSlug || !viewing) return;
-    try {
-      setDayError('');
-      setDayData(await ActivityTurnService.adminDay(clubSlug, viewing.schedule.activityTypeId, viewing.date));
-    } catch (err) {
-      reportUiError({ area: 'SettingsTurnSchedulesSection', action: 'loadDay' }, err);
-      setDayData(null);
-      setDayError(extractErrorMessage(err, 'No se pudieron cargar los turnos.'));
-    }
-  }, [clubSlug, viewing]);
-
-  useEffect(() => {
-    void loadDay();
-  }, [loadDay]);
 
   const updateDraft = (patch: Partial<Draft>) => setEditing((prev) => (prev ? { ...prev, draft: { ...prev.draft, ...patch } } : prev));
   const updateWindow = (index: number, patch: Partial<WindowDraft>) =>
@@ -168,36 +139,7 @@ export default function SettingsTurnSchedulesSection() {
     }
   };
 
-  const handleCancelTurn = async (turnId: string, name: string) => {
-    if (!clubSlug || !window.confirm(`¿Cancelás el turno de ${name}?`)) return;
-    try {
-      await ActivityTurnService.adminCancel(clubSlug, turnId);
-      showAdminToast('Turno cancelado.');
-      await loadDay();
-    } catch (err) {
-      reportUiError({ area: 'SettingsTurnSchedulesSection', action: 'cancelTurn' }, err);
-      setDayError(extractErrorMessage(err, 'No se pudo cancelar el turno.'));
-    }
-  };
-
-  const loadLogs = useCallback(async () => {
-    if (!clubSlug || !logsDate) return;
-    try {
-      setLogsError('');
-      setLogs(await ActivityTurnService.accessLogs(clubSlug, logsDate));
-    } catch (err) {
-      reportUiError({ area: 'SettingsTurnSchedulesSection', action: 'loadLogs' }, err);
-      setLogs(null);
-      setLogsError(extractErrorMessage(err, 'No se pudieron cargar los ingresos.'));
-    }
-  }, [clubSlug, logsDate]);
-
-  useEffect(() => {
-    void loadLogs();
-  }, [loadLogs]);
-
   const draft = editing?.draft;
-  const visibleSlots = (dayData?.slots || []).filter((slot) => slot.people.length > 0 || !slot.isPast);
 
   return (
     <SettingsSection
@@ -222,14 +164,11 @@ export default function SettingsTurnSchedulesSection() {
       {rows.some((row) => row.isActive) ? (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-p-border bg-p-surface-2 p-3">
           <p className="min-w-0 flex-1 text-[12px] text-p-text-secondary">
-            Kiosco de ingreso: abrilo en la PC del molinete. El socio escribe su DNI, muestra su código de la app o apoya el dedo (si hay lector; las huellas se registran desde el kiosco).
+            Los turnos de cada día, los ingresos por el molinete y el kiosco están en Gimnasio. Acá se configura el horario y el cupo.
           </p>
-          <button type="button" className={ghostButtonClass} onClick={() => setLogsDate(todayKey())}>
-            Ingresos de hoy
-          </button>
-          <a href="/admin/kiosco" target="_blank" rel="noopener noreferrer" className={primaryButtonClass}>
-            Abrir kiosco
-          </a>
+          <Link href="/admin/gimnasio" className={ghostButtonClass}>
+            Ir a Gimnasio
+          </Link>
         </div>
       ) : null}
       {loading && !rows.length ? <p className="text-[13px] text-p-text-muted">Cargando...</p> : null}
@@ -258,9 +197,9 @@ export default function SettingsTurnSchedulesSection() {
                 </p>
               </div>
               <div className="flex gap-2">
-                <button type="button" className={ghostButtonClass} onClick={() => setViewing({ schedule: row, date: todayKey() })}>
+                <Link href="/admin/gimnasio" className={ghostButtonClass}>
                   Ver turnos
-                </button>
+                </Link>
                 {canManage ? (
                   <button
                     type="button"
@@ -423,116 +362,6 @@ export default function SettingsTurnSchedulesSection() {
         ) : null}
       </AdminModal>
 
-      <AdminModal
-        open={viewing !== null}
-        title={viewing ? `Turnos de ${viewing.schedule.name}` : ''}
-        onClose={() => {
-          setViewing(null);
-          setDayData(null);
-        }}
-        maxWidthClassName="max-w-xl"
-      >
-        {viewing ? (
-          <div className="space-y-3">
-            <label className={`${labelClass} block max-w-[200px]`}>
-              Día
-              <AdminDateInput value={viewing.date} onChange={(value) => value && setViewing({ ...viewing, date: value })} />
-            </label>
-            {dayError ? (
-              <AdminFeedbackBanner tone="error" compact>
-                {dayError}
-              </AdminFeedbackBanner>
-            ) : null}
-            {dayData && visibleSlots.length === 0 ? <p className="text-[13px] text-p-text-muted">No hay turnos este día.</p> : null}
-            <ul className="divide-y divide-p-border rounded-lg border border-p-border">
-              {visibleSlots.map((slot) => (
-                <li key={slot.startsAt} className="px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-semibold tabular-nums text-p-text">{slot.time}</span>
-                    <span className="text-[12px] text-p-text-muted">
-                      {slot.booked} de {dayData?.capacity} {slot.available === 0 ? '· Completo' : ''}
-                    </span>
-                  </div>
-                  {slot.people.length ? (
-                    <ul className="mt-1 space-y-0.5">
-                      {slot.people.map((person) => (
-                        <li key={person.turnId} className="flex items-center justify-between gap-2 text-[12px] text-p-text-secondary">
-                          <span>{person.name}</span>
-                          {!slot.isPast && new Date(slot.startsAt).getTime() > Date.now() ? (
-                            <button
-                              type="button"
-                              className="text-[12px] font-semibold text-p-text-muted underline hover:text-p-text"
-                              onClick={() => void handleCancelTurn(person.turnId, person.name)}
-                            >
-                              Cancelar
-                            </button>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </AdminModal>
-      <AdminModal
-        open={logsDate !== null}
-        title="Ingresos"
-        onClose={() => {
-          setLogsDate(null);
-          setLogs(null);
-        }}
-        maxWidthClassName="max-w-xl"
-      >
-        {logsDate ? (
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <label className={`${labelClass} block max-w-[200px]`}>
-                Día
-                <AdminDateInput value={logsDate} onChange={(value) => value && setLogsDate(value)} />
-              </label>
-              {logs ? (
-                <p className="text-[12px] text-p-text-secondary">
-                  {logs.allowed} {logs.allowed === 1 ? 'entró' : 'entraron'} · {logs.denied}{' '}
-                  {logs.denied === 1 ? 'rechazado' : 'rechazados'}
-                </p>
-              ) : null}
-            </div>
-            {logsError ? (
-              <AdminFeedbackBanner tone="error" compact>
-                {logsError}
-              </AdminFeedbackBanner>
-            ) : null}
-            {logs && logs.rows.length === 0 ? <p className="text-[13px] text-p-text-muted">Nadie intentó entrar este día.</p> : null}
-            <ul className="divide-y divide-p-border rounded-lg border border-p-border">
-              {(logs?.rows || []).map((row) => (
-                <li key={row.id} className="flex items-start gap-3 px-3 py-2">
-                  <span className="w-11 shrink-0 text-[12px] font-semibold tabular-nums text-p-text-muted">{row.time}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-p-text">
-                      {row.name || 'Sin identificar'}
-                      <span className="font-normal text-p-text-muted">
-                        {' · '}
-                        {row.method === 'FINGERPRINT' ? 'Huella' : row.method === 'QR' ? 'Código QR' : 'DNI'}
-                      </span>
-                    </p>
-                    {row.result === 'DENIED' ? <p className="text-[12px] text-p-text-secondary">{row.message}</p> : null}
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                      row.result === 'ALLOWED' ? 'bg-p-positive-bg text-p-positive' : 'bg-p-surface-2 text-p-text-secondary'
-                    }`}
-                  >
-                    {row.result === 'ALLOWED' ? 'Entró' : 'Rechazado'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </AdminModal>
     </SettingsSection>
   );
 }
