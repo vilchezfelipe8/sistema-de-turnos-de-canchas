@@ -1196,11 +1196,18 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
   }, [enrollments, loadClassPassesForStudents, selectedClassId]);
 
   const summary = useMemo(() => {
+    const upcoming = classSessions.filter((row) => !classIsPast(row) && ['DRAFT', 'SCHEDULED', 'CONFIRMED'].includes(row.status));
+    const courseIds = new Set(
+      upcoming.filter((row) => row.seriesId && row.series?.status === 'ACTIVE').map((row) => row.seriesId as string)
+    );
+    const singleCount = upcoming.filter((row) => !(row.seriesId && row.series?.status === 'ACTIVE')).length;
     const activeCount = classSessions.filter((row) => ['DRAFT', 'SCHEDULED', 'CONFIRMED'].includes(row.status)).length;
     const publicCount = classSessions.filter((row) => row.visibility === 'PUBLIC').length;
     const cancelled = classSessions.filter((row) => row.status === 'CANCELLED').length;
     return {
       total: classSessions.length,
+      courseCount: courseIds.size,
+      singleCount,
       activeCount,
       publicCount,
       cancelled,
@@ -1231,9 +1238,26 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     });
   }, [classSessions, searchTerm, statusFilter]);
 
+  const inActiveCourse = (row: AdminClassSession) => Boolean(row.seriesId && row.series && row.series.status === 'ACTIVE');
+
+  // Cursos activos: una fila por curso con su próxima clase (en "Próximas").
+  const courseRows = useMemo(() => {
+    if (statusFilter !== 'active') return [];
+    const bySeries = new Map<string, { next: AdminClassSession; upcoming: number }>();
+    const sorted = [...filteredClasses].sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+    for (const row of sorted) {
+      if (!inActiveCourse(row)) continue;
+      const entry = bySeries.get(row.seriesId as string);
+      if (entry) entry.upcoming += 1;
+      else bySeries.set(row.seriesId as string, { next: row, upcoming: 1 });
+    }
+    return [...bySeries.values()];
+  }, [filteredClasses, statusFilter]);
+
   // Lista agrupada por semana. Las ya dadas se muestran de la más nueva a la más vieja.
+  // En "Próximas", las clases de los cursos van arriba (una fila por curso), acá solo las sueltas.
   const classWeeks = useMemo(() => {
-    const rows = [...filteredClasses].sort((a, b) => {
+    const rows = [...filteredClasses].filter((row) => statusFilter !== 'active' || !inActiveCourse(row)).sort((a, b) => {
       const diff = new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
       return statusFilter === 'completed' ? -diff : diff;
     });
@@ -2644,37 +2668,6 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   className={fieldInputClass}
                 />
               </label>
-              <CheckboxField
-                label="Se ve en la app: los jugadores se anotan solos"
-                checked={classVisibleInApp}
-                onChange={setClassVisibleInApp}
-              />
-              {classVisibleInApp && (
-                <div className="space-y-2 pl-6">
-                  <CheckboxField
-                    label="Cobrar al anotarse (Mercado Pago)"
-                    checked={classRequiresPayment}
-                    onChange={(checked) => {
-                      setClassRequiresPayment(checked);
-                      if (checked) setClassRequiresApproval(false);
-                    }}
-                  />
-                  {classRequiresPayment ? (
-                    <p className="text-[12px] text-p-text-muted">
-                      Pagan las clases que quedan del mes y quedan anotados. Después, el mes se cobra como siempre.
-                    </p>
-                  ) : (
-                    <CheckboxField
-                      label="Aprobar a cada uno antes de sumarlo"
-                      checked={classRequiresApproval}
-                      onChange={setClassRequiresApproval}
-                    />
-                  )}
-                  {fieldErrors.requiresPayment ? (
-                    <p className="text-[12px] text-[var(--error-fg)]">{fieldErrors.requiresPayment}</p>
-                  ) : null}
-                </div>
-              )}
             </div>
           )}
           {seriesConflicts && seriesConflicts.length > 0 && (
@@ -2746,6 +2739,51 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           )}
         </div>
       </FormBlock>
+
+      {!editingClassId && classWeekly && (
+        <FormBlock
+          title="En la app"
+          hint="Si se ve, los jugadores encuentran el curso en la app del club y se suman solos."
+          error={fieldErrors.requiresPayment}
+        >
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { value: 'hidden', label: 'No se ve' },
+                { value: 'open', label: 'Se anotan solos' },
+                { value: 'approval', label: 'Piden lugar y vos aprobás' },
+                { value: 'payment', label: 'Pagan al anotarse' },
+              ] as const
+            ).map((option) => {
+              const current = !classVisibleInApp
+                ? 'hidden'
+                : classRequiresPayment
+                  ? 'payment'
+                  : classRequiresApproval
+                    ? 'approval'
+                    : 'open';
+              return (
+                <ChoiceChip
+                  key={option.value}
+                  active={current === option.value}
+                  onClick={() => {
+                    setClassVisibleInApp(option.value !== 'hidden');
+                    setClassRequiresPayment(option.value === 'payment');
+                    setClassRequiresApproval(option.value === 'approval');
+                  }}
+                >
+                  {option.label}
+                </ChoiceChip>
+              );
+            })}
+          </div>
+          {classVisibleInApp && classRequiresPayment ? (
+            <p className="text-[12px] text-p-text-muted">
+              Pagan con Mercado Pago las clases que quedan del mes y quedan anotados. Después, el mes se cobra como siempre.
+            </p>
+          ) : null}
+        </FormBlock>
+      )}
 
       <FormBlock title="Precio por alumno" optional error={fieldErrors.pricePerStudent}>
         <div className="relative sm:max-w-[200px]">
@@ -2958,7 +2996,16 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       {summary.total > 0 && (
         <p className="text-[14px] text-p-text-secondary">
           <span className="font-semibold text-p-text">
-            {summary.activeCount === 1 ? '1 clase programada' : `${summary.activeCount} clases programadas`}
+            {[
+              summary.courseCount ? (summary.courseCount === 1 ? '1 curso' : `${summary.courseCount} cursos`) : null,
+              summary.singleCount || !summary.courseCount
+                ? summary.singleCount === 1
+                  ? '1 clase suelta'
+                  : `${summary.singleCount} clases sueltas`
+                : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
           {summary.publicCount > 0 ? ` · ${summary.publicCount} se ven en la app` : ''}
           {summary.cancelled > 0 ? ` · ${summary.cancelled} canceladas` : ''}
@@ -3008,7 +3055,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           <div className="px-4 py-12 text-center">
             <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-p-border border-t-p-accent" />
           </div>
-        ) : classWeeks.length === 0 ? (
+        ) : classWeeks.length === 0 && courseRows.length === 0 ? (
           <div className="p-4 lg:p-5">
             <AcademyEmptyState
               title={
@@ -3047,6 +3094,33 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           </div>
         ) : (
           <div>
+            {courseRows.length ? (
+              <section>
+                <p className="border-b border-p-border bg-p-surface-2 px-4 py-2 text-[12px] font-semibold text-p-text-secondary lg:px-5">
+                  Cursos
+                  <span className="font-normal text-p-text-muted"> · todas las semanas</span>
+                </p>
+                <ul className="divide-y divide-p-border">
+                  {courseRows.map(({ next, upcoming }) => (
+                    <CourseListRow
+                      key={next.seriesId}
+                      next={next}
+                      upcoming={upcoming}
+                      selected={next.id === selectedClassId}
+                      onOpen={() => {
+                        setClassDrawerTab('summary');
+                        setSelectedClassId(next.id);
+                      }}
+                    />
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+            {classWeeks.length && courseRows.length ? (
+              <p className="border-b border-p-border bg-p-surface-2 px-4 py-2 text-[12px] font-semibold text-p-text-secondary lg:px-5">
+                Clases sueltas
+              </p>
+            ) : null}
             {classWeeks.map((week) => (
               <section key={week.key}>
                 <p className="border-b border-p-border bg-p-surface-2 px-4 py-2 text-[12px] font-semibold text-p-text-secondary lg:px-5">
@@ -3076,7 +3150,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       </AdminPanel>
 
       <AdminDrawer
-        open={Boolean(selectedClass) && !modalOpen && !enrollmentModalOpen}
+        open={Boolean(selectedClass)}
         onClose={() => setSelectedClassId(null)}
         title={selectedClass ? `Clase${selectedClass.activityType?.name ? ` de ${selectedClass.activityType.name}` : ''}` : 'Clase'}
         subtitle={selectedClass?.teacher?.displayName ? `Con ${selectedClass.teacher.displayName}` : undefined}
@@ -3249,7 +3323,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
       </AdminDrawer>
 
       <AdminDrawer
-        open={enrollmentModalOpen && !classPassDrawerOpen}
+        open={enrollmentModalOpen}
         onClose={closeEnrollmentModal}
         title={
           editingEnrollmentId
@@ -4755,6 +4829,62 @@ function ClassEnrollmentListItem({
         )}
       </div>
     </div>
+  );
+}
+
+function CourseListRow({
+  next,
+  upcoming,
+  selected,
+  onOpen,
+}: {
+  next: AdminClassSession;
+  upcoming: number;
+  selected: boolean;
+  onOpen: () => void;
+}) {
+  const enrolled = next.enrolledCount ?? null;
+  const full = enrolled != null && enrolled >= next.capacity;
+  const pending = Number(next.series?.pendingRequests || 0);
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-p-surface-2 lg:px-5 ${selected ? 'bg-p-surface-2' : ''}`}
+      >
+        <div className="w-[92px] flex-none">
+          <p className="text-[13px] font-semibold text-p-text">{weekdaysLabel(next.series?.weekdays || [])}</p>
+          <p className="text-[12px] text-p-text-muted">
+            {formatClassTime(next.startsAt)}–{formatClassTime(next.endsAt)}
+          </p>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[14px] font-semibold text-p-text">
+            {next.activityType?.name || 'Clase'}
+            <span className="font-normal text-p-text-secondary"> con {next.teacher?.displayName || 'sin profesor'}</span>
+          </p>
+          <p className="truncate text-[12px] text-p-text-muted">
+            {[
+              `Próxima ${formatClassDay(next.startsAt)}`,
+              upcoming > 1 ? `${upcoming} clases por delante` : null,
+              next.series?.visibility === 'PUBLIC' ? 'Se ve en la app' : null,
+              pending ? (pending === 1 ? '1 pedido para sumarse' : `${pending} pedidos para sumarse`) : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        </div>
+        {enrolled != null ? (
+          <div className="flex-none text-right">
+            <p className={`text-[14px] font-semibold ${full ? 'text-p-positive' : 'text-p-text'}`}>
+              {enrolled}/{next.capacity}
+            </p>
+            <p className="text-[11px] text-p-text-muted">{full ? 'completo' : 'alumnos'}</p>
+          </div>
+        ) : null}
+      </button>
+    </li>
   );
 }
 
