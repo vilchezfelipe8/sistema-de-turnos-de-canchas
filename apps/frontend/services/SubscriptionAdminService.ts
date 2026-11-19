@@ -43,6 +43,8 @@ export type SubscriptionPlan = {
   suspendMemberAfterDays: number | null;
   grantsMemberCategory: { id: string; name: string } | null;
   isActive: boolean;
+  /** El jugador puede comprarlo desde la app con Mercado Pago. */
+  sellOnline: boolean;
   sortOrder: number;
   subscriptionsCount: number;
   options: SubscriptionPlanOption[];
@@ -61,6 +63,7 @@ export type SubscriptionPlanInput = {
   pauseMaxCount?: number;
   suspendMemberAfterDays?: number | null;
   grantsMemberCategoryId?: string | null;
+  sellOnline?: boolean;
   options: Array<{ id?: string | null; label: string; installmentsCount: number; installmentPrice: number; isActive?: boolean }>;
   entitlements?: Array<{
     kind: SubscriptionEntitlementKind;
