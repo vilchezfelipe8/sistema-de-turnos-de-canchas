@@ -584,6 +584,7 @@ export default function AdminTabClub({
   const clientSearchWrapperRef = useRef<HTMLDivElement | null>(null);
 
   const [activeTab, setActiveTab] = useState<AdminTabClubSection>('identity');
+  const [selectedScheduleActivityId, setSelectedScheduleActivityId] = useState<number | null>(null);
   const forcedSections: AdminTabClubSection[] | null = forcedTab
     ? (Array.isArray(forcedTab) ? forcedTab : [forcedTab])
     : null;
@@ -2861,20 +2862,34 @@ export default function AdminTabClub({
             )}
 
             {/* ----- TAB: HORARIOS ----- */}
-            {isSectionVisible('schedules') && (
+            {isSectionVisible('schedules') && (() => {
+              const normalizeKey = (value: string) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+              const selectedActivity = activityTypes.find((item) => item.id === selectedScheduleActivityId) || activityTypes[0] || null;
+              const selectedConfig = selectedActivity ? activityScheduleForm[selectedActivity.id] : null;
+              const fixedSetting = selectedActivity
+                ? activitySettings.find((item) => [normalizeKey(item.key), normalizeKey(item.label)].includes(normalizeKey(selectedActivity.name))) || null
+                : null;
+              const selectedExceptions = selectedActivity ? Number(activityExceptionSummary[selectedActivity.id]?.count || 0) : 0;
+              const selectedPendingExceptions = selectedActivity
+                ? pendingScheduleExceptionMutations.filter((item) => item.activityId === selectedActivity.id).length
+                : 0;
+              const subTitleCls = 'mb-1 text-[13px] font-semibold text-p-text';
+              return (
               <div className="space-y-4">
-                {/* Días de apertura */}
+                {/* Calendario del club */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>¿Qué días abre el club?</p>
+                  <p className={cardTitleCls}>Calendario del club</p>
+                  <p className={subTitleCls}>Días que abre</p>
                   <p className="mb-3 text-[12px] text-p-text-muted">Si no marcás ninguno, abre todos los días.</p>
                   <div className="flex flex-wrap gap-2">
-                    {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((label, idx) => {
-                      const day = idx % 7;
+                    {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((label, idx) => {
+                      const day = (idx + 1) % 7;
                       const active = openingDaysSet.includes(day);
                       return (
                         <button
                           key={label}
                           type="button"
+                          aria-pressed={active}
                           onClick={() => toggleOpeningDay(day)}
                           className={`h-9 w-12 rounded-xl text-[12px] font-medium transition ${active ? 'bg-p-positive-bg text-p-accent border border-p-accent' : 'border border-p-border bg-p-surface text-p-text-muted hover:bg-p-surface-2'}`}
                         >
@@ -2883,111 +2898,177 @@ export default function AdminTabClub({
                       );
                     })}
                   </div>
-                </div>
 
-                {/* Horario de cada deporte */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Horario de cada deporte</p>
-                  {activityTypes.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay deportes cargados.</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {activityTypes.map((activity) => {
-                        const cfg = activityScheduleForm[activity.id];
-                        if (!cfg) return null;
-                        return (
-                          <ActivityScheduleEditor
-                            key={activity.id}
-                            activityName={activity.name}
-                            config={cfg}
-                            onChange={(patch) =>
-                              setActivityScheduleForm((prev) => ({
-                                ...prev,
-                                [activity.id]: { ...prev[activity.id], ...patch },
-                              }))
-                            }
-                            hasPendingChanges={pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id)}
-                            exceptionsCount={Number(activityExceptionSummary[activity.id]?.count || 0)}
-                            onOpenExceptions={() => openExceptionModalForActivity(activity)}
-                          />
-                        );
-                      })}
-                    </div>
+                  <div className="mt-5 border-t border-p-border pt-5">
+                    <p className={subTitleCls}>Días cerrados</p>
+                    <p className="mb-3 text-[12px] text-p-text-muted">Feriados o días puntuales en que cierra todo el club. Para cerrar un solo deporte, usá sus feriados y cierres más abajo.</p>
+                    {clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' && (
+                    <p className="mb-3 text-[12px] text-p-error">En cierre permanente no se permiten fechas de cierre puntual.</p>
                   )}
-                </div>
-
-                {/* Modalidades (antes en Ajustes > Actividades): se guardan solas. */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Modalidades de juego</p>
-                  <SettingsActivityFormatsSection />
-                </div>
-
-                {/* Turnos fijos por actividad */}
-                {activitySettings.length > 0 && (
-                  <div className={cardCls}>
-                    <p className={cardTitleCls}>Reservas fijas (todas las semanas)</p>
-                    <p className="mb-3 text-[12px] text-p-text-muted">Cuántos turnos a futuro se crean para cada reserva fija.</p>
-                    <div className="space-y-3">
-                      {activitySettings.map((activity) => (
-                        <div key={activity.key} className="grid grid-cols-1 gap-3 md:grid-cols-3 rounded-xl border border-p-border p-3">
-                          <div>
-                            <label className={labelCls}>Deporte</label>
-                            <input
-                              type="text"
-                              value={activity.label}
-                              readOnly
-                              className={`${inputCls} bg-p-surface-2`}
-                            />
-                          </div>
-                          <div>
-                            <label className={labelCls}>Se crean los turnos de los próximos (días)</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={clubForm.fixedBookingSettingsByActivity[activity.key]?.fixedBookingDaysAhead ?? DEFAULT_FIXED_BOOKING_DAYS_AHEAD}
-                              onChange={(e) => setClubForm((prev) => ({
-                                ...prev,
-                                fixedBookingSettingsByActivity: {
-                                  ...prev.fixedBookingSettingsByActivity,
-                                  [activity.key]: {
-                                    ...(prev.fixedBookingSettingsByActivity[activity.key] || {
-                                      fixedBookingDaysAhead: DEFAULT_FIXED_BOOKING_DAYS_AHEAD,
-                                      fixedBookingGenerationFrequencyDays: DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS
-                                    }),
-                                    fixedBookingDaysAhead: e.target.value
-                                  }
-                                }
-                              }))}
-                              className={inputCls}
-                            />
-                          </div>
-                          <div>
-                            <label className={labelCls}>Se completan cada (días)</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={clubForm.fixedBookingSettingsByActivity[activity.key]?.fixedBookingGenerationFrequencyDays ?? DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS}
-                              onChange={(e) => setClubForm((prev) => ({
-                                ...prev,
-                                fixedBookingSettingsByActivity: {
-                                  ...prev.fixedBookingSettingsByActivity,
-                                  [activity.key]: {
-                                    ...(prev.fixedBookingSettingsByActivity[activity.key] || {
-                                      fixedBookingDaysAhead: DEFAULT_FIXED_BOOKING_DAYS_AHEAD,
-                                      fixedBookingGenerationFrequencyDays: DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS
-                                    }),
-                                    fixedBookingGenerationFrequencyDays: e.target.value
-                                  }
-                                }
-                              }))}
-                              className={inputCls}
-                            />
-                          </div>
-                        </div>
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                    <div className="w-full md:w-64">
+                      <AdminDateInput
+                        value={closureDateInput}
+                        onChange={setClosureDateInput}
+                        min={getTodayDateKey()}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addClosureDate}
+                      disabled={clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' || !closureDateInput}
+                      className="h-9 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
+                    >
+                      Agregar cierre
+                    </button>
+                  </div>
+                  {closureDatesSet.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {closureDatesSet.map((date) => (
+                        <span key={date} className="inline-flex items-center gap-1.5 rounded-lg border border-p-border bg-p-surface-2 px-2.5 py-1.5 text-[12px] text-p-text">
+                          {formatExceptionDate(date)}
+                          <button
+                            type="button"
+                            onClick={() => removeClosureDate(date)}
+                            aria-label={`Quitar cierre del ${formatExceptionDate(date)}`}
+                            className="text-p-text-muted hover:text-p-error transition"
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
                       ))}
                     </div>
+                  )}
                   </div>
-                )}
+                </div>
+
+                {/* Por deporte */}
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Por deporte</p>
+                  {activityTypes.length === 0 || !selectedActivity ? (
+                    <p className="text-[12px] text-p-text-muted">No hay deportes cargados.</p>
+                  ) : (
+                    <>
+                      <div role="tablist" aria-label="Deportes" className="mb-5 flex flex-wrap gap-1 rounded-xl bg-p-surface-2 p-1">
+                        {activityTypes.map((activity) => {
+                          const active = activity.id === selectedActivity.id;
+                          const pending = pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id);
+                          return (
+                            <button
+                              key={activity.id}
+                              type="button"
+                              role="tab"
+                              aria-selected={active}
+                              onClick={() => setSelectedScheduleActivityId(activity.id)}
+                              className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition ${active ? 'bg-p-surface text-p-text shadow-sm' : 'text-p-text-muted hover:text-p-text'}`}
+                            >
+                              {activity.name}
+                              {pending && <span className="h-1.5 w-1.5 rounded-full bg-p-warning" aria-label="con cambios" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="space-y-6">
+                        {/* Horario */}
+                        <section>
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <p className={subTitleCls}>Horario de {selectedActivity.name}</p>
+                            <button
+                              type="button"
+                              onClick={() => openExceptionModalForActivity(selectedActivity)}
+                              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:bg-p-surface-2"
+                            >
+                              <CalendarDays size={13} className="text-p-accent" />
+                              Feriados y cierres
+                              {selectedExceptions > 0 && (
+                                <span className="rounded-full bg-p-positive-bg px-1.5 text-[10px] font-semibold text-p-accent">{selectedExceptions}</span>
+                              )}
+                              {selectedPendingExceptions > 0 && (
+                                <span className="rounded-full bg-p-warning-bg px-1.5 text-[10px] font-semibold text-p-warning">{selectedPendingExceptions} sin guardar</span>
+                              )}
+                            </button>
+                          </div>
+                          {selectedConfig ? (
+                            <ActivityScheduleEditor
+                              key={selectedActivity.id}
+                              embedded
+                              activityName={selectedActivity.name}
+                              config={selectedConfig}
+                              onChange={(patch) =>
+                                setActivityScheduleForm((prev) => ({
+                                  ...prev,
+                                  [selectedActivity.id]: { ...prev[selectedActivity.id], ...patch },
+                                }))
+                              }
+                            />
+                          ) : null}
+                        </section>
+
+                        {/* Modalidades (se guardan solas) */}
+                        <section className="border-t border-p-border pt-5">
+                          <p className={subTitleCls}>Modalidades</p>
+                          <p className="mb-3 text-[12px] text-p-text-muted">Cuántos jugadores tiene un turno (ej. Single 2, Dobles 4). Se usan si cobrás por jugador. Se guardan al agregarlas.</p>
+                          <SettingsActivityFormatsSection key={selectedActivity.id} activityId={selectedActivity.id} />
+                        </section>
+
+                        {/* Reservas fijas */}
+                        {fixedSetting && (
+                          <section className="border-t border-p-border pt-5">
+                            <p className={subTitleCls}>Reservas fijas</p>
+                            <p className="mb-3 text-[12px] text-p-text-muted">Para las reservas de todas las semanas: cuántos días a futuro se crean los turnos y cada cuánto se completan.</p>
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <label className="block">
+                                  <span className={labelCls}>Se crean los próximos (días)</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={clubForm.fixedBookingSettingsByActivity[fixedSetting.key]?.fixedBookingDaysAhead ?? DEFAULT_FIXED_BOOKING_DAYS_AHEAD}
+                                    onChange={(e) => setClubForm((prev) => ({
+                                      ...prev,
+                                      fixedBookingSettingsByActivity: {
+                                        ...prev.fixedBookingSettingsByActivity,
+                                        [fixedSetting.key]: {
+                                          ...(prev.fixedBookingSettingsByActivity[fixedSetting.key] || {
+                                            fixedBookingDaysAhead: DEFAULT_FIXED_BOOKING_DAYS_AHEAD,
+                                            fixedBookingGenerationFrequencyDays: DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS
+                                          }),
+                                          fixedBookingDaysAhead: e.target.value
+                                        }
+                                      }
+                                    }))}
+                                    className={inputCls}
+                                  />
+                                </label>
+                                <label className="block">
+                                  <span className={labelCls}>Se completan cada (días)</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={clubForm.fixedBookingSettingsByActivity[fixedSetting.key]?.fixedBookingGenerationFrequencyDays ?? DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS}
+                                    onChange={(e) => setClubForm((prev) => ({
+                                      ...prev,
+                                      fixedBookingSettingsByActivity: {
+                                        ...prev.fixedBookingSettingsByActivity,
+                                        [fixedSetting.key]: {
+                                          ...(prev.fixedBookingSettingsByActivity[fixedSetting.key] || {
+                                            fixedBookingDaysAhead: DEFAULT_FIXED_BOOKING_DAYS_AHEAD,
+                                            fixedBookingGenerationFrequencyDays: DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS
+                                          }),
+                                          fixedBookingGenerationFrequencyDays: e.target.value
+                                        }
+                                      }
+                                    }))}
+                                    className={inputCls}
+                                  />
+                                </label>
+                            </div>
+                          </section>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Profesor */}
                 <div className={cardCls}>
@@ -3019,95 +3100,8 @@ export default function AdminTabClub({
                   </div>
                 </div>
               </div>
-            )}
-
-            {/* ----- TAB: EXCEPCIONES ----- */}
-            {isSectionVisible('exceptions') && (
-              <div className="space-y-4">
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Fechas de cierre puntual</p>
-                  <p className="mb-3 text-[12px] text-p-text-muted">Bloqueá días específicos por feriado, mantenimiento o una excepción general del club.</p>
-                  {clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' && (
-                    <p className="mb-3 text-[12px] text-p-error">En cierre permanente no se permiten fechas de cierre puntual.</p>
-                  )}
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                    <div className="w-full md:w-64">
-                      <AdminDateInput
-                        value={closureDateInput}
-                        onChange={setClosureDateInput}
-                        min={getTodayDateKey()}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addClosureDate}
-                      disabled={clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' || !closureDateInput}
-                      className="h-9 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
-                    >
-                      Agregar cierre
-                    </button>
-                  </div>
-                  {closureDatesSet.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {closureDatesSet.map((date) => (
-                        <span key={date} className="inline-flex items-center gap-1.5 rounded-lg border border-p-border bg-p-surface-2 px-2.5 py-1.5 text-[12px] text-p-text">
-                          {date}
-                          <button
-                            type="button"
-                            onClick={() => removeClosureDate(date)}
-                            className="text-p-text-muted hover:text-p-error transition"
-                          >
-                            <X size={12} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Excepciones por actividad</p>
-                  <p className="mb-4 text-[12px] text-p-text-muted">Abrí cada actividad para cargar cierres, rangos especiales o turnos excepcionales por fecha.</p>
-                  {activityTypes.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay actividades configuradas.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {activityTypes.map((activity) => {
-                        const pendingCount = pendingScheduleExceptionMutations.filter((item) => item.activityId === activity.id).length;
-                        const savedCount = Number(activityExceptionSummary[activity.id]?.count || 0);
-                        return (
-                          <div key={activity.id} className="flex flex-col gap-3 rounded-xl border border-p-border p-4 md:flex-row md:items-center md:justify-between">
-                            <div>
-                              <p className="text-[13px] font-semibold text-p-text">{activity.name}</p>
-                              <p className="mt-1 text-[11px] text-p-text-muted">
-                                {savedCount > 0 ? `${savedCount} excepción${savedCount === 1 ? '' : 'es'} cargada${savedCount === 1 ? '' : 's'}` : 'Sin excepciones cargadas'}
-                                {pendingCount > 0 ? ` · ${pendingCount} pendiente${pendingCount === 1 ? '' : 's'} de guardar` : ''}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => openExceptionModalForActivity(activity)}
-                              className="inline-flex h-8 items-center gap-2 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2"
-                            >
-                              <span className="grid h-4 w-4 place-items-center rounded-full bg-p-surface-2 text-p-accent">
-                                <CalendarDays size={11} />
-                              </span>
-                              <span>Gestionar excepciones</span>
-                              {savedCount > 0 && (
-                                <span className="rounded-full bg-p-positive-bg px-1.5 py-0.5 text-[10px] font-semibold text-p-accent">
-                                  {savedCount}
-                                </span>
-                              )}
-                              <ChevronRight size={12} className="text-p-text-muted" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ----- TAB: PRECIOS ----- */}
             {isSectionVisible('pricing') && (

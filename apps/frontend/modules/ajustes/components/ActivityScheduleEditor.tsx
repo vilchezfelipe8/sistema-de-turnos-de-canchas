@@ -18,6 +18,8 @@ type ActivityScheduleEditorProps = {
   hasPendingChanges?: boolean;
   exceptionsCount?: number;
   onOpenExceptions?: () => void;
+  /** Dentro de otra tarjeta: sin borde propio ni encabezado. */
+  embedded?: boolean;
 };
 
 const DURATION_PRESETS = [30, 45, 60, 90, 120, 150, 180];
@@ -63,6 +65,7 @@ export default function ActivityScheduleEditor({
   hasPendingChanges = false,
   exceptionsCount = 0,
   onOpenExceptions,
+  embedded = false,
 }: ActivityScheduleEditorProps) {
   const durations = parseDurations(config.scheduleDurations);
   const durationOptions = Array.from(new Set([...DURATION_PRESETS, ...durations])).sort((a, b) => a - b);
@@ -101,7 +104,8 @@ export default function ActivityScheduleEditor({
   })();
 
   return (
-    <div className="rounded-xl border border-p-border p-4">
+    <div className={embedded ? '' : 'rounded-xl border border-p-border p-4'}>
+      {!embedded && (
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <p className="text-[15px] font-semibold text-p-text">{activityName}</p>
@@ -120,6 +124,7 @@ export default function ActivityScheduleEditor({
           </button>
         )}
       </div>
+      )}
 
       <div className="space-y-5">
         {/* Cómo se reserva */}
