@@ -163,6 +163,7 @@ import AgendaPlayerSlotsSection from '../../components/admin/agenda/AgendaPlayer
 import { normalizeApiError } from '../../utils/apiError';
 import { resolveBookingErrorBehavior } from '../../utils/bookingErrorMap';
 import BookingDrawerShell from '../../modules/admin/bookingDrawer/components/BookingDrawerShell';
+import { OVERLAY_EXIT_MS } from '../../hooks/usePresence';
 import { bookingDrawerReducer, initialBookingDrawerState } from '../../modules/admin/bookingDrawer/reducer';
 import { adminButton } from '../../components/admin/ui/adminButton';
 import { adminChip } from '../../components/admin/ui/adminChip';
@@ -1422,6 +1423,9 @@ function AdminAgendaPlaygroundPage() {
   // Entre que el servidor crea la reserva y el drawer pasa a mostrarla, la agenda ya la trae:
   // sin esto el borrador "Nueva reserva" choca con ella y parpadea la superposición.
   const [settlingCreatedBooking, setSettlingCreatedBooking] = useState(false);
+  // Al crear: el drawer del borrador sale y entra el de la reserva creada (no se transforma en el lugar).
+  // Solo oculta el drawer; no dispara la limpieza de cerrar (drawerOpen sigue en true).
+  const [drawerHandoff, setDrawerHandoff] = useState(false);
   // Drawer de edición: horario/cancha plegados detrás de "Modificar" y acciones secundarias en "Más acciones".
   const [simplifiedScheduleEditorOpen, setSimplifiedScheduleEditorOpen] = useState(false);
   const [simplifiedMoreActionsOpen, setSimplifiedMoreActionsOpen] = useState(false);
@@ -5633,7 +5637,11 @@ function AdminAgendaPlaygroundPage() {
           }
         }
         if (createdBooking) {
+          // Con la reserva ya lista: sale el drawer del borrador y recién después entra el de la reserva.
+          setDrawerHandoff(true);
+          await new Promise((resolve) => window.setTimeout(resolve, OVERLAY_EXIT_MS + 40));
           openBookingInDrawer(createdBooking);
+          setDrawerHandoff(false);
           if (pendingParticipantDrafts.length > 0) {
             const syncResult = await syncDraftParticipantsToPersistedBooking(
               Number(createdBooking.id),
@@ -5830,6 +5838,7 @@ function AdminAgendaPlaygroundPage() {
     } finally {
       setIsSubmittingBooking(false);
       setSettlingCreatedBooking(false);
+      setDrawerHandoff(false);
     }
   };
 
@@ -7002,20 +7011,6 @@ function AdminAgendaPlaygroundPage() {
                   onOpenBooking={openBookingInDrawer}
                   onCreateAt={(courtId, startSlot, endSlot) => openQuickCreateBooking(courtId, { startSlot, endSlot })}
                   onCreateBooking={() => openQuickCreateBooking(visibleCourts[0]?.id)}
-                  onConfirmBooking={async (booking) => {
-                    const bookingId = Number(booking.id);
-                    if (!Number.isFinite(bookingId) || bookingId <= 0) return;
-                    try {
-                      await confirmBooking(bookingId);
-                      await reloadSchedule();
-                      showAgendaToast('Reserva confirmada.', 'success');
-                    } catch (error) {
-                      reportUiError({ area: 'AgendaPlayground', action: 'confirmBookingFromMobileGrid' }, error);
-                      const normalized = normalizeApiError(error, 'No se pudo confirmar la reserva.');
-                      showAgendaToast(toUserSafeMessage(normalized.message, 'No se pudo confirmar la reserva.'));
-                    }
-                  }}
-                  onChargeBooking={(booking) => void openAgendaAccountDrawer(Number(booking.id), 'payment')}
                   courtRules={mobileCourtRules}
                   pastSlotCount={pastSlotCount}
                   onFindFreeSlot={() => setFreeFinderOpen(true)}
@@ -8321,7 +8316,7 @@ function AdminAgendaPlaygroundPage() {
             </AdminOverlay>
 
             <AdminDrawer
-              open={drawerOpen}
+              open={drawerOpen && !drawerHandoff}
               onClose={() => closeBookingDrawer({ clearFormError: false })}
               size={editingBookingId ? 'lg' : 'md'}
               // Escape cierra primero lo que esté abierto adentro (búsquedas, menús); después el drawer.

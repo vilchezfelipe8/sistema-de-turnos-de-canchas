@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { CalendarDays, Check, ChevronLeft, ChevronRight, DollarSign, Lock, Plus, Repeat, Search, Users, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Lock, Plus, Repeat, Search, X } from 'lucide-react';
 import type { Booking, Court } from './types/agendaTypes';
 import { minutesFromDayStart, slotMinutes, slotToTime, startHour, totalSlots } from './utils/agendaDateUtils';
 import { bookingColor, isSettledPastBooking } from './utils/agendaDisplayUtils';
@@ -28,8 +28,6 @@ type AgendaMobileGridProps = {
   onOpenBooking: (booking: Booking) => void;
   onCreateAt: (courtId: string, startSlot: number, endSlot: number) => void;
   onCreateBooking: () => void;
-  onConfirmBooking: (booking: Booking) => Promise<void>;
-  onChargeBooking: (booking: Booking) => void;
   /** Reglas por cancha (id). Sin reglas, la cancha usa duraciones libres. */
   courtRules?: Map<string, AgendaMobileCourtRules>;
   /** Slots del día que ya pasaron. */
@@ -62,8 +60,6 @@ const formatLocalDate = (date: Date) => {
 const isSameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 
-const formatAmount = (amount: number) => `$ ${Math.round(amount).toLocaleString('es-AR')}`;
-
 const formatCompactAmount = (amount: number) =>
   amount >= 1000 ? `$${Math.round(amount / 1000)}k` : `$${Math.round(amount)}`;
 
@@ -80,22 +76,6 @@ function paymentPillClass(state: Booking['paymentState']) {
   return 'bg-ink-300/90 text-ink-900';
 }
 
-function stateChip(state: Booking['state']) {
-  if (state === 'confirmed') return { label: 'Confirmada', className: 'bg-p-positive-bg text-p-accent' };
-  if (state === 'completed') return { label: 'Finalizada', className: 'bg-blue-100 text-ink-900' };
-  if (state === 'blocked') return { label: 'Bloqueo', className: 'bg-red-100 text-red-900' };
-  if (state === 'class') return { label: 'Clase', className: 'bg-sky-100 text-sky-900' };
-  return { label: 'Sin confirmar', className: 'bg-p-warning-bg text-p-warning' };
-}
-
-function stateStripeClass(state: Booking['state']) {
-  if (state === 'confirmed') return 'bg-lima-100';
-  if (state === 'completed') return 'bg-blue-100';
-  if (state === 'blocked') return 'bg-red-100';
-  if (state === 'class') return 'bg-sky-200';
-  return 'bg-amber-200';
-}
-
 export default function AgendaMobileGrid({
   courts,
   bookings,
@@ -108,8 +88,6 @@ export default function AgendaMobileGrid({
   onOpenBooking,
   onCreateAt,
   onCreateBooking,
-  onConfirmBooking,
-  onChargeBooking,
   courtRules,
   pastSlotCount = 0,
   onFindFreeSlot,
@@ -119,8 +97,6 @@ export default function AgendaMobileGrid({
   const lastAutoScrollKeyRef = useRef('');
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [freeSelection, setFreeSelection] = useState<FreeSelection | null>(null);
-  const [previewBookingId, setPreviewBookingId] = useState<string | null>(null);
-  const [confirmingPreview, setConfirmingPreview] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowTick(Date.now()), 60_000);
@@ -131,7 +107,6 @@ export default function AgendaMobileGrid({
 
   useEffect(() => {
     setFreeSelection(null);
-    setPreviewBookingId(null);
   }, [dateKey, sportFilter]);
 
   const now = new Date(nowTick);
@@ -159,16 +134,6 @@ export default function AgendaMobileGrid({
     return computeAgendaDaySummary({ bookings, courts, courtMasks, pastSlotCount });
   }, [bookings, courts, courtRules, pastSlotCount]);
 
-  const previewBooking = useMemo(
-    () => (previewBookingId ? bookings.find((booking) => String(booking.id) === previewBookingId) || null : null),
-    [bookings, previewBookingId]
-  );
-
-  // Si el refresco automático hace desaparecer el turno abierto en la vista rápida, la cerramos.
-  useEffect(() => {
-    if (previewBookingId && !previewBooking) setPreviewBookingId(null);
-  }, [previewBooking, previewBookingId]);
-
   // Scroll inicial por fecha: hoy → hora actual; otro día → primer turno.
   useEffect(() => {
     const container = scrollRef.current;
@@ -192,7 +157,6 @@ export default function AgendaMobileGrid({
     const tappedSlot = Math.max(0, Math.min(totalSlots - 1, rawSlot));
     const courtBookings = bookingsByCourt.get(court.id) || [];
     if (tappedSlot < pastSlotCount) {
-      setPreviewBookingId(null);
       setFreeSelection(null);
       return;
     }
@@ -207,7 +171,6 @@ export default function AgendaMobileGrid({
         (slot) => rules.durations.includes(slot.durationMinutes) && slot.startSlot <= tappedSlot && tappedSlot < slot.endSlot && isFree(slot)
       );
       if (candidates.length === 0) {
-        setPreviewBookingId(null);
         setFreeSelection(null);
         return;
       }
@@ -226,7 +189,6 @@ export default function AgendaMobileGrid({
       ? Number(court.defaultDurationMinutes)
       : ruleDurationsHere[0] ?? Number(court.defaultDurationMinutes || 60);
     const defaultSlots = Math.max(1, Math.round(defaultMinutes / slotMinutes));
-    setPreviewBookingId(null);
     setFreeSelection({
       courtId: court.id,
       startSlot,
@@ -236,7 +198,6 @@ export default function AgendaMobileGrid({
   };
 
   const selectionCourt = freeSelection ? courts.find((court) => court.id === freeSelection.courtId) : null;
-  const previewCourt = previewBooking ? courts.find((court) => court.id === previewBooking.courtId) : null;
   const durationOptions = useMemo(() => {
     const rules = freeSelection ? courtRules?.get(freeSelection.courtId) : undefined;
     if (rules && freeSelection) {
@@ -254,7 +215,7 @@ export default function AgendaMobileGrid({
 
   const dateLabel = selectedDate.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
   const showSportChips = availableSports.length > 2;
-  const hasSheetOpen = Boolean(freeSelection || previewBooking);
+  const hasSheetOpen = Boolean(freeSelection);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-p-bg">
@@ -456,7 +417,6 @@ export default function AgendaMobileGrid({
                       const isBlocked = booking.state === 'blocked';
                       const isClass = booking.state === 'class';
                       const remaining = Number(booking.hoverPayment?.remainingAmount || 0);
-                      const isPreviewed = previewBookingId === String(booking.id);
                       return (
                         <button
                           key={`mobile-grid-booking-${booking.id}`}
@@ -464,13 +424,11 @@ export default function AgendaMobileGrid({
                           onClick={(event) => {
                             event.stopPropagation();
                             setFreeSelection(null);
-                            setPreviewBookingId(String(booking.id));
+                            onOpenBooking(booking);
                           }}
                           className={`absolute left-[3px] right-[3px] flex flex-col gap-0.5 overflow-hidden rounded-[9px] px-1.5 py-1 text-left leading-tight ${bookingColor(
                             booking.state
-                          )} ${isBlocked ? 'bg-[repeating-linear-gradient(135deg,#FEE2E2,#FEE2E2_6px,#FECACA_6px,#FECACA_12px)] text-red-900' : ''} ${
-                            isPreviewed ? 'ring-2 ring-p-brand ring-offset-1 ring-offset-[var(--bg)]' : ''
-                          } ${isSettledPastBooking(booking, pastSlotCount) && !isPreviewed ? 'opacity-50' : ''}`}
+                          )} ${isBlocked ? 'bg-[repeating-linear-gradient(135deg,#FEE2E2,#FEE2E2_6px,#FECACA_6px,#FECACA_12px)] text-red-900' : ''} ${isSettledPastBooking(booking, pastSlotCount) ? 'opacity-50' : ''}`}
                           style={{ top, height }}
                         >
                           <span className="flex min-w-0 items-center gap-1">
@@ -620,140 +578,6 @@ export default function AgendaMobileGrid({
         </section>
       )}
 
-      {/* ── Hoja: vista rápida del turno ── */}
-      {previewBooking && (
-        <>
-          <button
-            type="button"
-            aria-label="Cerrar vista rápida"
-            className="absolute inset-0 z-30 bg-ink-900/45"
-            onClick={() => setPreviewBookingId(null)}
-          />
-          <section className="absolute inset-x-0 bottom-0 z-40 space-y-3.5 rounded-t-[22px] border border-b-0 border-p-border bg-p-surface px-4 pb-4 pt-2.5 shadow-p-lg">
-            <span className="mx-auto block h-1 w-10 rounded-full bg-p-border-strong" />
-            {(() => {
-              const chip = stateChip(previewBooking.state);
-              const payment = previewBooking.hoverPayment;
-              const remaining = Number(payment?.remainingAmount || 0);
-              const isBlocked = previewBooking.state === 'blocked';
-              const isClass = previewBooking.state === 'class';
-              const canConfirm = previewBooking.state === 'pending';
-              const canCharge =
-                (previewBooking.state === 'confirmed' || previewBooking.state === 'completed') && remaining > EPSILON;
-              return (
-                <>
-                  <div className="flex items-start gap-3">
-                    <span className={`w-1.5 self-stretch rounded-full ${stateStripeClass(previewBooking.state)}`} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <p className="truncate text-[17px] font-extrabold text-p-text">
-                          {previewBooking.title || (isBlocked ? 'Bloqueo' : 'Reserva')}
-                        </p>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${chip.className}`}>{chip.label}</span>
-                        {previewBooking.isRecurring && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-p-surface-2 px-2 py-0.5 text-[10px] font-bold text-p-text-secondary">
-                            <Repeat size={10} /> Fijo
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-0.5 flex flex-wrap items-center gap-x-1 text-[12px] font-semibold text-p-text-secondary">
-                        <span>{previewCourt?.name || 'Cancha'}</span>
-                        {previewCourt?.sport ? <span>· {previewCourt.sport}</span> : null}
-                        <span className="tabular-nums">
-                          · {previewBooking.startTimeLabel ?? slotToTime(previewBooking.startSlot)} a {previewBooking.endTimeLabel ?? slotToTime(previewBooking.endSlot)}
-                        </span>
-                        {!isBlocked && !isClass && Number(previewBooking.participantsCount || 0) > 0 && (
-                          <span className="inline-flex items-center gap-0.5">
-                            · <Users size={11} /> {previewBooking.participantsCount}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
-                  {isClass && previewBooking.classInfo && (
-                    <p className="text-[13px] text-p-text-secondary">
-                      {previewBooking.classInfo.teacherName ? `Con ${previewBooking.classInfo.teacherName}` : 'Clase de Academia'}
-                      {previewBooking.classInfo.enrolled != null
-                        ? ` · ${previewBooking.classInfo.enrolled} de ${previewBooking.classInfo.capacity} anotados`
-                        : ''}
-                      . La cancha queda ocupada.
-                    </p>
-                  )}
-
-                  {!isBlocked && !isClass && payment && (
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <div className="rounded-[10px] bg-p-surface-2 px-2.5 py-2">
-                        <p className="text-[11px] text-p-text-muted">Total</p>
-                        <p className="mt-0.5 text-[14px] font-bold text-p-text tabular-nums">{formatAmount(Number(payment.totalAmount || 0))}</p>
-                      </div>
-                      <div className="rounded-[10px] bg-p-surface-2 px-2.5 py-2">
-                        <p className="text-[11px] text-p-text-muted">Pagado</p>
-                        <p className="mt-0.5 text-[14px] font-bold text-p-positive tabular-nums">{formatAmount(Number(payment.paidAmount || 0))}</p>
-                      </div>
-                      <div className="rounded-[10px] bg-p-surface-2 px-2.5 py-2">
-                        <p className="text-[11px] text-p-text-muted">Deuda</p>
-                        <p className={`mt-0.5 text-[14px] font-bold tabular-nums ${remaining > EPSILON ? 'text-p-warning' : 'text-p-text'}`}>
-                          {formatAmount(remaining)}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {(canConfirm || canCharge) && (
-                    <div className={`grid gap-2 ${canConfirm && canCharge ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                      {canConfirm && (
-                        <button
-                          type="button"
-                          disabled={confirmingPreview}
-                          onClick={async () => {
-                            try {
-                              setConfirmingPreview(true);
-                              await onConfirmBooking(previewBooking);
-                            } finally {
-                              setConfirmingPreview(false);
-                            }
-                          }}
-                          className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-lima-300/50 text-[13px] font-extrabold text-p-accent disabled:opacity-50"
-                        >
-                          <Check size={15} strokeWidth={2.75} />
-                          {confirmingPreview ? 'Confirmando...' : 'Confirmar'}
-                        </button>
-                      )}
-                      {canCharge && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const booking = previewBooking;
-                            setPreviewBookingId(null);
-                            onChargeBooking(booking);
-                          }}
-                          className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl border border-p-border bg-p-surface-2 text-[13px] font-extrabold text-p-text"
-                        >
-                          <DollarSign size={15} />
-                          Cobrar
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const booking = previewBooking;
-                      setPreviewBookingId(null);
-                      onOpenBooking(booking);
-                    }}
-                    className={`${adminButton('accent', 'lg')} w-full`}
-                  >
-                    {isClass ? 'Ver clase en Academia' : isBlocked ? 'Ver bloqueo' : 'Ver reserva completa'}
-                  </button>
-                </>
-              );
-            })()}
-          </section>
-        </>
-      )}
     </div>
   );
 }
