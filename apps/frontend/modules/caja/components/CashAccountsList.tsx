@@ -113,7 +113,10 @@ function AccountRow({
                   event.stopPropagation();
                   onPay(account.id);
                 }}
-                onKeyDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  // Solo Enter/Espacio: que no seleccionen la fila. Escape tiene que llegar al drawer.
+                  if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                }}
                 className={adminButton('primary')}
               >
                 Cobrar

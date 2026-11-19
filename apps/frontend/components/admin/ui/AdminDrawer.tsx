@@ -254,6 +254,18 @@ export default function AdminDrawer({
     return lockBodyScroll();
   }, [open]);
 
+  // Al abrir (o volver a quedar arriba), el foco pasa al drawer: el botón que lo abrió
+  // no se queda con el teclado (Escape, Enter) atrás del panel.
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!open || covered) return;
+    const frame = requestAnimationFrame(() => {
+      const panel = panelRef.current;
+      if (panel && !panel.contains(document.activeElement)) panel.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, covered]);
+
   // Durante la salida se sigue viendo lo último que se mostró.
   const view = useLastWhileOpen(open, { title, subtitle, statusChip, statusChipClassName, tabs, activeTabId, children, footer, headerExtra, overlay, onBack, stepKey });
 
@@ -283,6 +295,8 @@ export default function AdminDrawer({
 
       {/* ── Panel ── */}
       <aside
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         data-state={panelState}
@@ -294,7 +308,7 @@ export default function AdminDrawer({
           // Desktop: slide-in desde la derecha
           `md:inset-y-0 md:left-auto md:right-0 md:top-16 md:max-h-none md:w-full md:rounded-none md:border-t-0`,
           sizeWidthClass[size],
-          'border-l border-p-border bg-p-surface shadow-p-lg',
+          'border-l border-p-border bg-p-surface shadow-p-lg outline-none',
         ].join(' ')}
       >
         <div className="relative flex min-h-0 flex-1 flex-col md:h-full">

@@ -2672,7 +2672,10 @@ export default function AdminPaymentsPlaygroundPage() {
                                     event.stopPropagation();
                                     openRefundActionConfirm(refund, actions[0].action);
                                   }}
-                                  onKeyDown={(event) => event.stopPropagation()}
+                                  onKeyDown={(event) => {
+                  // Solo Enter/Espacio: que no seleccionen la fila. Escape tiene que llegar al drawer.
+                  if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                }}
                                   className={adminButton('primary')}
                                 >
                                   {actions[0].action === 'approve'

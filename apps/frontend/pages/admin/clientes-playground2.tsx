@@ -1302,7 +1302,7 @@ export default function AdminClientesPlayground2Page() {
       accountDrawerEntry?.time ? String(accountDrawerEntry.time) : '',
     ].filter(Boolean);
     return {
-      title: selectedClient ? getClientName(selectedClient) : `Cuenta #${shortId(accountDrawerAccountId)}`,
+      title: selectedClient ? getClientName(selectedClient) : undefined,
       subtitle: subtitleParts.join(' · '),
       accountStatus: String(accountDrawerEntry?.status || '').toUpperCase() === 'CLOSED' ? 'CLOSED' : undefined,
     };

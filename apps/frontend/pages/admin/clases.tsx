@@ -1840,9 +1840,9 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setClassPassAccountId(accountId);
         setClassPassAccountInitialView(initialView);
         setClassPassAccountContext({
-          title: `Pack · ${classPass.packageName}`,
+          title: classPass.packageName,
           subtitle: classPass.ownerClient?.name
-            ? `Paga: ${classPass.ownerClient.name}`
+            ? `Pack · paga ${classPass.ownerClient.name}`
             : 'Pack de Academia',
         });
         setClassPassAccountStudentClientId(classPass.beneficiaryClientId);
@@ -1965,9 +1965,9 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setClassEnrollmentAccountId(accountId);
         setClassEnrollmentAccountInitialView(initialView);
         setClassEnrollmentAccountContext({
-          title: `Clase · ${enrollment.snapshotName}`,
+          title: enrollment.snapshotName,
           subtitle: selectedClass.teacher?.displayName
-            ? `${selectedClass.teacher.displayName} · ${formatDateRange(selectedClass.startsAt, selectedClass.endsAt)}`
+            ? `Clase con ${selectedClass.teacher.displayName} · ${formatDateRange(selectedClass.startsAt, selectedClass.endsAt)}`
             : 'Clase de Academia',
         });
         setClassEnrollmentAccountDrawerOpen(true);

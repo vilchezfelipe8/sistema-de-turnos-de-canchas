@@ -1065,7 +1065,8 @@ export default function AccountDrawer({
   // ── Title & status ─────────────────────────────────────────────────────────
   const contextTitle = String(context?.title || '').trim();
   const contextSubtitle = String(context?.subtitle || '').trim();
-  const accountTitle = contextTitle || `Cuenta ${detail ? `#${shortCode(detail.id)}` : ''}`;
+  // "Cuenta · Nombre": distinto del drawer de la reserva (que se titula con el mismo nombre).
+  const accountTitle = contextTitle ? `Cuenta · ${contextTitle}` : `Cuenta ${detail ? `#${shortCode(detail.id)}` : ''}`;
   const drawerSubtitle =
     view === 'payment_form'
       ? 'Elegí el medio de pago y el monto.'
