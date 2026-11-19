@@ -5,6 +5,8 @@ export const ADMIN_Z_INDEX = {
   stickyBar: 400,
   drawerBackdrop: 2147483140,
   drawer: 2147483150,
+  // Desplegables que salen de un drawer y se dibujan en body (resultados de búsqueda, etc.).
+  drawerPopover: 2147483170,
   modalBackdrop: 2147483190,
   modal: 2147483200,
   modalStacked: 2147483300,

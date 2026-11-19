@@ -1,6 +1,7 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
+import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { useRouter } from 'next/router';
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, MoreVertical, Pencil, Plus, Repeat, Search, User, Users, Settings, X, BarChart3, Trophy, MessageSquare, ShoppingBag, FileText, GraduationCap, Lock, Minus, Trash2 } from 'lucide-react';
 import NotFound from '../../components/NotFound';
@@ -6269,7 +6270,7 @@ function AdminAgendaPlaygroundPage() {
       left: Math.round(rect.left),
       width: Math.round(rect.width),
       maxHeight: Math.round(simplifiedOwnerSuggestionsPlacement.maxHeight),
-      zIndex: 90,
+      zIndex: ADMIN_Z_INDEX.drawerPopover,
     };
   })();
   const simplifiedNewParticipantSuggestionsFloatingStyle = (() => {
@@ -6292,7 +6293,7 @@ function AdminAgendaPlaygroundPage() {
       left: Math.round(rect.left),
       width: Math.round(rect.width),
       maxHeight: Math.round(simplifiedNewParticipantSuggestionsPlacement.maxHeight),
-      zIndex: 90,
+      zIndex: ADMIN_Z_INDEX.drawerPopover,
     };
   })();
   const simplifiedPaymentStatusLabel = isFinancialDisplayPending
