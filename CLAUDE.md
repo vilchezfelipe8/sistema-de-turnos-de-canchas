@@ -137,7 +137,7 @@ npx tsc --noEmit -p apps/frontend/tsconfig.json
 npx tsc --noEmit -p apps/backend/tsconfig.json
 ```
 
-Known pre-existing errors (do not fix unless explicitly tasked):
+Known pre-existing errors (fix them if you want):
 - `index.tsx` / `index-playground.tsx` — `IoFootballOutline`/`IoTennisballOutline` JSX type error
 - `tailwind.config.ts` — isolatedModules warning
 
