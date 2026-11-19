@@ -286,7 +286,7 @@ export default function SettingsSubscriptionPlansSection() {
                     <span
                       className={`ml-2 inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
                         mercadoPagoConnected === false
-                          ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-300'
+                          ? 'border-p-warning bg-p-warning-bg text-p-warning'
                           : 'border-p-border bg-p-surface-2 text-p-text-secondary'
                       }`}
                       title={mercadoPagoConnected === false ? 'No se muestra en la app hasta conectar Mercado Pago.' : undefined}
@@ -459,7 +459,7 @@ export default function SettingsSubscriptionPlansSection() {
                   Mercado Pago conectado. El plan se activa recién cuando el pago se acredita.
                 </span>
                 {mercadoPagoConnected === false ? (
-                  <span className="mt-1 block text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                  <span className="mt-1 block text-[11px] font-semibold text-p-warning">
                     No disponible: el club no tiene Mercado Pago conectado. Conectalo en Ajustes → Integraciones.
                   </span>
                 ) : null}
