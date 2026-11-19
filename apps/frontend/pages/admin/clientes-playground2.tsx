@@ -2315,7 +2315,7 @@ export default function AdminClientesPlayground2Page() {
                                         dni: duplicate.dni || undefined,
                                       });
                                     }}
-                                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-p-border bg-p-surface-2 px-2.5 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface"
+                                    className={adminButton('secondary', 'sm')}
                                   >
                                     <RotateCcw size={11} />
                                     Fusionar con este cliente

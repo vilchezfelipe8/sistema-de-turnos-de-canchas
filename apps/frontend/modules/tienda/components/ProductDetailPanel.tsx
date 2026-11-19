@@ -275,7 +275,7 @@ export default function ProductDetailPanel({
                     type="button"
                     onClick={() => setAction(null)}
                     disabled={submitting}
-                    className="h-10 rounded-xl border border-p-border px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                    className={adminButton('secondary', 'lg')}
                   >
                     Cancelar
                   </button>

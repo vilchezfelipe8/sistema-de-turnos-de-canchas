@@ -601,7 +601,7 @@ export default function AgendaMobileGrid({
             <button
               type="button"
               onClick={() => setFreeSelection(null)}
-              className="h-[46px] rounded-xl border border-p-border text-[13px] font-bold text-p-text-secondary"
+              className={`${adminButton('secondary', 'lg')} !h-[46px]`}
             >
               Cancelar
             </button>

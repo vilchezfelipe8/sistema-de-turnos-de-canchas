@@ -159,7 +159,7 @@ export default function SettingsIntegrationsSection() {
                 type="button"
                 onClick={handleDisconnect}
                 disabled={disconnecting}
-                className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-p-border px-3 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className={adminButton('secondary', 'md')}
               >
                 <Link2Off size={14} />
                 {disconnecting ? 'Desconectando…' : 'Desconectar'}

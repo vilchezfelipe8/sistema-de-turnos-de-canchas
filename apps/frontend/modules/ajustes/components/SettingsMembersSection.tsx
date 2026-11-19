@@ -275,7 +275,7 @@ export default function SettingsMembersSection() {
                       <button
                         type="button"
                         onClick={() => setPendingRemove(member)}
-                        className="inline-flex h-9 items-center gap-1 rounded-lg border border-p-border px-3 text-[12px] font-semibold text-p-error transition hover:bg-p-error-bg"
+                        className={`${adminButton('secondary', 'md')} !text-p-error hover:!bg-p-error-bg`}
                       >
                         <UserMinus size={13} />
                         Quitar

@@ -350,7 +350,7 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
               if (name) toggleSpecialty(name);
               setCustomSpecialty('');
             }}
-            className="h-9 rounded-lg border border-p-border px-3 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+            className={adminButton('secondary', 'md')}
           >
             Agregar
           </button>
@@ -584,7 +584,7 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
             <button
               type="button"
               onClick={closeModal}
-              className="h-10 rounded-xl border border-p-border px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>

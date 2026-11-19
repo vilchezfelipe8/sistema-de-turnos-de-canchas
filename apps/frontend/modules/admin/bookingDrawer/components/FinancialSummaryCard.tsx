@@ -74,7 +74,7 @@ export default function FinancialSummaryCard({
           <button
             type="button"
             onClick={onRegisterPayment}
-            className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-accent"
+            className={adminButton('secondary', 'sm')}
           >
             Registrar pago
           </button>

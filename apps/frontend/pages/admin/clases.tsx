@@ -3222,7 +3222,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <button
               type="button"
               onClick={closeModal}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-p-border px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>
@@ -3279,7 +3279,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <button
               type="button"
               onClick={closeEnrollmentModal}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-p-border px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>
@@ -3991,7 +3991,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <button
               type="button"
               onClick={closeClassPassDrawer}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-p-border px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>

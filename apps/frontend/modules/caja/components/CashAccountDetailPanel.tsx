@@ -303,7 +303,7 @@ export default function CashAccountDetailPanel({
           <button
             type="button"
             onClick={onCloseAccount}
-            className="ml-auto h-9 rounded-lg border border-p-border px-3.5 text-[13px] font-semibold text-p-text hover:bg-p-surface-2"
+            className={`${adminButton('secondary', 'md')} ml-auto`}
           >
             Cerrar cuenta
           </button>
