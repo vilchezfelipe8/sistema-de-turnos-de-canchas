@@ -3,84 +3,27 @@ import AdminTabFiscal from '../../../components/admin/AdminTabFiscal';
 import SettingsIntegrationsSection from './SettingsIntegrationsSection';
 import SettingsMembersSection from './SettingsMembersSection';
 
+// Secciones de AdminTabClub agrupadas por página: cada página usa una sola
+// instancia, así comparte la carga del club y la barra "Guardar cambios".
+
 export function SettingsClubIdentitySection() {
-  return (
-    <AdminTabClub
-      forcedTab="identity"
-      title="Club"
-      subtitle="Cómo te ven los jugadores en la app: nombre, fotos, dirección y contacto."
-    />
-  );
+  return <AdminTabClub forcedTab={['identity', 'reviews']} hideHeader />;
 }
 
 export function SettingsReservationsSection() {
-  return (
-    <AdminTabClub
-      forcedTab="reservations"
-      title="Confirmación y cancelación"
-      subtitle="Cómo se confirman las reservas, con cuánta anticipación se puede reservar y qué pasa con las que nadie confirma."
-    />
-  );
-}
-
-export function SettingsCashSection() {
-  return (
-    <AdminTabClub
-      forcedTab="cash"
-      title="Caja"
-      subtitle="Reglas para abrir y cerrar la caja del día."
-    />
-  );
+  return <AdminTabClub forcedTab="reservations" hideHeader />;
 }
 
 export function SettingsSchedulesSection() {
-  return (
-    <AdminTabClub
-      forcedTab="schedules"
-      title="Horarios"
-      subtitle="Qué días abre el club y en qué horarios se puede reservar cada deporte."
-    />
-  );
+  return <AdminTabClub forcedTab={['schedules', 'exceptions']} hideHeader />;
 }
 
 export function SettingsPricingSection() {
-  return (
-    <AdminTabClub
-      forcedTab="pricing"
-      title="Recargos y descuentos"
-      subtitle="Extra por luces y descuentos para clientes puntuales."
-    />
-  );
-}
-
-export function SettingsExceptionsSection() {
-  return (
-    <AdminTabClub
-      forcedTab="exceptions"
-      title="Excepciones"
-      subtitle="Feriados y días especiales en que el club cierra o cambia el horario."
-    />
-  );
+  return <AdminTabClub forcedTab={['pricing', 'cash']} hideHeader />;
 }
 
 export function SettingsAuditSection() {
-  return (
-    <AdminTabClub
-      forcedTab="audit"
-      title="Auditoría"
-      subtitle="Quién cambió los ajustes del club y qué cambió."
-    />
-  );
-}
-
-export function SettingsReviewsSection() {
-  return (
-    <AdminTabClub
-      forcedTab="reviews"
-      title="Reseñas"
-      subtitle="Elegí qué opiniones se ven en la app."
-    />
-  );
+  return <AdminTabClub forcedTab="audit" hideHeader />;
 }
 
 export function SettingsIntegrationsWorkspaceSection() {

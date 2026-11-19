@@ -18,7 +18,7 @@ import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { useRouter } from 'next/router';
 import { lockBodyScroll } from '../../utils/bodyScrollLock';
 
-type AdminTabClubSection =
+export type AdminTabClubSection =
   | 'identity'
   | 'reservations'
   | 'schedules'
@@ -29,9 +29,12 @@ type AdminTabClubSection =
   | 'cash';
 
 type AdminTabClubProps = {
-  forcedTab?: AdminTabClubSection;
+  /** Una o varias secciones fijas. Varias comparten carga y barra de guardado. */
+  forcedTab?: AdminTabClubSection | AdminTabClubSection[];
   title?: string;
   subtitle?: string;
+  /** Oculta el título propio cuando la página ya tiene encabezado. */
+  hideHeader?: boolean;
 };
 
 type ClubOperationalStatus = 'OPEN' | 'TEMPORARY_CLOSED' | 'PERMANENTLY_CLOSED';
@@ -471,6 +474,7 @@ export default function AdminTabClub({
   forcedTab,
   title = 'Configuración del club',
   subtitle = 'Identidad, operación y agenda de tu establecimiento',
+  hideHeader = false,
 }: AdminTabClubProps = {}) {
   const router = useRouter();
   const [club, setClub] = useState<Club | null>(null);
@@ -579,7 +583,11 @@ export default function AdminTabClub({
   const clientSearchWrapperRef = useRef<HTMLDivElement | null>(null);
 
   const [activeTab, setActiveTab] = useState<AdminTabClubSection>('identity');
-  const effectiveTab: AdminTabClubSection = forcedTab ?? activeTab;
+  const forcedSections: AdminTabClubSection[] | null = forcedTab
+    ? (Array.isArray(forcedTab) ? forcedTab : [forcedTab])
+    : null;
+  const isSectionVisible = (section: AdminTabClubSection) =>
+    forcedSections ? forcedSections.includes(section) : activeTab === section;
 
   const closeModal = () => setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined, onCancel: undefined, holdToConfirm: false, holdDuration: undefined, confirmDisabled: undefined }));
   const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
@@ -2231,8 +2239,8 @@ export default function AdminTabClub({
 
   const inputCls = "h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent transition placeholder:text-p-text-muted";
   const labelCls = "mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-p-text-muted";
-  const cardCls = "rounded-xl border border-p-border bg-p-surface p-4";
-  const cardTitleCls = "mb-4 text-[13px] font-semibold text-p-text";
+  const cardCls = "rounded-xl border border-p-border bg-p-surface p-5";
+  const cardTitleCls = "mb-4 text-[14px] font-semibold text-p-text";
   const checkboxCls = (active: boolean) => `flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition cursor-pointer ${active ? 'border-p-accent bg-ink-900' : 'border-p-border bg-p-surface'}`;
 
   // Format "2026-05-01" → "Vie 1 de mayo" (no timezone shift)
@@ -2285,12 +2293,15 @@ export default function AdminTabClub({
 
       <div className={`flex w-full flex-col gap-4 transition-[padding-bottom] duration-200 ${hasUnsavedChanges && !Boolean(exceptionModalActivity) ? 'pb-16' : ''}`}>
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        {(!hideHeader || isSectionVisible('reservations')) && (
+        <div className={`flex items-start gap-4 ${hideHeader ? 'justify-end -mb-2' : 'justify-between'}`}>
+          {!hideHeader && (
           <div>
             <h1 className="text-[15px] font-semibold text-p-text">{title}</h1>
             {subtitle && <p className="text-[12px] text-p-text-muted mt-0.5">{subtitle}</p>}
           </div>
-          {effectiveTab === 'reservations' && (
+          )}
+          {isSectionVisible('reservations') && (
             <button
               type="button"
               onClick={restoreBookingPolicyDefaults}
@@ -2300,6 +2311,7 @@ export default function AdminTabClub({
             </button>
           )}
         </div>
+        )}
 
         {!forcedTab && (
           <AdminSegmentedControl
@@ -2329,9 +2341,9 @@ export default function AdminTabClub({
             <p className="text-[13px] text-p-text-muted">No se pudo cargar la información del club.</p>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 space-y-4 overflow-y-auto">
             {/* ----- TAB: IDENTIDAD ----- */}
-            {effectiveTab === 'identity' && (
+            {isSectionVisible('identity') && (
               <div className="space-y-4">
                 {/* Datos básicos */}
                 <div className={`${cardCls} relative z-20 overflow-visible`}>
@@ -2635,7 +2647,7 @@ export default function AdminTabClub({
             )}
 
             {/* ----- TAB: RESERVAS ----- */}
-            {effectiveTab === 'reservations' && (
+            {isSectionVisible('reservations') && (
               <div className="space-y-4">
 
                 {/* Confirmación de reservas */}
@@ -2799,7 +2811,7 @@ export default function AdminTabClub({
             )}
 
             {/* ----- TAB: HORARIOS ----- */}
-            {effectiveTab === 'schedules' && (
+            {isSectionVisible('schedules') && (
               <div className="space-y-4">
                 {/* Días de apertura */}
                 <div className={cardCls}>
@@ -2960,7 +2972,7 @@ export default function AdminTabClub({
             )}
 
             {/* ----- TAB: EXCEPCIONES ----- */}
-            {effectiveTab === 'exceptions' && (
+            {isSectionVisible('exceptions') && (
               <div className="space-y-4">
                 <div className={cardCls}>
                   <p className={cardTitleCls}>Fechas de cierre puntual</p>
@@ -3047,29 +3059,8 @@ export default function AdminTabClub({
               </div>
             )}
 
-            {/* ----- TAB: CAJA ----- */}
-            {effectiveTab === 'cash' && (
-              <div className="space-y-4">
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Cerrar la caja</p>
-                  <p className="mb-3 text-[12px] text-p-text-muted">
-                    Si lo activás, no se puede cerrar la caja mientras haya cuentas abiertas con plata por cobrar.
-                  </p>
-                  <label className="flex cursor-pointer items-center gap-2.5">
-                    <div
-                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
-                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
-                    >
-                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-ink-50" />}
-                    </div>
-                    <span className="text-[12px] text-p-text">No dejar cerrar la caja si hay cuentas abiertas</span>
-                  </label>
-                </div>
-              </div>
-            )}
-
             {/* ----- TAB: PRECIOS ----- */}
-            {effectiveTab === 'pricing' && (
+            {isSectionVisible('pricing') && (
               <div className="space-y-4">
                 <div className={cardCls}>
                   <p className={cardTitleCls}>Luces de noche</p>
@@ -3277,8 +3268,29 @@ export default function AdminTabClub({
               </div>
             )}
 
+            {/* ----- TAB: CAJA ----- */}
+            {isSectionVisible('cash') && (
+              <div className="space-y-4">
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Cerrar la caja</p>
+                  <p className="mb-3 text-[12px] text-p-text-muted">
+                    Si lo activás, no se puede cerrar la caja mientras haya cuentas abiertas con plata por cobrar.
+                  </p>
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <div
+                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
+                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
+                    >
+                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-ink-50" />}
+                    </div>
+                    <span className="text-[12px] text-p-text">No dejar cerrar la caja si hay cuentas abiertas</span>
+                  </label>
+                </div>
+              </div>
+            )}
+
             {/* ----- TAB: AUDITORÍA ----- */}
-            {effectiveTab === 'audit' && (
+            {isSectionVisible('audit') && (
               <div className="space-y-4">
                 {/* Historial de cambios */}
                 <div className={cardCls}>
@@ -3320,7 +3332,7 @@ export default function AdminTabClub({
             )}
 
             {/* ----- TAB: RESEÑAS ----- */}
-            {effectiveTab === 'reviews' && (
+            {isSectionVisible('reviews') && (
               <div className="space-y-4">
                 <div className={cardCls}>
                   <div className="mb-4 flex items-center justify-between">

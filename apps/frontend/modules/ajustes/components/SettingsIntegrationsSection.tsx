@@ -109,8 +109,8 @@ export default function SettingsIntegrationsSection() {
   return (
     <div className="space-y-4">
       <AdminPanel
-        title="Integraciones"
-        description="Servicios conectados al club."
+        title="Servicios conectados"
+        description="Conectá el club con otros servicios para cobrar y avisar."
       >
         {error ? (
           <AdminFeedbackBanner tone="error" className="mb-3">

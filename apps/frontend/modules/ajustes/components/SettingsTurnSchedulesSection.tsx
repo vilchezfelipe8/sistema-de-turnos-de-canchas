@@ -198,7 +198,7 @@ export default function SettingsTurnSchedulesSection() {
 
   return (
     <SettingsSection
-      title="Turnero"
+      title="Actividades con cupo"
       description="Para actividades sin cancha con cupo por hora, como Musculación. Los socios reservan su turno desde la app y el plan define cuántas veces por semana pueden venir."
       action={
         canManage ? (

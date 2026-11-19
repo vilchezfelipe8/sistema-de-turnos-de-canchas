@@ -90,12 +90,12 @@ export default function SettingsOnlineDepositSection() {
         {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
         {!loading && !depositMode && (
           <AdminFeedbackBanner tone="info">
-            Para usar la seña online, elegí la confirmación &quot;Con seña&quot; y cargá el porcentaje en Confirmación de reservas.
+            Para usar la seña online, elegí la confirmación &quot;Con seña&quot; y cargá el porcentaje en ¿Cómo se confirma una reserva?, más arriba.
           </AdminFeedbackBanner>
         )}
         {!loading && depositMode && onlineOff && (
           <AdminFeedbackBanner tone="warning">
-            El club tiene el pago online apagado (Ajustes → Precios): la seña se cobra en el mostrador.
+            El club tiene el pago online apagado (Ajustes → Precios y caja): la seña se cobra en el mostrador.
           </AdminFeedbackBanner>
         )}
         {depositMode && (
