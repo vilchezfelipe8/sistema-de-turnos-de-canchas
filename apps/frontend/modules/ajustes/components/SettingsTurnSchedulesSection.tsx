@@ -19,6 +19,7 @@ import { adminButton } from '../../../components/admin/ui/adminButton';
 import AdminTimeSelect from '../../../components/admin/ui/AdminTimeSelect';
 import AdminCheckbox from '../../../components/admin/ui/AdminCheckbox';
 import Link from 'next/link';
+import { markClubHasGym } from '../../../hooks/useClubHasGym';
 
 const inputClass =
   'h-9 w-full rounded-lg border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-text-secondary';
@@ -127,6 +128,7 @@ export default function SettingsTurnSchedulesSection() {
         showAdminToast('Turnero guardado.');
       } else {
         await ActivityTurnService.createSchedule(clubSlug, input);
+        markClubHasGym(clubSlug);
         showAdminToast('Turnero creado. Sumalo a los planes que lo incluyen.');
       }
       setEditing(null);

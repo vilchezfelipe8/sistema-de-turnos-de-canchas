@@ -14,6 +14,7 @@ import {
   type TurnSchedule,
 } from '../../../services/ActivityTurnService';
 import { showAdminToast } from '../../../utils/adminToast';
+import GymBookDrawer from './GymBookDrawer';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 
 const dateKey = (date: Date) =>
@@ -52,6 +53,7 @@ export default function GymTodayPanel({ clubSlug }: Props) {
   const [error, setError] = useState('');
   const [cancelTarget, setCancelTarget] = useState<{ turnId: string; name: string; time: string } | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [bookSlot, setBookSlot] = useState<{ startsAt: string; time: string; takenClientIds: string[] } | null>(null);
 
   const isToday = date === dateKey(new Date());
 
@@ -196,13 +198,32 @@ export default function GymTodayPanel({ clubSlug }: Props) {
               {slots.map((slot) => {
                 const full = slot.available === 0;
                 const upcoming = new Date(slot.startsAt).getTime() > Date.now();
+                // Se puede anotar hasta que termina la franja (alguien que llega en el medio).
+                const bookable = !full && new Date(slot.endsAt).getTime() > Date.now();
                 return (
                   <li key={slot.startsAt} className={`px-4 py-2.5 ${slot.isPast && slot.people.length === 0 ? 'opacity-50' : ''}`}>
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-[13px] font-semibold tabular-nums text-p-text">{slot.time}</span>
-                      <span className={`text-[12px] tabular-nums ${full ? 'font-semibold text-p-warning' : 'text-p-text-muted'}`}>
-                        {slot.booked} de {day.capacity}
-                        {full ? ' · completo' : ''}
+                      <span className="flex items-center gap-2">
+                        <span className={`text-[12px] tabular-nums ${full ? 'font-semibold text-p-warning' : 'text-p-text-muted'}`}>
+                          {slot.booked} de {day.capacity}
+                          {full ? ' · completo' : ''}
+                        </span>
+                        {bookable ? (
+                          <button
+                            type="button"
+                            className={adminButton('secondary', 'sm')}
+                            onClick={() =>
+                              setBookSlot({
+                                startsAt: slot.startsAt,
+                                time: slot.time,
+                                takenClientIds: slot.people.map((person) => person.clientId),
+                              })
+                            }
+                          >
+                            Anotar
+                          </button>
+                        ) : null}
                       </span>
                     </div>
                     {slot.people.length ? (
@@ -275,6 +296,19 @@ export default function GymTodayPanel({ clubSlug }: Props) {
           )}
         </section>
       </div>
+
+      <GymBookDrawer
+        open={Boolean(bookSlot)}
+        onClose={() => setBookSlot(null)}
+        clubSlug={clubSlug}
+        slot={
+          bookSlot && day && scheduleId
+            ? { activityTypeId: scheduleId, activityName: day.name, startsAt: bookSlot.startsAt, time: bookSlot.time }
+            : null
+        }
+        takenClientIds={bookSlot?.takenClientIds || []}
+        onBooked={() => void load()}
+      />
 
       <AdminAppModal
         show={Boolean(cancelTarget)}

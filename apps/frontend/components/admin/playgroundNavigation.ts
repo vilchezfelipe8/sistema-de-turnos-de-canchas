@@ -23,6 +23,8 @@ export type PlaygroundSidebarItem = {
    * Tooltip: "Disponible más adelante".
    */
   disabled?: boolean;
+  /** 'gym': solo en clubes con turnero o planes. */
+  requires?: 'gym';
 };
 
 /**
@@ -43,7 +45,7 @@ export const PLAYGROUND_SIDEBAR_ITEMS: PlaygroundSidebarItem[] = [
   { label: 'Reservas', icon: ClipboardList, href: '/admin/reservas', minAccess: 'operator' },
   { label: 'Clientes', icon: Users, href: '/admin/clientes', minAccess: 'admin' },
   { label: 'Academia', icon: GraduationCap, href: '/admin/academia?tab=clases', minAccess: 'admin' },
-  { label: 'Gimnasio', icon: Dumbbell, href: '/admin/gimnasio', minAccess: 'operator' },
+  { label: 'Gimnasio', icon: Dumbbell, href: '/admin/gimnasio', minAccess: 'operator', requires: 'gym' },
   { label: 'Caja', icon: CreditCard, href: '/admin/caja', minAccess: 'operator' },
   { label: 'Facturación', icon: ScrollText, href: '/admin/facturacion', minAccess: 'admin' },
   { label: 'Tienda', icon: ShoppingBag, href: '/admin/tienda', minAccess: 'admin' },
