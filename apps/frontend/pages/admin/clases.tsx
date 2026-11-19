@@ -1,3 +1,5 @@
+import AdminTimeSelect from '../../components/admin/ui/AdminTimeSelect';
+import AdminCheckbox from '../../components/admin/ui/AdminCheckbox';
 import type { GetServerSideProps } from 'next';
 import { AdminPersonCreateOption, AdminPersonList, AdminPersonOption, AdminSearchInput, AdminSelectedPerson } from '../../components/admin/ui/AdminPersonPicker';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -2590,11 +2592,10 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           </label>
           <label className="space-y-1">
             <span className="text-[12px] text-p-text-muted">Hora</span>
-            <input
-              type="time"
-              step={900}
+            <AdminTimeSelect
+              step={15}
               value={formTime}
-              onChange={(event) => setClassSchedule(formDate, event.target.value, durationMinutes)}
+              onChange={(value) => setClassSchedule(formDate, value, durationMinutes)}
               className={fieldInputClass}
               required
             />
@@ -4415,26 +4416,8 @@ function TextAreaField({
   );
 }
 
-function CheckboxField({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="flex items-center gap-2 rounded-xl border border-p-border bg-p-surface px-3 py-2 text-[13px] text-p-text">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 rounded border-p-border"
-      />
-      {label}
-    </label>
-  );
+function CheckboxField(props: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return <AdminCheckbox boxed {...props} />;
 }
 
 function SummaryBlock({ label, value }: { label: string; value: string }) {

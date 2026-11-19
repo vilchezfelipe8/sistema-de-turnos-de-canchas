@@ -1,3 +1,4 @@
+import AdminTimeSelect from './ui/AdminTimeSelect';
 import Link from 'next/link';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import ActivityScheduleEditor from '../../modules/ajustes/components/ActivityScheduleEditor';
@@ -3860,26 +3861,20 @@ export default function AdminTabClub({
                           <div className="grid grid-cols-3 gap-2">
                             <div>
                               <label className={labelCls}>Apertura</label>
-                              <input
-                                type="time"
+                              <AdminTimeSelect
                                 value={exceptionModalDraft.scheduleOpenTime}
-                                onChange={(e) =>
-                                  setExceptionModalDraft((prev) =>
-                                    prev ? { ...prev, scheduleOpenTime: e.target.value } : prev
-                                  )
+                                onChange={(value) =>
+                                  setExceptionModalDraft((prev) => (prev ? { ...prev, scheduleOpenTime: value } : prev))
                                 }
                                 className={inputCls}
                               />
                             </div>
                             <div>
                               <label className={labelCls}>Cierre</label>
-                              <input
-                                type="time"
+                              <AdminTimeSelect
                                 value={exceptionModalDraft.scheduleCloseTime}
-                                onChange={(e) =>
-                                  setExceptionModalDraft((prev) =>
-                                    prev ? { ...prev, scheduleCloseTime: e.target.value } : prev
-                                  )
+                                onChange={(value) =>
+                                  setExceptionModalDraft((prev) => (prev ? { ...prev, scheduleCloseTime: value } : prev))
                                 }
                                 className={inputCls}
                               />

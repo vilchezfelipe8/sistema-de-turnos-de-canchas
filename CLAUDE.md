@@ -73,6 +73,10 @@ All in `apps/frontend/components/admin/ui/` (re-exported from `index.ts`). Consi
 | "⋯" / "Más acciones" menus | `AdminMenu` + `AdminMenuItem` + `AdminMenuDivider` |
 | Any search box (lists or people) | `AdminSearchInput` (md for list filters, lg for picking a person) |
 | Search + pick a person (client, app user, student, player…) | `AdminPersonList` + `AdminPersonOption` + `AdminPersonCreateOption`, chosen one shown with `AdminSelectedPerson` (all in `AdminPersonPicker.tsx`) |
+| Hour picker (always 24 h, never `<input type="time">`) | `AdminTimeSelect` (`step` in minutes) |
+| Date field (DD/MM/YYYY) | `AdminDateInput` |
+| Checkbox | `AdminCheckbox` (`boxed` for an option row) |
+| Modal width | `AdminModal maxWidthClassName` only takes values listed in its `MODAL_WIDTHS` (Tailwind can't see runtime-built classes) |
 | Toasts | `showAdminToast()` |
 
 ### Motion

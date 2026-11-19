@@ -1,3 +1,4 @@
+import AdminTimeSelect from '../../../components/admin/ui/AdminTimeSelect';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminFeedbackBanner } from '../../../components/admin/ui/AdminFeedback';
 import SettingsSection from './SettingsSection';
@@ -10,11 +11,6 @@ import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
 const selectClass =
   'h-9 rounded-lg border border-p-border bg-p-surface px-2 text-[13px] text-p-text outline-none focus:border-p-text-secondary disabled:opacity-50';
 
-// Horarios cada 30 minutos para elegir apertura y cierre.
-const TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
-  const hours = String(Math.floor(index / 2)).padStart(2, '0');
-  return `${hours}:${index % 2 === 0 ? '00' : '30'}`;
-});
 
 const DEFAULT_POLICY: BookingWindowPolicy = {
   enabled: false,
@@ -29,13 +25,7 @@ const daysAheadLabel = (days: number) =>
   days === 0 ? 'Solo hoy' : days === 1 ? 'Hoy y mañana' : `Hoy y los próximos ${days} días`;
 
 function TimeSelect({ value, onChange, disabled, label }: { value: string; onChange: (value: string) => void; disabled?: boolean; label: string }) {
-  // Si viene un horario que no está en la lista (ej. 08:15), se agrega para no perderlo.
-  const options = TIME_OPTIONS.includes(value) ? TIME_OPTIONS : [...TIME_OPTIONS, value].sort();
-  return (
-    <select aria-label={label} className={selectClass} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
-      {options.map((time) => <option key={time} value={time}>{time}</option>)}
-    </select>
-  );
+  return <AdminTimeSelect ariaLabel={label} value={value} onChange={onChange} disabled={disabled} />;
 }
 
 // Ajustes > Reservas: desde qué hora reservan socios y no socios desde la app (prioridad de socios).
