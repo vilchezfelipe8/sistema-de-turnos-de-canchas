@@ -106,10 +106,10 @@ export default function AdminSettingsV2Page() {
                             aria-current={active ? 'page' : undefined}
                             title={item.hint}
                             onClick={() => handleChangeTab(item.value)}
-                            className={`group relative flex w-full items-center gap-2.5 rounded-lg px-2 py-[7px] text-left text-[13px] transition ${
+                            className={`group relative flex w-full items-center gap-2.5 rounded-lg border px-2 py-[6px] text-left text-[13px] transition ${
                               active
-                                ? 'bg-p-surface font-semibold text-p-text ring-1 ring-p-border'
-                                : 'text-p-text-secondary hover:bg-p-surface-2 hover:text-p-text'
+                                ? 'border-p-border bg-p-surface font-semibold text-p-text'
+                                : 'border-transparent text-p-text-secondary hover:bg-p-surface-2 hover:text-p-text'
                             }`}
                           >
                             <span
