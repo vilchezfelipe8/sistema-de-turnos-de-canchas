@@ -68,6 +68,8 @@ All in `apps/frontend/components/admin/ui/` (re-exported from `index.ts`). Consi
 | Confirm / warning dialog | `AdminAppModal` |
 | Custom modal body | `AdminOverlay` + `modalPanelCls`/`modalPanelScrollCls` and `modal*Cls` from `adminModalStyles.ts` |
 | Side panel (incl. agenda booking drawer) | `AdminDrawer` |
+| Drawer that opens another drawer (booking → cuenta) | Just open the second `AdminDrawer`: the stack hides the one below and brings it back on close. Never hide the parent by hand |
+| Steps inside one drawer (cuenta → consumo → cobro → confirmar) | `AdminDrawer` `onBack` (header ←, Escape goes back) + `stepKey` (step transition). X closes the whole flow |
 | "⋯" / "Más acciones" menus | `AdminMenu` + `AdminMenuItem` + `AdminMenuDivider` |
 | Any search box (lists or people) | `AdminSearchInput` (md for list filters, lg for picking a person) |
 | Search + pick a person (client, app user, student, player…) | `AdminPersonList` + `AdminPersonOption` + `AdminPersonCreateOption`, chosen one shown with `AdminSelectedPerson` (all in `AdminPersonPicker.tsx`) |

@@ -1011,6 +1011,22 @@ export default function AccountDrawer({
     setView('overview');
   }, [submitting]);
 
+  // "←" del header y Escape: un paso atrás dentro del flujo (la X sigue cerrando todo).
+  // Sin paso anterior (el panel se abrió directo en esta acción, o el cobro ya terminó) no hay "←".
+  const handleBack = (() => {
+    if (view === 'payment_preconfirm') {
+      return () => {
+        if (!submitting) setView('payment_form');
+      };
+    }
+    if (view === 'overview' || view === 'payment_result') return undefined;
+    if (entryViewRef.current !== 'overview') return undefined;
+    if (view === 'invoice_form' || view === 'invoice_detail') return closeInvoicePanel;
+    return () => {
+      if (!submitting) void goToOverview();
+    };
+  })();
+
   // ── P2-B: Void POS account handler ─────────────────────────────────────────
   const handleVoidPosAccount = useCallback(async () => {
     if (!accountId) return;
@@ -2333,6 +2349,8 @@ export default function AccountDrawer({
       <AdminDrawer
         open={open}
         onClose={handleClose}
+        onBack={handleBack}
+        stepKey={view}
         title={drawerTitle}
         subtitle={drawerSubtitle}
         statusChip={statusChip}

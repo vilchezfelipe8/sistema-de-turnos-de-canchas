@@ -1,5 +1,5 @@
-import { useEffect, useRef, type ReactNode, type Ref } from 'react';
-import { X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import { ArrowLeft, X } from 'lucide-react';
 import { ADMIN_Z_INDEX } from '../../../utils/adminZIndex';
 import { lockBodyScroll } from '../../../utils/bodyScrollLock';
 import { useLastWhileOpen, usePresence } from '../../../hooks/usePresence';
@@ -79,7 +79,55 @@ type AdminDrawerProps = {
   footerRef?: Ref<HTMLElement>;
   /** Escape cierra el drawer (default true). */
   closeOnEscape?: boolean;
+  /**
+   * Paso dentro de un flujo (ej: cuenta → agregar consumo → cobrar → confirmar).
+   * Con onBack aparece "←" en el header y Escape vuelve un paso en vez de cerrar todo.
+   */
+  onBack?: () => void;
+  /** Identifica el paso actual: al cambiar, el contenido entra con una transición corta. */
+  stepKey?: string;
 };
+
+// ---------------------------------------------------------------------------
+// Pila de drawers
+// ---------------------------------------------------------------------------
+// Se ve un solo drawer a la vez. Si se abre uno con otro abierto (cobrar desde una reserva,
+// la cuenta desde la caja...), el de abajo sale y queda guardado; al cerrar el de arriba,
+// vuelve. Un solo fondo oscuro para toda la pila.
+
+const drawerStack: number[] = [];
+const drawerListeners = new Set<() => void>();
+let nextDrawerId = 1;
+const notifyDrawers = () => drawerListeners.forEach((listener) => listener());
+
+function useDrawerStack(open: boolean) {
+  const [id] = useState(() => nextDrawerId++);
+  const [, force] = useState(0);
+  useEffect(() => {
+    const listener = () => force((n) => n + 1);
+    drawerListeners.add(listener);
+    return () => {
+      drawerListeners.delete(listener);
+    };
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    drawerStack.push(id);
+    notifyDrawers();
+    return () => {
+      const index = drawerStack.indexOf(id);
+      if (index >= 0) drawerStack.splice(index, 1);
+      notifyDrawers();
+    };
+  }, [open, id]);
+  const index = drawerStack.indexOf(id);
+  return {
+    /** Hay otro drawer abierto encima: este se oculta y espera. */
+    covered: index >= 0 && index < drawerStack.length - 1,
+    /** Este se abrió encima de otro: usa el fondo del de abajo. */
+    stacked: index > 0,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Size map
@@ -186,11 +234,20 @@ export default function AdminDrawer({
   bodyRef,
   footerRef,
   closeOnEscape = true,
+  onBack,
+  stepKey,
 }: AdminDrawerProps) {
   const { rendered, state } = usePresence(open);
+  const { covered, stacked } = useDrawerStack(open);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  useOverlayLayer(open, () => onCloseRef.current(), closeOnEscape);
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
+  useOverlayLayer(
+    open,
+    () => (onBackRef.current ? onBackRef.current() : onCloseRef.current()),
+    closeOnEscape
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -198,26 +255,29 @@ export default function AdminDrawer({
   }, [open]);
 
   // Durante la salida se sigue viendo lo último que se mostró.
-  const view = useLastWhileOpen(open, { title, subtitle, statusChip, statusChipClassName, tabs, activeTabId, children, footer, headerExtra, overlay });
+  const view = useLastWhileOpen(open, { title, subtitle, statusChip, statusChipClassName, tabs, activeTabId, children, footer, headerExtra, overlay, onBack, stepKey });
 
   if (!rendered) return null;
+
+  // Tapado por otro drawer: el panel sale como si cerrara, pero queda montado.
+  const panelState = state === 'closed' || covered ? 'closed' : 'open';
 
   return (
     <div
       className="fixed inset-0"
       style={{ zIndex }}
       role="presentation"
-      aria-hidden={state === 'closed' || undefined}
+      aria-hidden={state === 'closed' || covered || undefined}
     >
-      {/* ── Backdrop ── */}
+      {/* ── Backdrop ── (encima de otro drawer: transparente, el fondo ya lo pone el de abajo) */}
       <button
         type="button"
         tabIndex={-1}
         aria-label="Cerrar panel"
         data-state={state}
-        className="p-motion-backdrop fixed inset-0 bg-[var(--overlay)] md:top-16"
+        className={`fixed inset-0 md:top-16 ${stacked ? 'bg-transparent' : 'p-motion-backdrop bg-[var(--overlay)]'} ${covered ? 'pointer-events-none' : ''}`}
         onClick={() => {
-          if (open) onClose();
+          if (open && !covered) onClose();
         }}
       />
 
@@ -225,7 +285,8 @@ export default function AdminDrawer({
       <aside
         role="dialog"
         aria-modal="true"
-        data-state={state}
+        data-state={panelState}
+        inert={covered ? ('' as any) : undefined}
         className={[
           'p-motion-drawer',
           // Mobile: hoja inferior que ocupa casi todo el alto
@@ -243,7 +304,17 @@ export default function AdminDrawer({
           <header className="shrink-0 border-b border-p-border bg-p-surface px-4 pb-3.5 pt-2.5 md:px-6 md:py-5">
             <span aria-hidden="true" className="mx-auto mb-2.5 block h-1 w-10 rounded-full bg-p-border-strong md:hidden" />
             <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
+              {view.onBack ? (
+                <button
+                  type="button"
+                  onClick={view.onBack}
+                  aria-label="Volver"
+                  className={`${modalCloseButtonCls} -ml-1 md:mt-0.5`}
+                >
+                  <ArrowLeft size={14} />
+                </button>
+              ) : null}
+              <div className="min-w-0 flex-1">
                 <h2 className="text-[18px] font-semibold leading-snug tracking-[-0.01em] text-p-text md:text-[20px]">
                   {view.title}
                 </h2>
@@ -298,7 +369,7 @@ export default function AdminDrawer({
 
           {/* ── Body (scrolleable) ── */}
           <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-p-surface px-4 py-4 md:px-6 md:py-6">
-            <div className={bodyClassName}>
+            <div key={view.stepKey} className={`${view.stepKey ? 'p-motion-step' : ''} ${bodyClassName}`}>
               {view.children}
             </div>
           </div>
