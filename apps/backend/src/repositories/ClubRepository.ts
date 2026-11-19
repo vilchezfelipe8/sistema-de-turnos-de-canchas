@@ -319,8 +319,10 @@ export class ClubRepository {
         );
     }
     
+    /** Clubes de la lista pública (los que tienen isListed = false no aparecen). */
     async findAllClubs(): Promise<Club[]> {
         const all = await prisma.club.findMany({
+            where: { isListed: true },
             include: {
                 settings: true,
                 courts: {

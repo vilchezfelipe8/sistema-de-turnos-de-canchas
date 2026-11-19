@@ -694,6 +694,9 @@ model Club {
   websiteUrl   String?
   description  String?
 
+  // false = no aparece en la lista pública de clubes (club en prueba o que no toma reservas por la app).
+  isListed Boolean @default(true)
+
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
