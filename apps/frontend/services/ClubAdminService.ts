@@ -559,6 +559,8 @@ export type AdminAcademyStudentOverview = {
       teacher: { id: string; displayName: string; isActive: boolean } | null;
       activityType: { id: number; name: string } | null;
       court: { id: number; name: string } | null;
+      /** Curso al que pertenece; null = clase suelta. */
+      series?: { id: string; weekdays: number[]; startTime: string } | null;
     };
   }>;
   pastEnrollments: Array<{
@@ -585,6 +587,8 @@ export type AdminAcademyStudentOverview = {
       teacher: { id: string; displayName: string; isActive: boolean } | null;
       activityType: { id: number; name: string } | null;
       court: { id: number; name: string } | null;
+      /** Curso al que pertenece; null = clase suelta. */
+      series?: { id: string; weekdays: number[]; startTime: string } | null;
     };
   }>;
   beneficiaryPasses: Array<{

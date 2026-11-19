@@ -12,6 +12,7 @@ import {
 } from '../../../services/SubscriptionAdminService';
 import { showAdminToast } from '../../../utils/adminToast';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
+import { adminButton } from '../ui/adminButton';
 
 type ClientSubscriptionsPanelProps = {
   clubSlug: string;
@@ -24,10 +25,8 @@ type ClientSubscriptionsPanelProps = {
 
 const inputClass =
   'h-9 w-full rounded-lg border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-text-secondary';
-const buttonClass =
-  'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-50';
-const primaryButtonClass =
-  'inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-4 text-[12px] font-semibold !text-ink-50 hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50';
+const buttonClass = adminButton('secondary', 'sm');
+const primaryButtonClass = adminButton('primary', 'md');
 
 const formatDay = (key: string | null) => (key ? `${key.slice(8, 10)}/${key.slice(5, 7)}/${key.slice(0, 4)}` : '—');
 const formatShortDay = (key: string) => `${key.slice(8, 10)}/${key.slice(5, 7)}`;

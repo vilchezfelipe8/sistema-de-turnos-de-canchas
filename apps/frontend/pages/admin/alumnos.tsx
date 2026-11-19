@@ -33,6 +33,13 @@ import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { adminButton } from '../../components/admin/ui/adminButton';
 import { adminChip } from '../../components/admin/ui/adminChip';
 import { AdminSearchInput } from '../../components/admin/ui/AdminPersonPicker';
+import StudentEnrollDrawer from '../../components/admin/academy/StudentEnrollDrawer';
+import ClientSubscriptionsPanel from '../../components/admin/subscriptions/ClientSubscriptionsPanel';
+import AccountDrawer, {
+  type AccountDrawerContext,
+  type AccountDrawerInitialView,
+} from '../../modules/cuentas/components/AccountDrawer';
+import { hasAdminAccess } from '../../utils/session';
 
 const academyMetricCardClass = 'rounded-[22px] border-p-border bg-p-surface px-5 py-4 shadow-p-card';
 const academyPanelClass = 'overflow-hidden rounded-[24px] border-p-border bg-p-surface shadow-p-card';
@@ -178,6 +185,11 @@ const formatClassTime = (iso: string) => {
 /** "sáb 14 nov · 15:30" */
 const formatClassWhen = (iso: string) => `${formatClassDay(iso)} · ${formatClassTime(iso)}`;
 
+const SERIES_WEEKDAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+/** "Mar, Jue" (lunes primero). */
+const seriesWeekdaysLabel = (days: number[]) =>
+  [...days].sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map((d) => SERIES_WEEKDAYS[d] || '').join(', ');
+
 const formatShortDate = (iso: string | null) => {
   if (!iso) return '';
   const date = new Date(iso);
@@ -243,6 +255,15 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
   const [overview, setOverview] = useState<AdminAcademyStudentOverview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewError, setOverviewError] = useState('');
+  const [enrollDrawerOpen, setEnrollDrawerOpen] = useState(false);
+  // Cobro de una clase desde la ficha: abre la cuenta encima (la ficha vuelve al cerrar).
+  const [chargeAccount, setChargeAccount] = useState<{
+    accountId: string;
+    initialView: AccountDrawerInitialView;
+    context: AccountDrawerContext;
+  } | null>(null);
+  const [chargeBusyId, setChargeBusyId] = useState<string | null>(null);
+  const [plansVersion, setPlansVersion] = useState(0);
   const studentsRequestRef = useRef(0);
   const overviewRequestRef = useRef(0);
   // Desde la ficha del cliente: /admin/academia?tab=alumnos&alumno=<clientId>
@@ -449,6 +470,43 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
     setStudentPackModalOpen(true);
   };
 
+  const refreshStudent = () => {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('academy:changed'));
+    void loadStudents(searchTerm);
+    if (overview) void loadOverview(overview.client.id);
+  };
+
+  const chargeEnrollment = async (row: AdminAcademyStudentOverview['upcomingEnrollments'][number]) => {
+    if (!clubSlug || chargeBusyId) return;
+    try {
+      setChargeBusyId(row.id);
+      let payload = await ClubAdminService.getClassEnrollmentAccount(clubSlug, row.id);
+      if (!payload.account?.id) payload = await ClubAdminService.openClassEnrollmentAccount(clubSlug, row.id);
+      const accountId = payload.account?.id;
+      if (!accountId) throw new Error(payload.blockedReason || 'No se pudo abrir la cuenta de la clase.');
+      setChargeAccount({
+        accountId,
+        initialView: 'payment',
+        context: {
+          title: overview?.client.name || row.snapshotName,
+          subtitle: [
+            'Clase',
+            row.classSession.activityType?.name,
+            row.classSession.teacher?.displayName ? `con ${row.classSession.teacher.displayName}` : null,
+            formatClassWhen(row.classSession.startsAt),
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        },
+      });
+    } catch (error) {
+      reportUiError({ area: 'AdminAcademyStudentsPage', action: 'chargeEnrollment' }, error);
+      showAdminToast(extractErrorMessage(error, 'No se pudo abrir el cobro de la clase.'));
+    } finally {
+      setChargeBusyId(null);
+    }
+  };
+
   return (
     <div
       className={`flex h-full min-h-0 flex-col gap-4 overflow-y-auto ${
@@ -573,14 +631,17 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
         }
         size="lg"
         footer={
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={openPackModal} disabled={!overview} className={adminButton('secondary', 'lg')}>
+              Cargar pack
+            </button>
             <button
               type="button"
-              onClick={openPackModal}
+              onClick={() => setEnrollDrawerOpen(true)}
               disabled={!overview}
               className={adminButton('primary', 'lg')}
             >
-              Cargar pack de clases
+              Anotar a una clase
             </button>
           </div>
         }
@@ -616,6 +677,12 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
             const marked = overview.pastEnrollments.filter(
               (row) => row.enrollmentStatus !== 'CANCELLED' && row.attendanceStatus !== 'PENDING'
             ).length;
+            const sectionTitle = 'text-[13px] font-semibold text-p-text';
+            const nowMs = Date.now();
+            const pastClasses = overview.pastEnrollments
+              .filter((row) => new Date(row.classSession.startsAt).getTime() <= nowMs)
+              .sort((a, b) => new Date(b.classSession.startsAt).getTime() - new Date(a.classSession.startsAt).getTime());
+            const listCls = 'divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface';
 
             return (
               <div className="space-y-6">
@@ -632,31 +699,107 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
                 </p>
 
                 {owedAmount > 0 ? (
-                  <div className="rounded-2xl border border-p-error bg-p-error-bg px-4 py-3">
-                    <p className="text-[15px] font-semibold text-[var(--error-fg)]">Debe {formatCurrency(owedAmount)}</p>
-                    <p className="mt-0.5 text-[13px] text-p-text-secondary">
-                      {owing.length === 1 ? 'De 1 clase.' : `De ${owing.length} clases.`} Se cobra desde cada clase, tocando &ldquo;Ver&rdquo; en el alumno.
-                    </p>
-                  </div>
+                  <section className="space-y-2">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <p className={sectionTitle}>Debe</p>
+                      <p className="text-[15px] font-semibold tabular-nums text-p-warning">{formatCurrency(owedAmount)}</p>
+                    </div>
+                    <ul className={listCls}>
+                      {owing.map((row) => {
+                        const owed = Math.max(0, Number(row.priceAtEnrollment || 0) - Number(row.paidAmount || 0));
+                        return (
+                          <li key={row.id} className="flex items-center gap-3 px-4 py-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-[14px] font-medium text-p-text">
+                                {formatClassWhen(row.classSession.startsAt)}
+                              </p>
+                              <p className="truncate text-[12px] text-p-text-muted">
+                                {[row.classSession.activityType?.name || 'Clase', row.classSession.teacher?.displayName ? `con ${row.classSession.teacher.displayName}` : null]
+                                  .filter(Boolean)
+                                  .join(' ')}
+                              </p>
+                            </div>
+                            <span className="shrink-0 text-[13px] font-semibold tabular-nums text-p-warning">
+                              {formatCurrency(owed)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void chargeEnrollment(row)}
+                              disabled={Boolean(chargeBusyId)}
+                              className={adminButton('primary', 'sm')}
+                            >
+                              {chargeBusyId === row.id ? 'Abriendo...' : 'Cobrar'}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
                 ) : null}
 
+                {(() => {
+                  const active = overview.upcomingEnrollments.filter((row) => row.enrollmentStatus !== 'CANCELLED');
+                  const courses = new Map<string, { series: NonNullable<(typeof active)[number]['classSession']['series']>; rows: typeof active }>();
+                  for (const row of active) {
+                    const series = row.classSession.series;
+                    if (!series) continue;
+                    const entry = courses.get(series.id) || { series, rows: [] };
+                    entry.rows.push(row);
+                    courses.set(series.id, entry);
+                  }
+                  if (!courses.size) return null;
+                  return (
+                    <section className="space-y-2">
+                      <p className={sectionTitle}>Cursos</p>
+                      <ul className={listCls}>
+                        {[...courses.values()].map(({ series, rows }) => {
+                          const first = rows[0];
+                          const covered = rows.filter((row) => row.paymentStatus === 'COVERED_BY_CREDIT' || row.paymentStatus === 'PAID').length;
+                          return (
+                            <li key={series.id} className="flex items-center gap-3 px-4 py-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-semibold text-p-text">
+                                  {seriesWeekdaysLabel(series.weekdays)} {series.startTime}
+                                  <span className="font-normal text-p-text-secondary">
+                                    {' '}· {first.classSession.activityType?.name || 'Clase'} con {first.classSession.teacher?.displayName || 'sin profesor'}
+                                  </span>
+                                </p>
+                                <p className="truncate text-[12px] text-p-text-muted">
+                                  {rows.length === 1 ? '1 clase por delante' : `${rows.length} clases por delante`} · próxima {formatClassWhen(first.classSession.startsAt)}
+                                </p>
+                              </div>
+                              <p className="flex-none text-right text-[12px] text-p-text-muted">
+                                {covered === rows.length ? 'Pagas' : covered > 0 ? `${covered} pagas` : ''}
+                              </p>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  );
+                })()}
+
+                {overview.upcomingEnrollments.length && !overview.upcomingEnrollments.some((row) => !row.classSession.series) ? null : (
                 <section className="space-y-2">
-                  <p className="text-[14px] font-semibold text-p-text">Próximas clases</p>
-                  {overview.upcomingEnrollments.length ? (
-                    <ul className="divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface">
-                      {overview.upcomingEnrollments.map((row) => (
-                        <StudentClassRow key={row.id} row={row} />
-                      ))}
+                  <p className={sectionTitle}>{overview.upcomingEnrollments.some((row) => row.classSession.series) ? 'Clases sueltas' : 'Próximas clases'}</p>
+                  {overview.upcomingEnrollments.some((row) => !row.classSession.series) ? (
+                    <ul className={listCls}>
+                      {overview.upcomingEnrollments
+                        .filter((row) => !row.classSession.series)
+                        .map((row) => (
+                          <StudentClassRow key={row.id} row={row} />
+                        ))}
                     </ul>
                   ) : (
-                    <p className="text-[13px] text-p-text-muted">Ninguna. Se anota desde la clase, en la pestaña Clases.</p>
+                    <p className="text-[13px] text-p-text-muted">Ninguna. Anotalo con &ldquo;Anotar a una clase&rdquo;.</p>
                   )}
                 </section>
+                )}
 
                 <section className="space-y-2">
-                  <p className="text-[14px] font-semibold text-p-text">Packs</p>
+                  <p className={sectionTitle}>Packs de clases</p>
                   {activePasses.length ? (
-                    <ul className="divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface">
+                    <ul className={listCls}>
                       {activePasses.map((row) => (
                         <StudentPassRow key={row.id} row={row} clientId={overview.client.id} />
                       ))}
@@ -673,11 +816,22 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
                   ) : null}
                 </section>
 
-                {overview.pastEnrollments.length ? (
+                <section>
+                  <ClientSubscriptionsPanel
+                    key={plansVersion}
+                    clubSlug={clubSlug || ''}
+                    clientId={overview.client.id}
+                    clientName={overview.client.name}
+                    canManage={hasAdminAccess(user)}
+                    onChanged={refreshStudent}
+                  />
+                </section>
+
+                {pastClasses.length ? (
                   <section className="space-y-2">
-                    <p className="text-[14px] font-semibold text-p-text">Últimas clases</p>
-                    <ul className="divide-y divide-p-border overflow-hidden rounded-2xl border border-p-border bg-p-surface">
-                      {overview.pastEnrollments.slice(0, 8).map((row) => (
+                    <p className={sectionTitle}>Últimas clases</p>
+                    <ul className={listCls}>
+                      {pastClasses.slice(0, 8).map((row) => (
                         <StudentClassRow key={row.id} row={row} past />
                       ))}
                     </ul>
@@ -686,7 +840,7 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
 
                 {overview.billingResponsibles.length ? (
                   <section className="space-y-1">
-                    <p className="text-[14px] font-semibold text-p-text">Quién paga</p>
+                    <p className={sectionTitle}>Quién paga</p>
                     <p className="text-[13px] text-p-text-secondary">
                       {overview.billingResponsibles.map((row) => row.name).join(', ')}
                     </p>
@@ -697,6 +851,31 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
           })()
         ) : null}
       </AdminDrawer>
+
+      <StudentEnrollDrawer
+        open={enrollDrawerOpen}
+        onClose={() => setEnrollDrawerOpen(false)}
+        clubSlug={clubSlug || ''}
+        student={
+          overview
+            ? { id: overview.client.id, name: overview.client.name, userId: overview.client.linkedUser?.id ?? null }
+            : null
+        }
+        enrolledSessionIds={overview ? overview.upcomingEnrollments.map((row) => row.classSessionId) : []}
+        onEnrolled={refreshStudent}
+      />
+
+      <AccountDrawer
+        accountId={chargeAccount?.accountId || null}
+        open={Boolean(chargeAccount)}
+        initialView={chargeAccount?.initialView}
+        context={chargeAccount?.context}
+        onClose={() => setChargeAccount(null)}
+        onSuccess={() => {
+          refreshStudent();
+          setPlansVersion((value) => value + 1);
+        }}
+      />
 
       <AdminAppModal
         show={studentPackModalOpen}

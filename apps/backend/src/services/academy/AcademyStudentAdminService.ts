@@ -43,6 +43,8 @@ type AcademyStudentEnrollmentSummary = {
     teacher: { id: string; displayName: string; isActive: boolean } | null;
     activityType: { id: number; name: string } | null;
     court: { id: number; name: string } | null;
+    /** Curso (días fijos) al que pertenece; null = clase suelta. */
+    series: { id: string; weekdays: number[]; startTime: string } | null;
   };
   billingResponsibleClient: { id: string; name: string } | null;
 };
@@ -236,6 +238,13 @@ export class AcademyStudentAdminService {
           ? {
               id: Number(row.classSession.court.id),
               name: String(row.classSession.court.name || '').trim(),
+            }
+          : null,
+        series: row.classSession.series
+          ? {
+              id: String(row.classSession.series.id),
+              weekdays: Array.isArray(row.classSession.series.weekdays) ? row.classSession.series.weekdays.map(Number) : [],
+              startTime: String(row.classSession.series.startTime || ''),
             }
           : null,
       },
@@ -515,6 +524,7 @@ export class AcademyStudentAdminService {
                 teacher: { select: { id: true, displayName: true, isActive: true } },
                 activityType: { select: { id: true, name: true } },
                 court: { select: { id: true, name: true } },
+                series: { select: { id: true, weekdays: true, startTime: true } },
               },
             },
           },
