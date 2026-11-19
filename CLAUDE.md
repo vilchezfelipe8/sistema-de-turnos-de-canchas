@@ -52,6 +52,34 @@ Current active routes: Calendario, Clientes, Caja, Tienda, Informes, Ajustes.
 
 ---
 
+## Shared Admin UI — use these, never hand-roll a copy
+
+All in `apps/frontend/components/admin/ui/` (re-exported from `index.ts`). Consistency is a hard requirement: if two screens need the same thing, they use the same component.
+
+| Need | Use |
+|------|-----|
+| Page title + description + section tabs | `AdminPage` (default export of `AdminPageHeader.tsx`), `layout="page"` or `"fill"` |
+| Section tabs (lime active) | `AdminSegmentedControl variant="tabs"` |
+| List filters / period toggles (black active) | `AdminSegmentedControl variant="filter"` |
+| Día/Semana/Mes + prev/next | `AdminPeriodPicker` |
+| Any button | `adminButton(variant, size)` — primary / secondary / danger / accent / ghost × sm / md / lg |
+| Option chips (duration, days, modality…) | `adminChip(active, size)` with `aria-pressed` |
+| Simple modal (title + body + footer) | `AdminModal` |
+| Confirm / warning dialog | `AdminAppModal` |
+| Custom modal body | `AdminOverlay` + `modalPanelCls`/`modalPanelScrollCls` and `modal*Cls` from `adminModalStyles.ts` |
+| Side panel (incl. agenda booking drawer) | `AdminDrawer` |
+| Drawer that opens another drawer (booking → cuenta) | Just open the second `AdminDrawer`: the stack hides the one below and brings it back on close. Never hide the parent by hand |
+| Steps inside one drawer (cuenta → consumo → cobro → confirmar) | `AdminDrawer` `onBack` (header ←, Escape goes back) + `stepKey` (step transition). X closes the whole flow |
+| "⋯" / "Más acciones" menus | `AdminMenu` + `AdminMenuItem` + `AdminMenuDivider` |
+| Any search box (lists or people) | `AdminSearchInput` (md for list filters, lg for picking a person) |
+| Search + pick a person (client, app user, student, player…) | `AdminPersonList` + `AdminPersonOption` + `AdminPersonCreateOption`, chosen one shown with `AdminSelectedPerson` (all in `AdminPersonPicker.tsx`) |
+| Toasts | `showAdminToast()` |
+
+### Motion
+Tokens and classes live at the end of `styles/pique.css`: `p-motion-backdrop`, `p-motion-dialog` (bottom sheet <640px), `p-motion-drawer`, `p-motion-pop`, all driven by `data-state="open|closed"`. Mount/unmount with `usePresence(open, exitMs)` from `hooks/usePresence.ts` so exits animate. Entry ease-out `cubic-bezier(.32,.72,0,1)`, exit ease-in, exits shorter than entries, reduced motion respected. Escape closes only the top layer (`useOverlayLayer`). Never write `fixed inset-0` overlays or keyframes by hand in a page.
+
+---
+
 ## Payment Modal Pattern
 
 All payment registration modals follow the same 3-step flow:
@@ -137,7 +165,7 @@ npx tsc --noEmit -p apps/frontend/tsconfig.json
 npx tsc --noEmit -p apps/backend/tsconfig.json
 ```
 
-Known pre-existing errors (do not fix unless explicitly tasked):
+Known pre-existing errors (fix them if you want):
 - `index.tsx` / `index-playground.tsx` — `IoFootballOutline`/`IoTennisballOutline` JSX type error
 - `tailwind.config.ts` — isolatedModules warning
 
@@ -180,14 +208,13 @@ cd apps/backend && npx prisma db seed
 - State setters: `set<FeatureName><StateDescription>` (e.g. `setAccountPaymentAmountDraft`)
 - Pending items derived via `useMemo` from account detail — never stored in raw state
 - Club-scoped: all API calls include active club context automatically via `apiClient`
-- Playground pages are large single-file components by design — do not split unless explicitly asked
 
 ---
 
 ## Admin Migration State (updated 2026-04-27)
 
 ### Already migrated ✅
-- `AdminPlaygroundShell` + `AdminRouteShell` — main shell, working well. **Do not touch.**
+- `AdminPlaygroundShell` + `AdminRouteShell` — main shell, working well.
 - `_app.tsx` — `ActiveClubProvider` + `AuthProvider` correctly nested, clean notices system.
 - `ActiveClubContext` — well implemented with `StorageEvent` sync.
 - `agenda.tsx` → re-exports `agenda-playground2.tsx`
@@ -277,8 +304,3 @@ Has `import { useParams } from 'react-router-dom'` used on line 321 — wrong ro
 2. Extract hooks from `agenda-playground2.tsx` (Phase 3): `useAgendaSchedule`, `useAgendaDragAndDrop`, `useBookingDrawerController`
 3. Auth migration to cookies — update this file when done
 
-**Do NOT:**
-- Touch `AdminPlaygroundShell` — it's well built and stable
-- Componentize `pagos-playground.tsx` or `agenda-playground2.tsx` now — finish structural cleanup first
-- Move Cuentas into Caja if it changes live URLs without a redirect in place first
-- Componentize `cuentas.tsx` all at once

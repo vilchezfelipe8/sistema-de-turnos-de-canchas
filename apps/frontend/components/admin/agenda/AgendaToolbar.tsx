@@ -1,5 +1,7 @@
 import type { ReactNode, RefObject } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react';
+import AdminSegmentedControl from '../ui/AdminSegmentedControl';
+import { adminButton } from '../ui/adminButton';
 
 type AgendaToolbarProps = {
   availableSports: string[];
@@ -71,22 +73,15 @@ export default function AgendaToolbar({
 
   return (
     <div className="rounded-2xl border border-p-border bg-p-surface px-4 py-3 flex flex-col gap-3 md:flex-row md:items-center">
-      <div className="min-w-0 flex-1 overflow-x-auto">
+      <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <div className="flex w-max items-center gap-2 pr-1">
-          {availableSports.map((sport) => (
-            <button
-              key={sport}
-              type="button"
-              onClick={() => onSportFilterChange(sport)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                sportFilter === sport
-                  ? 'bg-ink-900 text-ink-50 shadow-sm'
-                  : 'bg-p-surface-2 text-p-text-muted hover:bg-p-surface-2'
-              }`}
-            >
-              {sport}
-            </button>
-          ))}
+          <AdminSegmentedControl
+            variant="filter"
+            ariaLabel="Deporte"
+            value={sportFilter}
+            onChange={(value) => onSportFilterChange(value as typeof sportFilter)}
+            options={availableSports.map((sport) => ({ value: sport, label: sport }))}
+          />
           {summary && (
             <div className="ml-2 border-l border-p-border pl-3 text-[12px] font-semibold">{summary}</div>
           )}
@@ -163,7 +158,7 @@ export default function AgendaToolbar({
             <button
               type="button"
               onClick={onFindFreeSlot}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-2.5 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+              className={adminButton('secondary', 'sm')}
             >
               <Search size={14} />
               ¿Hay lugar?
@@ -172,7 +167,7 @@ export default function AgendaToolbar({
           <button
             type="button"
             onClick={onCreateBooking}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lima-300/40"
+            className={adminButton('primary', 'sm')}
           >
             <Plus size={14} strokeWidth={2.5} />
             Crear reserva

@@ -1,3 +1,4 @@
+import { adminButton } from '../../../components/admin/ui/adminButton';
 const formatMoney = (value: number) => `$${Number(value || 0).toLocaleString('es-AR')}`;
 
 export type CashTodayItem = {
@@ -66,7 +67,7 @@ export default function CashTodayToCollect({ items, olderDebt, loading = false, 
               <button
                 type="button"
                 onClick={() => onPay(item.id)}
-                className="h-8 flex-none rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+                className={`${adminButton('primary', 'sm')} flex-none`}
               >
                 Cobrar
               </button>

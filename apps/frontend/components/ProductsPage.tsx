@@ -11,6 +11,7 @@ import ProductDrawer from '../modules/tienda/components/ProductDrawer';
 import type { ProductFormData } from '../modules/tienda/components/ProductDrawer';
 import type { ProductRow } from '../modules/tienda/components/ProductsTable';
 import { getApiFieldErrors } from '../utils/apiError';
+import { AdminSearchInput } from './admin/ui/AdminPersonPicker';
 
 interface ProductsPageProps {
   slug?: string;
@@ -298,16 +299,12 @@ export default function ProductsPage({ slug = '' }: ProductsPageProps) {
             'nada para reponer'
           )}
         </p>
-        <label className="relative w-full sm:w-[260px]">
-          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} />
-          <input
-            type="text"
-            placeholder="Buscar producto"
-            className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </label>
+        <AdminSearchInput
+          placeholder="Buscar producto"
+          value={searchTerm}
+          onChange={(value) => setSearchTerm(value)}
+          wrapperClassName="w-full sm:w-[260px]"
+        />
         <button
           type="button"
           onClick={openNew}

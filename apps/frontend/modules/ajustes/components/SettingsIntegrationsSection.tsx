@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
-import { CreditCard, Link2Off, PlugZap } from 'lucide-react';
+import { CreditCard, Link2Off, Lock, PlugZap } from 'lucide-react';
 import AdminEmptyState from '../../../components/admin/ui/AdminEmptyState';
-import AdminPanel from '../../../components/admin/ui/AdminPanel';
 import { AdminFeedbackBanner } from '../../../components/admin/ui/AdminFeedback';
 import { useAuth } from '../../../contexts/AuthContext';
 import { ClubAdminService, type AdminClubPaymentIntegration } from '../../../services/ClubAdminService';
 import { showAdminToast } from '../../../utils/adminToast';
 import { extractErrorMessage } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 const integrationStatusLabel = (status: AdminClubPaymentIntegration['status']) => {
   if (status === 'CONNECTED') return 'Conectado';
@@ -106,91 +106,82 @@ export default function SettingsIntegrationsSection() {
     );
   }
 
+  const status = mercadoPago?.status || 'DISCONNECTED';
+  const connected = Boolean(mercadoPago?.connected) && status === 'CONNECTED';
+  const needsReconnect = status === 'EXPIRED' || status === 'ERROR';
+  const connectedOn = formatDay(mercadoPago?.updatedAt);
+  const statusTone = connected
+    ? 'bg-p-positive-bg text-p-positive'
+    : needsReconnect
+      ? 'bg-p-warning-bg text-p-warning'
+      : 'bg-p-surface-2 text-p-text-muted';
+  const statusDot = connected ? 'bg-p-positive' : needsReconnect ? 'bg-p-warning' : 'bg-p-text-muted';
+
   return (
     <div className="space-y-4">
-      <AdminPanel
-        title="Integraciones"
-        description="Servicios conectados al club."
-      >
-        {error ? (
-          <AdminFeedbackBanner tone="error" className="mb-3">
-            {error}
-          </AdminFeedbackBanner>
-        ) : null}
+      {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
 
-        {(() => {
-          const status = mercadoPago?.status || 'DISCONNECTED';
-          const connected = Boolean(mercadoPago?.connected) && status === 'CONNECTED';
-          const needsReconnect = status === 'EXPIRED' || status === 'ERROR';
-          const connectedOn = formatDay(mercadoPago?.updatedAt);
-          return (
-            <div className="rounded-2xl border border-p-border p-4">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0 space-y-1">
-                  <div className="flex items-center gap-2">
-                    <CreditCard size={16} className="text-p-text-muted" />
-                    <p className="text-[15px] font-semibold text-p-text">Mercado Pago</p>
-                    {!loading && (
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                          connected
-                            ? 'bg-p-positive-bg text-p-positive'
-                            : needsReconnect
-                              ? 'bg-p-warning-bg text-p-warning'
-                              : 'bg-p-surface-3 text-p-text-secondary'
-                        }`}
-                      >
-                        {integrationStatusLabel(status)}
-                      </span>
-                    )}
-                  </div>
-                  {loading ? (
-                    <p className="text-[13px] text-p-text-muted">Cargando...</p>
-                  ) : connected ? (
-                    <p className="text-[13px] text-p-text-secondary">
-                      La plata de las reservas y señas que se pagan desde la app entra directo a esta cuenta.
-                      {mercadoPago?.connectedBy ? ` Lo conectó ${fullName(mercadoPago)}${connectedOn ? ` el ${connectedOn}` : ''}.` : ''}
-                    </p>
-                  ) : needsReconnect ? (
-                    <p className="text-[13px] font-medium text-p-warning">
-                      La conexión se cortó. Volvé a conectarlo para seguir cobrando desde la app.
-                    </p>
-                  ) : (
-                    <p className="text-[13px] text-p-text-secondary">
-                      Conectalo para que los jugadores puedan pagar reservas y señas desde la app. La plata entra directo a la
-                      cuenta del club.
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <a
-                    href={clubSlug ? ClubAdminService.getMercadoPagoConnectUrl(clubSlug) : '#'}
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold !text-ink-50 transition hover:bg-ink-800"
-                    aria-disabled={!clubSlug}
-                  >
-                    <PlugZap size={14} />
-                    {connected || needsReconnect ? 'Volver a conectar' : 'Conectar Mercado Pago'}
-                  </a>
-                  {mercadoPago?.connected ? (
-                    <button
-                      type="button"
-                      onClick={handleDisconnect}
-                      disabled={disconnecting}
-                      className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-p-border px-4 text-[13px] font-semibold text-p-text transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Link2Off size={14} />
-                      {disconnecting ? 'Desconectando...' : 'Desconectar'}
-                    </button>
-                  ) : null}
-                </div>
-              </div>
+      <section className="overflow-hidden rounded-xl border border-p-border bg-p-surface">
+        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#009EE3]/10 text-[#009EE3]">
+            <CreditCard size={20} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-[15px] font-semibold text-p-text">Mercado Pago</p>
+              {!loading && (
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusTone}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${statusDot}`} />
+                  {integrationStatusLabel(status)}
+                </span>
+              )}
             </div>
-          );
-        })()}
-
-        <p className="mt-3 text-[12px] text-p-text-muted">Pique nunca ve ni guarda tu clave de Mercado Pago.</p>
-      </AdminPanel>
+            {loading ? (
+              <p className="mt-1 h-4 w-64 animate-pulse rounded bg-p-surface-2" />
+            ) : connected ? (
+              <p className="mt-0.5 text-[13px] text-p-text-muted">
+                Las reservas y señas que se pagan desde la app entran directo a esta cuenta.
+                {mercadoPago?.connectedBy ? ` Lo conectó ${fullName(mercadoPago)}${connectedOn ? ` el ${connectedOn}` : ''}.` : ''}
+              </p>
+            ) : needsReconnect ? (
+              <p className="mt-0.5 text-[13px] font-medium text-p-warning">
+                Se cortó la conexión. Volvé a conectarlo para seguir cobrando desde la app.
+              </p>
+            ) : (
+              <p className="mt-0.5 text-[13px] text-p-text-muted">
+                Los jugadores pagan reservas y señas desde la app y la plata entra directo a la cuenta del club.
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {mercadoPago?.connected ? (
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                disabled={disconnecting}
+                className={adminButton('secondary', 'md')}
+              >
+                <Link2Off size={14} />
+                {disconnecting ? 'Desconectando…' : 'Desconectar'}
+              </button>
+            ) : null}
+            {!connected && (
+              <a
+                href={clubSlug ? ClubAdminService.getMercadoPagoConnectUrl(clubSlug) : '#'}
+                className={`${adminButton('primary')} !text-ink-50`}
+                aria-disabled={!clubSlug}
+              >
+                <PlugZap size={14} />
+                {needsReconnect ? 'Volver a conectar' : 'Conectar'}
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 border-t border-p-border bg-p-surface-2/60 px-5 py-2.5 text-[12px] text-p-text-muted">
+          <Lock size={13} className="shrink-0" />
+          Te conectás en Mercado Pago: Pique nunca ve ni guarda tu clave.
+        </div>
+      </section>
     </div>
   );
 }

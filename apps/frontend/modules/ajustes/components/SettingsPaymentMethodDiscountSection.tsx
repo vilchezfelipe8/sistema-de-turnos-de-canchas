@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Save } from 'lucide-react';
 import { AdminFeedbackBanner } from '../../../components/admin/ui/AdminFeedback';
 import SettingsSection from './SettingsSection';
 import { useAuth } from '../../../contexts/AuthContext';
 import { PlayerPricingService, type PaymentMethodDiscounts } from '../../../services/PlayerPricingService';
-import { showAdminToast } from '../../../utils/adminToast';
+import { useSettingsSaveSlot } from '../SettingsSaveContext';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
 
@@ -17,8 +16,6 @@ const METHODS: Array<{ key: keyof PaymentMethodDiscounts; label: string; hint: s
 
 const inputClass =
   'h-9 w-24 rounded-lg border border-p-border bg-p-surface px-2 text-right text-[13px] text-p-text outline-none focus:border-p-text-secondary';
-const primaryButtonClass =
-  'inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50';
 
 const EXAMPLE_LIST_PRICE = 37500;
 
@@ -30,25 +27,32 @@ export default function SettingsPaymentMethodDiscountSection() {
 
   const [drafts, setDrafts] = useState<Record<keyof PaymentMethodDiscounts, string>>({ CASH: '0', TRANSFER: '0', CARD: '0', ONLINE: '0' });
   const [showCashPriceInApp, setShowCashPriceInApp] = useState(true);
+  const [saved, setSaved] = useState<{ drafts: Record<keyof PaymentMethodDiscounts, string>; showCashPriceInApp: boolean }>({
+    drafts: { CASH: '0', TRANSFER: '0', CARD: '0', ONLINE: '0' },
+    showCashPriceInApp: true,
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const applyDiscounts = (discounts?: PaymentMethodDiscounts) =>
-    setDrafts({
+  const applySaved = (discounts: PaymentMethodDiscounts | undefined, showCash: boolean) => {
+    const next = {
       CASH: String(discounts?.CASH ?? 0),
       TRANSFER: String(discounts?.TRANSFER ?? 0),
       CARD: String(discounts?.CARD ?? 0),
       ONLINE: String(discounts?.ONLINE ?? 0),
-    });
+    };
+    setDrafts(next);
+    setShowCashPriceInApp(showCash);
+    setSaved({ drafts: next, showCashPriceInApp: showCash });
+  };
 
   const load = useCallback(async () => {
     if (!clubSlug) return;
     setLoading(true);
     try {
       const settings = await PlayerPricingService.getSettings(clubSlug);
-      applyDiscounts(settings.paymentMethodDiscounts);
-      setShowCashPriceInApp(settings.showCashPriceInApp !== false);
+      applySaved(settings.paymentMethodDiscounts, settings.showCashPriceInApp !== false);
       setError('');
     } catch (err) {
       reportUiError({ area: 'SettingsPaymentMethodDiscountSection', action: 'load' }, err);
@@ -62,30 +66,44 @@ export default function SettingsPaymentMethodDiscountSection() {
     void load();
   }, [load]);
 
-  const handleSave = async () => {
-    if (!clubSlug || saving) return;
+  const changes =
+    METHODS.filter((method) => Number(String(drafts[method.key] || '0').replace(',', '.')) !== Number(saved.drafts[method.key])).length +
+    Number(showCashPriceInApp !== saved.showCashPriceInApp);
+
+  const handleSave = async (): Promise<boolean> => {
+    if (!clubSlug) return false;
     const parsed = METHODS.reduce((acc, method) => {
       acc[method.key] = Number(String(drafts[method.key] || '0').replace(',', '.'));
       return acc;
     }, {} as PaymentMethodDiscounts);
     if (Object.values(parsed).some((value) => !Number.isFinite(value) || value < 0 || value > 90)) {
       setError('Cada descuento tiene que ser un porcentaje entre 0 y 90.');
-      return;
+      return false;
     }
     try {
       setSaving(true);
       setError('');
       const result = await PlayerPricingService.updateSettings(clubSlug, { paymentMethodDiscounts: parsed, showCashPriceInApp });
-      applyDiscounts(result.paymentMethodDiscounts);
-      setShowCashPriceInApp(result.showCashPriceInApp !== false);
-      showAdminToast('Descuentos por medio de pago guardados.');
+      applySaved(result.paymentMethodDiscounts, result.showCashPriceInApp !== false);
+      return true;
     } catch (err) {
       reportUiError({ area: 'SettingsPaymentMethodDiscountSection', action: 'save' }, err);
       setError(extractErrorMessage(err, 'No se pudo guardar el descuento.'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  useSettingsSaveSlot('payment-method-discounts', {
+    changes,
+    save: handleSave,
+    discard: () => {
+      setDrafts(saved.drafts);
+      setShowCashPriceInApp(saved.showCashPriceInApp);
+      setError('');
+    },
+  });
 
   if (!canManage) return null;
 
@@ -96,12 +114,6 @@ export default function SettingsPaymentMethodDiscountSection() {
     <SettingsSection
       title="Precio por medio de pago"
       description="Los precios cargados son de lista. Al cobrar en el mostrador con un medio que tenga descuento, se ofrece el precio con descuento y se descuenta del saldo."
-      action={(
-        <button type="button" className={primaryButtonClass} disabled={loading || saving} onClick={() => void handleSave()}>
-          <Save size={14} />
-          {saving ? 'Guardando...' : 'Guardar'}
-        </button>
-      )}
     >
       <div className="space-y-3">
         {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}

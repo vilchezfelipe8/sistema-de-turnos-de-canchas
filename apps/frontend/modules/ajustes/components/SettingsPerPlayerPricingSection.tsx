@@ -1,20 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Save } from 'lucide-react';
 import { AdminFeedbackBanner } from '../../../components/admin/ui/AdminFeedback';
 import SettingsSection from './SettingsSection';
 import { useAuth } from '../../../contexts/AuthContext';
 import { PlayerPricingService, type ClubPricingMode, type PlayerPriceTable } from '../../../services/PlayerPricingService';
-import { showAdminToast } from '../../../utils/adminToast';
+import { useSettingsSaveSlot } from '../SettingsSaveContext';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
+import { adminChip } from '../../../components/admin/ui/adminChip';
 
 const cellKey = (formatId: string, categoryId: string | null) => `${formatId}::${categoryId ?? 'GENERAL'}`;
 const inputClass =
   'h-9 w-28 rounded-lg border border-p-border bg-p-surface px-2 text-right text-[13px] text-p-text outline-none focus:border-p-text-secondary';
-const primaryButtonClass =
-  'inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50';
-const optionClass = (active: boolean) =>
-  `h-9 rounded-lg border px-3 text-[12px] font-semibold transition ${active ? 'border-ink-900 bg-ink-900 !text-ink-50' : 'border-p-border text-p-text hover:bg-p-surface-2'}`;
+const optionClass = (active: boolean) => adminChip(active);
 
 // Ajustes > Precios: modo de precio del club y tabla de precio por jugador (modalidad × categoría).
 export default function SettingsPerPlayerPricingSection() {
@@ -24,8 +21,13 @@ export default function SettingsPerPlayerPricingSection() {
 
   const [pricingMode, setPricingMode] = useState<ClubPricingMode>('PER_COURT');
   const [onlineCheckoutEnabled, setOnlineCheckoutEnabled] = useState(true);
+  const [savedSettings, setSavedSettings] = useState<{ pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean }>({
+    pricingMode: 'PER_COURT',
+    onlineCheckoutEnabled: true,
+  });
   const [table, setTable] = useState<PlayerPriceTable | null>(null);
   const [cells, setCells] = useState<Record<string, string>>({});
+  const [savedCells, setSavedCells] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -35,6 +37,13 @@ export default function SettingsPerPlayerPricingSection() {
     const nextCells: Record<string, string> = {};
     for (const price of next.prices) nextCells[cellKey(price.activityFormatId, price.memberCategoryId)] = String(price.pricePerPlayer);
     setCells(nextCells);
+    setSavedCells(nextCells);
+  };
+
+  const applySettings = (next: { pricingMode: ClubPricingMode; onlineCheckoutEnabled: boolean }) => {
+    setPricingMode(next.pricingMode);
+    setOnlineCheckoutEnabled(next.onlineCheckoutEnabled);
+    setSavedSettings({ pricingMode: next.pricingMode, onlineCheckoutEnabled: next.onlineCheckoutEnabled });
   };
 
   const load = useCallback(async () => {
@@ -45,8 +54,7 @@ export default function SettingsPerPlayerPricingSection() {
         PlayerPricingService.getSettings(clubSlug),
         PlayerPricingService.getPriceTable(clubSlug)
       ]);
-      setPricingMode(settings.pricingMode);
-      setOnlineCheckoutEnabled(settings.onlineCheckoutEnabled);
+      applySettings(settings);
       applyTable(priceTable);
       setError('');
     } catch (err) {
@@ -60,23 +68,6 @@ export default function SettingsPerPlayerPricingSection() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const updateSettings = async (body: { pricingMode?: ClubPricingMode; onlineCheckoutEnabled?: boolean }) => {
-    if (!clubSlug || saving) return;
-    try {
-      setSaving(true);
-      setError('');
-      const result = await PlayerPricingService.updateSettings(clubSlug, body);
-      setPricingMode(result.pricingMode);
-      setOnlineCheckoutEnabled(result.onlineCheckoutEnabled);
-      showAdminToast('Configuración actualizada.');
-    } catch (err) {
-      reportUiError({ area: 'SettingsPerPlayerPricingSection', action: 'updateSettings' }, err);
-      setError(extractErrorMessage(err, 'No se pudo actualizar la configuración.'));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const activeFormats = (table?.formats || []).filter((format) => format.isActive);
   const activeCategories = (table?.categories || []).filter((category) => category.isActive);
@@ -94,34 +85,59 @@ export default function SettingsPerPlayerPricingSection() {
   });
   const missingGeneral = activeFormats.filter((format) => !String(cells[cellKey(format.id, null)] || '').trim());
 
-  const handleSave = async () => {
-    if (!clubSlug || !table || saving) return;
-    const prices = activeFormats.flatMap((format) =>
-      columns.map((column) => {
-        const raw = String(cells[cellKey(format.id, column.id)] ?? '').trim();
-        return {
-          activityFormatId: format.id,
-          memberCategoryId: column.id,
-          pricePerPlayer: raw === '' ? null : Number(raw)
-        };
-      })
-    );
-    if (prices.some((price) => price.pricePerPlayer !== null && (!Number.isFinite(price.pricePerPlayer) || price.pricePerPlayer < 0))) {
-      setError('Los precios deben ser números positivos.');
-      return;
-    }
+  const settingsChanges =
+    Number(pricingMode !== savedSettings.pricingMode) + Number(onlineCheckoutEnabled !== savedSettings.onlineCheckoutEnabled);
+  const cellChanges = Array.from(new Set([...Object.keys(cells), ...Object.keys(savedCells)])).filter(
+    (key) => String(cells[key] ?? '').trim() !== String(savedCells[key] ?? '').trim()
+  ).length;
+
+  const handleSave = async (): Promise<boolean> => {
+    if (!clubSlug) return false;
     try {
       setSaving(true);
       setError('');
-      applyTable(await PlayerPricingService.savePriceTable(clubSlug, prices));
-      showAdminToast('Precios guardados.');
+      if (settingsChanges > 0) {
+        applySettings(await PlayerPricingService.updateSettings(clubSlug, { pricingMode, onlineCheckoutEnabled }));
+      }
+      if (cellChanges > 0 && table) {
+        const prices = activeFormats.flatMap((format) =>
+          columns.map((column) => {
+            const raw = String(cells[cellKey(format.id, column.id)] ?? '').trim();
+            return {
+              activityFormatId: format.id,
+              memberCategoryId: column.id,
+              pricePerPlayer: raw === '' ? null : Number(raw)
+            };
+          })
+        );
+        if (prices.some((price) => price.pricePerPlayer !== null && (!Number.isFinite(price.pricePerPlayer) || price.pricePerPlayer < 0))) {
+          setError('Los precios deben ser números positivos.');
+          return false;
+        }
+        applyTable(await PlayerPricingService.savePriceTable(clubSlug, prices));
+      }
+      return true;
     } catch (err) {
-      reportUiError({ area: 'SettingsPerPlayerPricingSection', action: 'savePrices' }, err);
+      reportUiError({ area: 'SettingsPerPlayerPricingSection', action: 'save' }, err);
       setError(extractErrorMessage(err, 'No se pudieron guardar los precios.'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  const handleDiscard = () => {
+    setPricingMode(savedSettings.pricingMode);
+    setOnlineCheckoutEnabled(savedSettings.onlineCheckoutEnabled);
+    setCells(savedCells);
+    setError('');
+  };
+
+  useSettingsSaveSlot('per-player-pricing', {
+    changes: settingsChanges + cellChanges,
+    save: handleSave,
+    discard: handleDiscard,
+  });
 
   if (!canManage) return null;
 
@@ -130,14 +146,14 @@ export default function SettingsPerPlayerPricingSection() {
       {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
 
       <SettingsSection
-        title="Modo de precio de los turnos"
-        description="Por cancha: un precio por turno según cancha y horario. Por jugador: cada jugador paga según la modalidad y su categoría (socio / no socio)."
+        title="Cómo se cobra el turno"
+        description="Por cancha: un precio por turno, según la cancha. Por jugador: cada uno paga según la modalidad y si es socio."
       >
         <div className="flex flex-wrap gap-2">
-          <button type="button" className={optionClass(pricingMode === 'PER_COURT')} disabled={loading || saving} onClick={() => void updateSettings({ pricingMode: 'PER_COURT' })}>
+          <button type="button" className={optionClass(pricingMode === 'PER_COURT')} disabled={loading || saving} onClick={() => setPricingMode('PER_COURT')}>
             Por cancha
           </button>
-          <button type="button" className={optionClass(pricingMode === 'PER_PLAYER')} disabled={loading || saving} onClick={() => void updateSettings({ pricingMode: 'PER_PLAYER' })}>
+          <button type="button" className={optionClass(pricingMode === 'PER_PLAYER')} disabled={loading || saving} onClick={() => setPricingMode('PER_PLAYER')}>
             Por jugador
           </button>
         </div>
@@ -146,24 +162,17 @@ export default function SettingsPerPlayerPricingSection() {
             type="checkbox"
             checked={!onlineCheckoutEnabled}
             disabled={loading || saving}
-            onChange={(event) => void updateSettings({ onlineCheckoutEnabled: !event.target.checked })}
+            onChange={(event) => setOnlineCheckoutEnabled(!event.target.checked)}
           />
           Cobrar solo en el mostrador (la app no ofrece pago online)
         </label>
-      </SettingsSection>
 
       {pricingMode === 'PER_PLAYER' ? (
-        <SettingsSection
-          title="Precio por jugador"
-          description="Precio que paga cada jugador por turno. Si una categoría no tiene precio, paga el de no socio. El recargo por luces se reparte entre los jugadores."
-          action={
-            <button type="button" className={primaryButtonClass} disabled={saving || loading} onClick={() => void handleSave()}>
-              <Save size={14} /> Guardar
-            </button>
-          }
-        >
+        <div className="mt-5 border-t border-p-border pt-5">
+          <p className="text-[13px] font-semibold text-p-text">Precio por jugador</p>
+          <p className="mb-3 mt-0.5 text-[12px] text-p-text-muted">Si una categoría no tiene precio, paga el de no socio. Las luces se reparten entre los jugadores.</p>
           {activeFormats.length === 0 ? (
-            <p className="text-[13px] text-p-text-muted">Primero cargá las modalidades en Ajustes &gt; Actividades.</p>
+            <p className="text-[13px] text-p-text-muted">Primero cargá las modalidades en Ajustes &gt; Horarios.</p>
           ) : (
             <div className="overflow-auto">
               <table className="text-[13px]">
@@ -213,8 +222,9 @@ export default function SettingsPerPlayerPricingSection() {
               <AdminFeedbackBanner tone="warning" compact>{warnings.join(' ')}</AdminFeedbackBanner>
             </div>
           ) : null}
-        </SettingsSection>
+        </div>
       ) : null}
+      </SettingsSection>
     </div>
   );
 }

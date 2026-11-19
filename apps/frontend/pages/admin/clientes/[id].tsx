@@ -5,6 +5,7 @@ import { useClients } from '../../../modules/clientes/hooks/useClients';
 import ClientsTable from '../../../modules/clientes/components/ClientsTable';
 import ClientProfile from '../../../modules/clientes/components/ClientProfile';
 import type { AdminClient } from '../../../modules/clientes/hooks/useClients';
+import { AdminSearchInput } from '../../../components/admin/ui/AdminPersonPicker';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -53,13 +54,7 @@ export default function ClientePerfilPage() {
         <div className="hidden w-[280px] shrink-0 flex-col overflow-hidden border-r border-p-border bg-p-surface md:flex">
           {/* Search */}
           <div className="shrink-0 border-b border-p-border px-4 py-3">
-            <input
-              type="search"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar cliente…"
-              className="w-full rounded-lg border border-p-border bg-p-surface-2 px-3 py-2 text-[13px] text-p-text placeholder-[var(--text-muted)] outline-none focus:border-p-accent focus:bg-p-surface"
-            />
+            <AdminSearchInput value={searchTerm} onChange={setSearchTerm} placeholder="Buscar cliente" />
           </div>
 
           {/* Table */}

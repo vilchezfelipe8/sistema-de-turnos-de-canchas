@@ -2,6 +2,7 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { Lock } from 'lucide-react';
 import AdminPlaygroundShell from './AdminPlaygroundShell';
+import { adminButton } from './ui/adminButton';
 
 /**
  * Staff (operador) que entra a una sección solo para administradores:
@@ -27,7 +28,7 @@ export default function AdminNoAccessScreen({ user, activeItem, title }: { user:
             </p>
             <Link
               href="/admin/agenda"
-              className="mt-4 inline-flex h-10 items-center rounded-xl bg-ink-900 px-4 text-[13px] font-semibold !text-ink-50 hover:bg-ink-800"
+              className={`${adminButton('primary', 'lg')} mt-4 !text-ink-50`}
             >
               Ir al calendario
             </Link>

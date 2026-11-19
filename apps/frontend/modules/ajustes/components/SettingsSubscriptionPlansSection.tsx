@@ -241,7 +241,7 @@ export default function SettingsSubscriptionPlansSection() {
 
   return (
     <SettingsSection
-      title="Planes"
+      title="Planes del club"
       description="Abonos que vende el club: gimnasio, cuota social o clases mensuales. Cada cuota queda en la cuenta del cliente y se cobra como cualquier otra, con el precio efectivo si corresponde."
       action={
         canManage ? (
@@ -549,7 +549,7 @@ export default function SettingsSubscriptionPlansSection() {
                 type="button"
                 className={ghostButtonClass}
                 disabled={!activities.length}
-                title={activities.length ? undefined : 'Primero cargá actividades en Ajustes → Actividades.'}
+                title={activities.length ? undefined : 'Primero cargá actividades en Canchas o en Turnero.'}
                 onClick={() =>
                   updateDraft({
                     entitlements: [

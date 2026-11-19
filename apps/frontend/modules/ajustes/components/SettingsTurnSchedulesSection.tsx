@@ -16,6 +16,7 @@ import {
 import { showAdminToast } from '../../../utils/adminToast';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
+import { adminChip } from '../../../components/admin/ui/adminChip';
 
 const inputClass =
   'h-9 w-full rounded-lg border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-text-secondary';
@@ -198,7 +199,7 @@ export default function SettingsTurnSchedulesSection() {
 
   return (
     <SettingsSection
-      title="Turnero"
+      title="Actividades con cupo"
       description="Para actividades sin cancha con cupo por hora, como Musculación. Los socios reservan su turno desde la app y el plan define cuántas veces por semana pueden venir."
       action={
         canManage ? (
@@ -344,9 +345,7 @@ export default function SettingsTurnSchedulesSection() {
                           key={d}
                           type="button"
                           aria-pressed={on}
-                          className={`h-8 w-10 rounded-md border text-[11px] font-semibold ${
-                            on ? 'border-ink-900 bg-ink-900 !text-ink-50' : 'border-p-border text-p-text-secondary hover:bg-p-surface-2'
-                          }`}
+                          className={`${adminChip(on, 'sm')} w-10 !px-0`}
                           onClick={() =>
                             updateWindow(index, { weekdays: on ? window.weekdays.filter((x) => x !== d) : [...window.weekdays, d] })
                           }

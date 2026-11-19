@@ -31,13 +31,15 @@ import {
   type CashShiftBreakdown,
 } from '../../modules/caja/components/CashCloseRecap';
 import CashShiftPanel from '../../modules/caja/components/CashShiftPanel';
+import { AdminPersonList, AdminPersonOption, AdminSearchInput, AdminSelectedPerson } from '../../components/admin/ui/AdminPersonPicker';
 import AccountDrawer, {
   type AccountDrawerContext,
   type AccountDrawerInitialView,
   type AccountDrawerSuccessMeta,
 } from '../../modules/cuentas/components/AccountDrawer';
-import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminPanel, AdminSegmentedControl } from '../../components/admin/ui';
+import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminPanel, AdminPage, AdminSegmentedControl } from '../../components/admin/ui';
 import AdminAppModal from '../../components/admin/ui/AdminAppModal';
+import AdminPeriodPicker from '../../components/admin/ui/AdminPeriodPicker';
 import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
@@ -71,6 +73,8 @@ import { getFiscalConfig } from '../../services/FiscalConfigService';
 import { showAdminToast } from '../../utils/adminToast';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import { adminButton } from '../../components/admin/ui/adminButton';
+import { adminChip } from '../../components/admin/ui/adminChip';
 
 type PaymentsTab = 'SUMMARY' | 'ACCOUNTS' | 'MOVEMENTS' | 'CLOSURE' | 'REFUNDS' | 'REPORTS';
 type CashPeriod = 'hoy' | 'semana' | 'mes';
@@ -325,7 +329,6 @@ const ACCOUNT_PAYMENT_EPSILON = 0.009;
 const CAJA_AUTO_REFRESH_MS = 30_000;
 const CAJA_REFRESH_ON_FOCUS_MIN_GAP_MS = 10_000;
 const EMPTY_REFUNDS: RefundRecord[] = [];
-const drawerSectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
 
 const shortCode = (value: unknown) => {
   const raw = String(value || '').trim();
@@ -367,39 +370,14 @@ function CashPeriodPicker({
   onOffset: (updater: (prev: number) => number) => void;
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-      {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((value) => (
-        <button
-          key={`period-${value}`}
-          type="button"
-          aria-pressed={period === value}
-          onClick={() => onPeriod(value)}
-          className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold transition ${
-            period === value ? 'bg-p-surface-3 text-p-text' : 'text-p-text-muted hover:text-p-text-secondary'
-          }`}
-        >
-          {value === 'hoy' ? 'Día' : value === 'semana' ? 'Semana' : 'Mes'}
-        </button>
-      ))}
-      <button
-        type="button"
-        aria-label="Período anterior"
-        onClick={() => onOffset((prev) => prev - 1)}
-        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
-      >
-        <ChevronLeft size={15} />
-      </button>
-      <span className="min-w-[96px] text-center text-[12px] font-semibold text-p-text-secondary">{label}</span>
-      <button
-        type="button"
-        aria-label="Período siguiente"
-        onClick={() => onOffset((prev) => Math.min(0, prev + 1))}
-        disabled={offset === 0}
-        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40 disabled:hover:bg-transparent"
-      >
-        <ChevronRight size={15} />
-      </button>
-    </div>
+    <AdminPeriodPicker
+      period={period}
+      onPeriodChange={onPeriod}
+      label={label}
+      onPrevious={() => onOffset((prev) => prev - 1)}
+      onNext={() => onOffset((prev) => Math.min(0, prev + 1))}
+      nextDisabled={offset === 0}
+    />
   );
 }
 
@@ -1637,15 +1615,6 @@ export default function AdminPaymentsPlaygroundPage() {
     setCashSidebarView('none');
   }, [closingCashShift, openingCashShift, posSubmitting, submittingCashMovement]);
 
-  useEffect(() => {
-    if (!cashActionSidebarOpen) return;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      closeActionSidebar();
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [cashActionSidebarOpen, closeActionSidebar]);
 
   const allAccounts = useMemo(
     () => [
@@ -2251,28 +2220,29 @@ export default function AdminPaymentsPlaygroundPage() {
         <title>Caja | Pique Admin</title>
       </Head>
       <AdminPlaygroundShell activeItem="Caja" user={user} contentMuted={cashActionSidebarOpen}>
-        <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 lg:gap-4 lg:p-6">
-          <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Caja</h1>
-          <AdminSegmentedControl
-            ariaLabel="Secciones de caja"
-            value={activeTab}
-            onChange={(nextTab) => navigateToPaymentsTab(nextTab as PaymentsTab)}
-            options={[
+        <AdminPage
+          title="Caja"
+          description="La plata del club: lo que entra, lo que se debe y el cierre del día."
+          contentRef={paymentsContentScrollRef}
+          tabs={{
+            ariaLabel: 'Secciones de caja',
+            value: activeTab,
+            onChange: (nextTab) => navigateToPaymentsTab(nextTab as PaymentsTab),
+            options: [
               { value: 'SUMMARY', label: 'Resumen' },
               { value: 'ACCOUNTS', label: 'Cuentas' },
               { value: 'MOVEMENTS', label: 'Movimientos' },
               { value: 'REFUNDS', label: 'Devoluciones' },
-            ]}
-            className="w-fit"
-          />
-
-          {error && (
-            <AdminFeedbackBanner tone="error" compact>
-              {error}
-            </AdminFeedbackBanner>
-          )}
-
-          <section ref={paymentsContentScrollRef} className="min-h-0 flex-1 overflow-auto">
+            ],
+          }}
+          notice={
+            error ? (
+              <AdminFeedbackBanner tone="error" compact>
+                {error}
+              </AdminFeedbackBanner>
+            ) : null
+          }
+        >
             {loading && (activeTab === 'ACCOUNTS' || activeTab === 'REFUNDS') ? (
               <div className="h-full grid place-items-center">
                 <div className="inline-flex items-center gap-2 text-[13px] text-p-text-muted">
@@ -2284,85 +2254,43 @@ export default function AdminPaymentsPlaygroundPage() {
               <div className="space-y-4">
                 {/* Qué mirar, buscar y crear: una sola fila. */}
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-                    {([
+                  <AdminSegmentedControl
+                    variant="filter"
+                    ariaLabel="Filtrar"
+                    value={accountsFilter}
+                    onChange={(value) => setAccountsFilter(value as AccountsFilter)}
+                    options={([
                       { id: 'DEBT', label: 'Por cobrar' },
                       { id: 'PAID', label: 'Pagadas' },
                       { id: 'ALL', label: 'Todas' },
-                    ] as Array<{ id: AccountsFilter; label: string }>).map((option) => (
-                      <button
-                        key={`accounts-filter-${option.id}`}
-                        type="button"
-                        aria-pressed={accountsFilter === option.id}
-                        onClick={() => setAccountsFilter(option.id)}
-                        className={`h-9 rounded-lg px-3.5 text-[13px] font-semibold transition ${
-                          accountsFilter === option.id
-                            ? 'bg-ink-900 text-ink-50'
-                            : 'text-p-text-secondary hover:bg-p-surface-2'
-                        }`}
-                      >
-                        {option.label}
-                        {option.id === 'DEBT' && accountsDebtSummary.count > 0 ? ` (${accountsDebtSummary.count})` : ''}
-                      </button>
-                    ))}
-                  </div>
+                    ] as Array<{ id: AccountsFilter; label: string }>).map((option) => ({ value: option.id, label: option.label, count: option.id === 'DEBT' ? accountsDebtSummary.count : null, alert: option.id === 'DEBT' }))}
+                  />
 
                   {accountsFilter !== 'DEBT' && (
-                    <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-                      {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
-                        <button
-                          key={`accounts-${period}`}
-                          type="button"
-                          onClick={() => {
-                            setCashActivePeriod(period);
-                            setCashPeriodOffset(0);
-                          }}
-                          className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold transition ${
-                            cashActivePeriod === period
-                              ? 'bg-p-surface-3 text-p-text'
-                              : 'text-p-text-muted hover:text-p-text-secondary'
-                          }`}
-                        >
-                          {period === 'hoy' ? 'Día' : period === 'semana' ? 'Semana' : 'Mes'}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        aria-label="Período anterior"
-                        onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
-                      >
-                        <ChevronLeft size={15} />
-                      </button>
-                      <span className="min-w-[96px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
-                      <button
-                        type="button"
-                        aria-label="Período siguiente"
-                        onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
-                        disabled={cashPeriodOffset === 0}
-                        className="grid h-7 w-7 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40 disabled:hover:bg-transparent"
-                      >
-                        <ChevronRight size={15} />
-                      </button>
-                    </div>
+                    <CashPeriodPicker
+                      period={cashActivePeriod}
+                      label={cashPeriodLabel}
+                      offset={cashPeriodOffset}
+                      onPeriod={(period) => {
+                        setCashActivePeriod(period);
+                        setCashPeriodOffset(0);
+                      }}
+                      onOffset={setCashPeriodOffset}
+                    />
                   )}
 
-                  <label className="relative min-w-[200px] flex-1 sm:max-w-[320px]">
-                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                    <input
-                      type="text"
-                      value={accountsSearchTerm}
-                      onChange={(event) => setAccountsSearchTerm(event.target.value)}
-                      placeholder="Buscar cliente o cancha"
-                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-                    />
-                  </label>
+                  <AdminSearchInput
+                    value={accountsSearchTerm}
+                    onChange={(value) => setAccountsSearchTerm(value)}
+                    placeholder="Buscar cliente o cancha"
+                    wrapperClassName="min-w-[200px] flex-1 sm:max-w-[320px]"
+                  />
 
                   <button
                     type="button"
                     onClick={() => void handleQuickOpenAccount()}
                     disabled={openingAccount}
-                    className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3.5 text-[13px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-60"
+                    className={`${adminButton('secondary', 'lg')} ml-auto gap-1.5`}
                   >
                     <Plus size={15} strokeWidth={2.5} />
                     {openingAccount ? 'Creando...' : 'Cuenta suelta'}
@@ -2471,48 +2399,16 @@ export default function AdminPaymentsPlaygroundPage() {
                         navigateToPaymentsTab('ACCOUNTS');
                       }}
                     />
-                    <div className="w-full rounded-2xl border border-p-border bg-p-surface p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface-2 p-1">
-                          {(['hoy', 'semana', 'mes'] as CashPeriod[]).map((period) => (
-                            <button
-                              key={period}
-                              type="button"
-                              onClick={() => {
-                                setCashActivePeriod(period);
-                                setCashPeriodOffset(0);
-                              }}
-                              className={`rounded-lg px-3 py-1.5 text-[12px] font-semibold transition ${
-                                cashActivePeriod === period
-                                  ? 'bg-p-surface text-p-accent shadow-sm'
-                                  : 'text-p-text-muted hover:text-p-text-secondary'
-                              }`}
-                            >
-                              {period === 'hoy' ? 'Hoy' : period === 'semana' ? 'Semana' : 'Mes'}
-                            </button>
-                          ))}
-                        </div>
-
-                        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface px-1 py-1">
-                          <button
-                            type="button"
-                            onClick={() => setCashPeriodOffset((prev) => prev - 1)}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2"
-                          >
-                            <ChevronLeft size={16} />
-                          </button>
-                          <span className="min-w-[120px] text-center text-[12px] font-semibold text-p-text-secondary">{cashPeriodLabel}</span>
-                          <button
-                            type="button"
-                            onClick={() => setCashPeriodOffset((prev) => Math.min(0, prev + 1))}
-                            disabled={cashPeriodOffset === 0}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted transition hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:text-p-text-muted disabled:hover:bg-transparent"
-                          >
-                            <ChevronRight size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                    <CashPeriodPicker
+                      period={cashActivePeriod}
+                      label={cashPeriodLabel}
+                      offset={cashPeriodOffset}
+                      onPeriod={(period) => {
+                        setCashActivePeriod(period);
+                        setCashPeriodOffset(0);
+                      }}
+                      onOffset={setCashPeriodOffset}
+                    />
 
                     <CashSummaryCards
                       balance={cashBalance}
@@ -2549,60 +2445,40 @@ export default function AdminPaymentsPlaygroundPage() {
                         }}
                         onOffset={setCashPeriodOffset}
                       />
-                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-                        {([
+                      <AdminSegmentedControl
+                        variant="filter"
+                        ariaLabel="Filtrar"
+                        value={cashTypeFilter}
+                        onChange={(value) => setCashTypeFilter(value as MovementTypeFilter)}
+                        options={([
                           { id: 'ALL', label: 'Todo' },
                           { id: 'INCOME', label: 'Entradas' },
                           { id: 'EXPENSE', label: 'Salidas' },
-                        ] as Array<{ id: MovementTypeFilter; label: string }>).map((option) => (
-                          <button
-                            key={`movement-type-${option.id}`}
-                            type="button"
-                            aria-pressed={cashTypeFilter === option.id}
-                            onClick={() => setCashTypeFilter(option.id)}
-                            className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold transition ${
-                              cashTypeFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-                        {([
+                        ] as Array<{ id: MovementTypeFilter; label: string }>).map((option) => ({ value: option.id, label: option.label }))}
+                      />
+                      <AdminSegmentedControl
+                        variant="filter"
+                        ariaLabel="Filtrar"
+                        value={cashMethodFilter}
+                        onChange={(value) => setCashMethodFilter(value as MovementMethodFilter)}
+                        options={([
                           { id: 'ALL', label: 'Todos' },
                           { id: 'CASH', label: 'Efectivo' },
                           { id: 'TRANSFER', label: 'Transferencia' },
                           { id: 'CARD', label: 'Tarjeta' },
-                        ] as Array<{ id: MovementMethodFilter; label: string }>).map((option) => (
-                          <button
-                            key={`movement-method-${option.id}`}
-                            type="button"
-                            aria-pressed={cashMethodFilter === option.id}
-                            onClick={() => setCashMethodFilter(option.id)}
-                            className={`h-7 whitespace-nowrap rounded-lg px-2.5 text-[12px] font-semibold transition ${
-                              cashMethodFilter === option.id ? 'bg-p-surface-3 text-p-text' : 'text-p-text-muted hover:text-p-text-secondary'
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                      <label className="relative min-w-[180px] flex-1 sm:max-w-[260px]">
-                        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                        <input
-                          type="text"
-                          value={cashSearchTerm}
-                          onChange={(event) => setCashSearchTerm(event.target.value)}
-                          placeholder="Buscar"
-                          className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-                        />
-                      </label>
+                        ] as Array<{ id: MovementMethodFilter; label: string }>).map((option) => ({ value: option.id, label: option.label }))}
+                      />
+                      <AdminSearchInput
+                        value={cashSearchTerm}
+                        onChange={(value) => setCashSearchTerm(value)}
+                        placeholder="Buscar"
+                        wrapperClassName="min-w-[180px] flex-1 sm:max-w-[260px]"
+                      />
                       <div className="flex w-full items-center gap-2 sm:ml-auto sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
                         <button
                           type="button"
                           onClick={() => setCashSidebarView('product_sale')}
-                          className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3.5 text-[13px] font-semibold text-p-text hover:bg-p-surface-2"
+                          className={adminButton('secondary', 'lg')}
                         >
                           <Plus size={15} strokeWidth={2.5} />
                           Venta mostrador
@@ -2610,7 +2486,7 @@ export default function AdminPaymentsPlaygroundPage() {
                         <button
                           type="button"
                           onClick={() => setCashSidebarView('movement_create')}
-                          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+                          className={adminButton('primary', 'lg')}
                         >
                           <Plus size={15} strokeWidth={2.5} />
                           Ingreso o egreso
@@ -2674,25 +2550,17 @@ export default function AdminPaymentsPlaygroundPage() {
             ) : (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-                    {([
+                  <AdminSegmentedControl
+                    variant="filter"
+                    ariaLabel="Filtrar"
+                    value={refundStageFilter}
+                    onChange={(value) => setRefundStageFilter(value as 'ALL' | 'TODO' | 'DONE')}
+                    options={([
                       { id: 'ALL', label: 'Todas' },
-                      { id: 'TODO', label: refundsTodo.count > 0 ? `Por hacer (${refundsTodo.count})` : 'Por hacer' },
+                      { id: 'TODO', label: 'Por hacer' },
                       { id: 'DONE', label: 'Devueltas' },
-                    ] as Array<{ id: 'ALL' | 'TODO' | 'DONE'; label: string }>).map((option) => (
-                      <button
-                        key={`refund-stage-${option.id}`}
-                        type="button"
-                        aria-pressed={refundStageFilter === option.id}
-                        onClick={() => setRefundStageFilter(option.id)}
-                        className={`h-9 rounded-lg px-3.5 text-[13px] font-semibold transition ${
-                          refundStageFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
+                    ] as Array<{ id: 'ALL' | 'TODO' | 'DONE'; label: string }>).map((option) => ({ value: option.id, label: option.label, count: option.id === 'TODO' ? refundsTodo.count : null, alert: option.id === 'TODO' }))}
+                  />
                   {refundStageFilter !== 'TODO' && (
                     <CashPeriodPicker
                       period={cashActivePeriod}
@@ -2705,20 +2573,16 @@ export default function AdminPaymentsPlaygroundPage() {
                       onOffset={setCashPeriodOffset}
                     />
                   )}
-                  <label className="relative min-w-[180px] flex-1 sm:max-w-[280px]">
-                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                    <input
-                      type="text"
-                      value={refundSearchTerm}
-                      onChange={(event) => setRefundSearchTerm(event.target.value)}
-                      placeholder="Buscar cliente o motivo"
-                      className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-                    />
-                  </label>
+                  <AdminSearchInput
+                    value={refundSearchTerm}
+                    onChange={(value) => setRefundSearchTerm(value)}
+                    placeholder="Buscar cliente o motivo"
+                    wrapperClassName="min-w-[180px] flex-1 sm:max-w-[280px]"
+                  />
                   <button
                     type="button"
                     onClick={openRefundRequestSelector}
-                    className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+                    className={`${adminButton('primary', 'lg')} ml-auto gap-1.5`}
                   >
                     <Plus size={15} strokeWidth={2.5} />
                     Devolver plata
@@ -2808,8 +2672,11 @@ export default function AdminPaymentsPlaygroundPage() {
                                     event.stopPropagation();
                                     openRefundActionConfirm(refund, actions[0].action);
                                   }}
-                                  onKeyDown={(event) => event.stopPropagation()}
-                                  className="h-9 rounded-lg bg-ink-900 px-3.5 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+                                  onKeyDown={(event) => {
+                  // Solo Enter/Espacio: que no seleccionen la fila. Escape tiene que llegar al drawer.
+                  if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                }}
+                                  className={adminButton('primary')}
                                 >
                                   {actions[0].action === 'approve'
                                     ? 'Aprobar'
@@ -2829,9 +2696,7 @@ export default function AdminPaymentsPlaygroundPage() {
                 )}
               </div>
             )}
-          </section>
-
-        </div>
+        </AdminPage>
       </AdminPlaygroundShell>
 
       <AccountDrawer
@@ -2879,18 +2744,16 @@ export default function AdminPaymentsPlaygroundPage() {
               type="button"
               onClick={closeRefundRequestDrawer}
               disabled={submittingRefundRequest}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2 disabled:opacity-60"
+              className={adminButton('secondary', 'lg')}
             >
-              <X size={14} />
               Cancelar
             </button>
             <button
               type="button"
               onClick={() => void submitRefundRequest()}
               disabled={submittingRefundRequest || !refundRequestAmountIsValid}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900 disabled:opacity-60"
+              className={adminButton('primary', 'lg')}
             >
-              <Check size={14} />
               {submittingRefundRequest
                 ? 'Procesando...'
                 : refundRequestExecuteNow
@@ -2900,7 +2763,7 @@ export default function AdminPaymentsPlaygroundPage() {
           </div>
         }
       >
-        <AdminDrawerSection title="Cuenta" className={drawerSectionCardClass}>
+        <AdminDrawerSection title="Cuenta">
           <div className="space-y-3">
             {refundRequestAccountLocked && refundRequestAccount ? (
               <div className="rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
@@ -2953,7 +2816,7 @@ export default function AdminPaymentsPlaygroundPage() {
           </div>
         </AdminDrawerSection>
 
-        <AdminDrawerSection title="Pago a devolver" className={drawerSectionCardClass}>
+        <AdminDrawerSection title="Pago a devolver">
           <div className="space-y-2">
             {Boolean(refundRequestAccountId && loadingRefundsByAccountId[refundRequestAccountId]) && (
               <div className="rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[12px] font-semibold text-p-accent">
@@ -3006,7 +2869,7 @@ export default function AdminPaymentsPlaygroundPage() {
           </div>
         </AdminDrawerSection>
 
-        <AdminDrawerSection title="Datos de la devolución" className={drawerSectionCardClass}>
+        <AdminDrawerSection title="Datos de la devolución">
           <div className="space-y-3">
             <label className="block">
               <span className="text-[12px] font-medium text-p-text-secondary">Monto a devolver</span>
@@ -3300,9 +3163,8 @@ export default function AdminPaymentsPlaygroundPage() {
             <button
               type="button"
               onClick={closeActionSidebar}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+              className={adminButton('secondary', 'lg')}
             >
-              <X size={14} />
               {cashSidebarView === 'close_report' ? 'Cerrar' : 'Cancelar'}
             </button>
 
@@ -3311,9 +3173,8 @@ export default function AdminPaymentsPlaygroundPage() {
                 type="submit"
                 form="cash-open-shift-form"
                 disabled={openingCashShift}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+                className={adminButton('primary', 'lg')}
               >
-                <Landmark size={14} />
                 {openingCashShift ? 'Abriendo...' : 'Abrir caja'}
               </button>
             )}
@@ -3323,9 +3184,8 @@ export default function AdminPaymentsPlaygroundPage() {
                 type="submit"
                 form="cash-close-shift-form"
                 disabled={closingCashShift || !cashCurrentShift}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+                className={adminButton('primary', 'lg')}
               >
-                <Check size={14} />
                 {closingCashShift ? 'Cerrando...' : 'Cerrar caja'}
               </button>
             )}
@@ -3335,9 +3195,8 @@ export default function AdminPaymentsPlaygroundPage() {
                 type="submit"
                 form="cash-new-movement-form"
                 disabled={submittingCashMovement || !cashCurrentShift}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+                className={adminButton('primary', 'lg')}
               >
-                <Plus size={14} />
                 {submittingCashMovement ? 'Guardando...' : cashNewMovement.type === 'EXPENSE' ? 'Anotar egreso' : 'Anotar ingreso'}
               </button>
             )}
@@ -3347,9 +3206,8 @@ export default function AdminPaymentsPlaygroundPage() {
                 type="button"
                 onClick={() => void handleCreatePosAccount()}
                 disabled={posSubmitting || !cashCurrentShift}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+                className={adminButton('primary', 'lg')}
               >
-                <CreditCard size={14} />
                 {posSubmitting ? 'Preparando...' : posQuote && posQuote.finalTotal > 0 ? `Cobrar ${formatMoney(posQuote.finalTotal)}` : 'Cobrar'}
               </button>
             )}
@@ -3358,7 +3216,7 @@ export default function AdminPaymentsPlaygroundPage() {
       >
         {cashSidebarView === 'open_shift' && (
           <form id="cash-open-shift-form" className="space-y-5" onSubmit={handleOpenShift}>
-            <AdminDrawerSection title="Caja" className={drawerSectionCardClass}>
+            <AdminDrawerSection title="Caja">
               <label className="block">
                 <span className="text-[12px] font-medium text-p-text-secondary">Caja registradora</span>
                 <select
@@ -3376,7 +3234,7 @@ export default function AdminPaymentsPlaygroundPage() {
               </label>
             </AdminDrawerSection>
 
-            <AdminDrawerSection title="Monto inicial" className={drawerSectionCardClass}>
+            <AdminDrawerSection title="Monto inicial">
               <label className="block">
                 <span className="text-[12px] font-medium text-p-text-secondary">Monto inicial</span>
                 <input
@@ -3497,11 +3355,7 @@ export default function AdminPaymentsPlaygroundPage() {
                     type="button"
                     aria-pressed={cashNewMovement.description === concept}
                     onClick={() => setCashNewMovement((prev) => ({ ...prev, description: concept }))}
-                    className={`h-8 rounded-lg px-3 text-[12px] font-semibold ${
-                      cashNewMovement.description === concept
-                        ? 'bg-ink-900 text-ink-50'
-                        : 'bg-p-surface-2 text-p-text-secondary hover:brightness-95'
-                    }`}
+                    className={adminChip(cashNewMovement.description === concept, 'sm')}
                   >
                     {concept}
                   </button>
@@ -3544,11 +3398,7 @@ export default function AdminPaymentsPlaygroundPage() {
                     type="button"
                     aria-pressed={cashNewMovement.method === option.id}
                     onClick={() => setCashNewMovement((prev) => ({ ...prev, method: option.id }))}
-                    className={`h-9 rounded-lg text-[12px] font-semibold ${
-                      cashNewMovement.method === option.id
-                        ? 'bg-ink-900 text-ink-50'
-                        : 'border border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                    }`}
+                    className={`${adminChip(cashNewMovement.method === option.id)} !px-0`}
                   >
                     {option.label}
                   </button>
@@ -3591,64 +3441,44 @@ export default function AdminPaymentsPlaygroundPage() {
             )}
 
             {/* Cliente opcional */}
-            <AdminDrawerSection title="Cliente" className={drawerSectionCardClass}>
+            <AdminDrawerSection title="Cliente">
               {posSelectedClient ? (
-                <div className="flex items-center justify-between gap-2 rounded-xl border border-p-border bg-p-surface px-3 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-semibold text-p-text">
-                      {posSelectedClient.name || posSelectedClient.id}
-                    </p>
-                    {(posSelectedClient.phone || posSelectedClient.email) && (
-                      <p className="truncate text-[11px] text-p-text-muted">
-                        {posSelectedClient.phone || posSelectedClient.email}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handlePosClearClient}
-                    disabled={posSubmitting}
-                    title="Limpiar — volver a Consumidor final"
-                    className="shrink-0 flex h-7 w-7 items-center justify-center rounded-lg border border-p-border bg-p-surface text-p-text-muted transition hover:bg-p-error-bg hover:text-p-error disabled:opacity-60"
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
+                <AdminSelectedPerson
+                  name={posSelectedClient.name || String(posSelectedClient.id)}
+                  detail={posSelectedClient.phone || posSelectedClient.email || undefined}
+                  changeLabel="Quitar"
+                  onChange={handlePosClearClient}
+                  disabled={posSubmitting}
+                />
               ) : (
                 <div className="relative" ref={posClientWrapperRef}>
-                  <Search size={13} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                  <input
-                    type="text"
+                  <AdminSearchInput
                     value={posClientSearch}
-                    onChange={handlePosClientSearchChange}
+                    onChange={(value) =>
+                      handlePosClientSearchChange({ target: { value } } as React.ChangeEvent<HTMLInputElement>)
+                    }
                     onFocus={() => posClientResults.length > 0 && setPosClientDropdownOpen(true)}
                     disabled={posSubmitting}
-                    placeholder="Buscar por nombre o teléfono… (opcional)"
-                    className="h-9 w-full rounded-xl border border-p-border bg-p-surface pl-8 pr-3 text-[13px] text-p-text outline-none focus:border-p-accent disabled:opacity-60"
+                    placeholder="Buscá por nombre o teléfono (opcional)"
+                    aria-label="Buscar cliente"
                   />
                   {posClientDropdownOpen && posClientResults.length > 0 && (
-                    <div
-                      className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-y-auto rounded-xl border border-p-border bg-p-surface shadow-lg"
+                    <AdminPersonList
+                      variant="floating"
+                      count={posClientResults.length}
+                      className="absolute left-0 right-0 top-full mt-1"
                       style={{ zIndex: ADMIN_Z_INDEX.dropdown }}
+                      maxHeight={208}
                     >
                       {posClientResults.map((client) => (
-                        <button
+                        <AdminPersonOption
                           key={client.id}
-                          type="button"
+                          name={client.name || String(client.id)}
+                          detail={client.phone || client.email || undefined}
                           onClick={() => handlePosSelectClient(client)}
-                          className="flex w-full flex-col px-3 py-2.5 text-left transition hover:bg-p-surface-2 first:rounded-t-xl last:rounded-b-xl"
-                        >
-                          <span className="text-[12px] font-semibold text-p-text">
-                            {client.name || client.id}
-                          </span>
-                          {(client.phone || client.email) && (
-                            <span className="text-[11px] text-p-text-muted">
-                              {client.phone || client.email}
-                            </span>
-                          )}
-                        </button>
+                        />
                       ))}
-                    </div>
+                    </AdminPersonList>
                   )}
                 </div>
               )}
@@ -3658,7 +3488,7 @@ export default function AdminPaymentsPlaygroundPage() {
             </AdminDrawerSection>
 
             {/* Productos y servicios: tocar suma uno */}
-            <AdminDrawerSection title="¿Qué lleva?" className={drawerSectionCardClass}>
+            <AdminDrawerSection title="¿Qué lleva?">
               {(() => {
                 const qtyOf = (key: string) =>
                   posItems.filter((i) => i.productId === key).reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);

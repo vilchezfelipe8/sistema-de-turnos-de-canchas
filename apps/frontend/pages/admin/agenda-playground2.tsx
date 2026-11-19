@@ -1,12 +1,17 @@
 import Head from 'next/head';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type SetStateAction } from 'react';
 import { createPortal } from 'react-dom';
+import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { useRouter } from 'next/router';
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Clock3, MoreVertical, Pencil, Plus, Repeat, Search, User, Users, Settings, X, BarChart3, Trophy, MessageSquare, ShoppingBag, FileText, GraduationCap, Lock, Minus, Trash2 } from 'lucide-react';
 import NotFound from '../../components/NotFound';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
 import AdminPlaygroundShell from '../../components/admin/AdminPlaygroundShell';
 import AdminDrawer, { AdminDrawerSection } from '../../components/admin/ui/AdminDrawer';
+import AdminMenu, { AdminMenuDivider, AdminMenuItem } from '../../components/admin/ui/AdminMenu';
+import { AdminPersonCreateOption, AdminPersonList, AdminPersonOption, AdminSearchInput } from '../../components/admin/ui/AdminPersonPicker';
+import AdminOverlay from '../../components/admin/ui/AdminOverlay';
+import { modalCloseButtonCls, modalHeaderCls, modalPanelScrollCls, modalTitleCls } from '../../components/admin/ui/adminModalStyles';
 import AgendaBookingBlock from '../../components/admin/agenda/AgendaBookingBlock';
 import AgendaMobileGrid from '../../components/admin/agenda/AgendaMobileGrid';
 import AgendaSelectionPreview from '../../components/admin/agenda/AgendaSelectionPreview';
@@ -150,7 +155,6 @@ import AccountDrawer, {
 import { listAccounts } from '../../services/AccountService';
 import { useValidateAuth } from '../../hooks/useValidateAuth';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
-import { ADMIN_Z_INDEX_CLASS } from '../../utils/adminZIndex';
 import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
 import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
@@ -160,6 +164,8 @@ import { normalizeApiError } from '../../utils/apiError';
 import { resolveBookingErrorBehavior } from '../../utils/bookingErrorMap';
 import BookingDrawerShell from '../../modules/admin/bookingDrawer/components/BookingDrawerShell';
 import { bookingDrawerReducer, initialBookingDrawerState } from '../../modules/admin/bookingDrawer/reducer';
+import { adminButton } from '../../components/admin/ui/adminButton';
+import { adminChip } from '../../components/admin/ui/adminChip';
 
 const MAX_MANUAL_PARTICIPANT_PRICE = 100000;
 const DRAWER_CLOSE_RESET_DELAY_MS = 320;
@@ -1348,7 +1354,6 @@ function AdminAgendaPlaygroundPage() {
   const pendingBookingPointerRef = useRef<PendingBookingPointer | null>(null);
   const lastValidDropPreviewRef = useRef<BookingDropPreview | null>(null);
   const dragGrabOffsetSlotsRef = useRef<number>(0);
-  const modalBackdropPressedRef = useRef(false);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedCourtId, setSelectedCourtId] = useState<string>('');
@@ -1422,22 +1427,6 @@ function AdminAgendaPlaygroundPage() {
     setSimplifiedScheduleEditorOpen(false);
     setSimplifiedMoreActionsOpen(false);
   }, [editingBookingId, drawerOpen]);
-  useEffect(() => {
-    if (!simplifiedMoreActionsOpen) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (simplifiedMoreActionsRef.current?.contains(event.target as Node)) return;
-      setSimplifiedMoreActionsOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSimplifiedMoreActionsOpen(false);
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [simplifiedMoreActionsOpen]);
   const [editingBaseline, setEditingBaseline] = useState<EditingBaseline | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState('');
@@ -1491,17 +1480,6 @@ function AdminAgendaPlaygroundPage() {
     courtsCount: number;
   } | null>(null);
   const isRecurringKind = bookingKind === 'recurringV2';
-  const handleModalBackdropPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    modalBackdropPressedRef.current = event.target === event.currentTarget;
-  }, []);
-  const handleModalBackdropPointerUp = useCallback((
-    event: React.PointerEvent<HTMLDivElement>,
-    onClose: () => void
-  ) => {
-    const shouldClose = modalBackdropPressedRef.current && event.target === event.currentTarget;
-    modalBackdropPressedRef.current = false;
-    if (shouldClose) onClose();
-  }, []);
   const moveDate = useCallback((days: number) => {
     if (!Number.isFinite(days) || days === 0) return;
     setSelectedDate((previous) => {
@@ -6292,7 +6270,7 @@ function AdminAgendaPlaygroundPage() {
       left: Math.round(rect.left),
       width: Math.round(rect.width),
       maxHeight: Math.round(simplifiedOwnerSuggestionsPlacement.maxHeight),
-      zIndex: 90,
+      zIndex: ADMIN_Z_INDEX.drawerPopover,
     };
   })();
   const simplifiedNewParticipantSuggestionsFloatingStyle = (() => {
@@ -6315,7 +6293,7 @@ function AdminAgendaPlaygroundPage() {
       left: Math.round(rect.left),
       width: Math.round(rect.width),
       maxHeight: Math.round(simplifiedNewParticipantSuggestionsPlacement.maxHeight),
-      zIndex: 90,
+      zIndex: ADMIN_Z_INDEX.drawerPopover,
     };
   })();
   const simplifiedPaymentStatusLabel = isFinancialDisplayPending
@@ -7349,24 +7327,15 @@ function AdminAgendaPlaygroundPage() {
               />
             )}
 
-            {customRecurrenceModalOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => setCustomRecurrenceModalOpen(false))
-                }
-              >
-                <div
-                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[25px] font-bold tracking-[-0.01em] text-p-text">Frecuencia personalizada</h3>
+            <AdminOverlay open={Boolean(customRecurrenceModalOpen)} onClose={() => setCustomRecurrenceModalOpen(false)}>
+              {customRecurrenceModalOpen ? (
+                <div role="dialog" aria-modal="true" className={`${modalPanelScrollCls} sm:max-w-[560px]`}>
+                  <div className={modalHeaderCls}>
+                    <h3 className={modalTitleCls}>Frecuencia personalizada</h3>
                     <button
                       type="button"
                       onClick={() => setCustomRecurrenceModalOpen(false)}
-                      className="h-8 w-8 rounded-full border border-p-border grid place-items-center text-p-text-muted hover:bg-p-surface-2"
+                      className={modalCloseButtonCls}
                     >
                       <X size={15} />
                     </button>
@@ -7397,11 +7366,7 @@ function AdminAgendaPlaygroundPage() {
                               return Array.from(set);
                             })
                           }
-                          className={`h-9 rounded-xl border px-3 text-[13px] font-semibold ${
-                            weekdaysActive
-                              ? 'border-p-accent bg-ink-900 text-ink-50'
-                              : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                          }`}
+                          className={adminChip(weekdaysActive)}
                         >
                           Días hábiles
                         </button>
@@ -7420,11 +7385,7 @@ function AdminAgendaPlaygroundPage() {
                               return Array.from(set);
                             })
                           }
-                          className={`h-9 rounded-xl border px-3 text-[13px] font-semibold ${
-                            weekendsActive
-                              ? 'border-p-accent bg-ink-900 text-ink-50'
-                              : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                          }`}
+                          className={adminChip(weekendsActive)}
                         >
                           Fines de semana
                         </button>
@@ -7446,11 +7407,7 @@ function AdminAgendaPlaygroundPage() {
                                   return [...previous, day.value];
                                 });
                               }}
-                              className={`h-9 min-w-[44px] rounded-xl border px-3 text-[13px] font-semibold ${
-                                active
-                                  ? 'border-p-accent bg-ink-900 text-ink-50'
-                                  : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                              }`}
+                              className={`${adminChip(active)} min-w-[44px]`}
                             >
                               {day.short}
                             </button>
@@ -7536,41 +7493,31 @@ function AdminAgendaPlaygroundPage() {
                           setFormError('');
                           setCustomRecurrenceModalOpen(false);
                         }}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-ink-50 text-sm font-bold hover:bg-ink-900"
+                        className={adminButton('primary', 'lg')}
                       >
-                        <Check size={14} />
                         Confirmar
                       </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </AdminOverlay>
 
-            {recurringCreateConfirmOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => {
+            <AdminOverlay open={Boolean(recurringCreateConfirmOpen)} onClose={() => {
                     setRecurringCreateConfirmOpen(false);
                     setRecurringPreviewSummary(null);
-                  })
-                }
-              >
-                <div
-                  className="w-full max-w-[560px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-text">Confirmar creación de serie</h3>
+                  }}>
+              {recurringCreateConfirmOpen ? (
+                <div role="dialog" aria-modal="true" className={`${modalPanelScrollCls} sm:max-w-[560px]`}>
+                  <div className={modalHeaderCls}>
+                    <h3 className={modalTitleCls}>Confirmar creación de serie</h3>
                     <button
                       type="button"
                       onClick={() => {
                         setRecurringCreateConfirmOpen(false);
                         setRecurringPreviewSummary(null);
                       }}
-                      className="h-8 w-8 rounded-full border border-p-border grid place-items-center text-p-text-muted hover:bg-p-surface-2"
+                      className={modalCloseButtonCls}
                     >
                       <X size={15} />
                     </button>
@@ -7628,9 +7575,8 @@ function AdminAgendaPlaygroundPage() {
                           setRecurringCreateConfirmOpen(false);
                           setRecurringPreviewSummary(null);
                         }}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                        className={adminButton('secondary', 'lg')}
                       >
-                        <X size={14} />
                         Cancelar
                       </button>
                       <button
@@ -7639,30 +7585,21 @@ function AdminAgendaPlaygroundPage() {
                           setRecurringCreateConfirmOpen(false);
                           void handleCreateBooking(true);
                         }}
-                        className="h-10 rounded-xl bg-ink-900 px-5 text-ink-50 text-sm font-bold hover:bg-ink-900"
+                        className={adminButton('primary', 'lg')}
                       >
                         {recurringOverlapItems.length > 0 ? 'Crear serie igualmente' : 'Crear serie'}
                       </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </AdminOverlay>
 
-            {recurringOverlapModalOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, closeRecurringResultModal)
-                }
-              >
-                <div
-                  className="w-full max-w-[680px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-text">
+            <AdminOverlay open={Boolean(recurringOverlapModalOpen)} onClose={closeRecurringResultModal}>
+              {recurringOverlapModalOpen ? (
+                <div role="dialog" aria-modal="true" className={`${modalPanelScrollCls} sm:max-w-[680px]`}>
+                  <div className={modalHeaderCls}>
+                    <h3 className={modalTitleCls}>
                       {(recurringResult?.generatedCount ?? 0) === 0
                         ? 'No se pudo crear la serie'
                         : (recurringResult?.skippedCount ?? 0) > 0
@@ -7672,7 +7609,7 @@ function AdminAgendaPlaygroundPage() {
                     <button
                       type="button"
                       onClick={closeRecurringResultModal}
-                      className="h-8 w-8 rounded-full border border-p-border grid place-items-center text-p-text-muted hover:bg-p-surface-2"
+                      className={modalCloseButtonCls}
                     >
                       <X size={15} />
                     </button>
@@ -7751,36 +7688,26 @@ function AdminAgendaPlaygroundPage() {
                       <button
                         type="button"
                         onClick={closeRecurringResultModal}
-                        className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-ink-50 text-sm font-bold hover:bg-ink-900"
+                        className={adminButton('primary', 'lg')}
                       >
-                        <Check size={14} />
                         Entendido
                       </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </AdminOverlay>
 
-            {editSeriesScopeModalOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => {
+            <AdminOverlay open={Boolean(editSeriesScopeModalOpen)} onClose={() => {
                     if (isSubmittingBooking) return;
                     setEditSeriesScopeModalOpen(false);
                     setSeriesEditPreviewScope(null);
                     setSeriesEditPreviewSummary(null);
-                  })
-                }
-              >
-                <div
-                  className="w-full max-w-[640px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-text">Editar serie</h3>
+                  }}>
+              {editSeriesScopeModalOpen ? (
+                <div role="dialog" aria-modal="true" className={`${modalPanelScrollCls} sm:max-w-[640px]`}>
+                  <div className={modalHeaderCls}>
+                    <h3 className={modalTitleCls}>Editar serie</h3>
                     <button
                       type="button"
                       onClick={() => {
@@ -7903,7 +7830,7 @@ function AdminAgendaPlaygroundPage() {
                               setSeriesEditPreviewSummary(null);
                             }}
                             disabled={isSubmittingBooking}
-                            className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                            className={adminButton('secondary', 'lg')}
                           >
                             Cambiar alcance
                           </button>
@@ -7911,7 +7838,7 @@ function AdminAgendaPlaygroundPage() {
                             type="button"
                             onClick={() => void handleCreateBooking(false, seriesEditPreviewSummary?.scope || seriesEditPreviewScope)}
                             disabled={isSubmittingBooking || pendingSeriesScopeSave !== null || !seriesEditPreviewSummary}
-                            className="h-10 rounded-xl bg-ink-900 px-5 text-ink-50 text-sm font-bold hover:bg-ink-900 disabled:opacity-50"
+                            className={adminButton('primary', 'lg')}
                           >
                             Guardar cambios de serie
                           </button>
@@ -7927,29 +7854,20 @@ function AdminAgendaPlaygroundPage() {
                     )}
                   </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </AdminOverlay>
 
-            {deleteSeriesScopeModalOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => {
+            <AdminOverlay open={Boolean(deleteSeriesScopeModalOpen)} onClose={() => {
                     if (isDeletingBooking) return;
                     setDeleteSeriesScopeModalOpen(false);
                     setSeriesDeletePreviewScope(null);
                     setSeriesDeletePreviewSummary(null);
-                  })
-                }
-              >
-                <div
-                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
+                  }}>
+              {deleteSeriesScopeModalOpen ? (
+                <div role="dialog" aria-modal="true" className={`${modalPanelScrollCls} sm:max-w-[460px]`}>
                   <div className="flex items-start justify-between gap-3 px-5 pt-5">
                     <div className="min-w-0">
-                      <h3 className="text-[20px] font-bold tracking-[-0.01em] text-p-text">Cancelar reserva fija</h3>
+                      <h3 className={modalTitleCls}>Cancelar reserva fija</h3>
                       <p className="mt-1 text-[14px] text-p-text-secondary">
                         <span className="font-semibold text-p-text">{editingBooking?.title || 'Reserva'}</span>
                         {' · '}
@@ -8056,7 +7974,7 @@ function AdminAgendaPlaygroundPage() {
                         setSeriesDeletePreviewSummary(null);
                       }}
                       disabled={isDeletingBooking}
-                      className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+                      className={adminButton('secondary', 'lg')}
                     >
                       Volver
                     </button>
@@ -8111,27 +8029,18 @@ function AdminAgendaPlaygroundPage() {
                     </button>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </AdminOverlay>
 
-            {deleteBookingConfirmOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => {
+            <AdminOverlay open={Boolean(deleteBookingConfirmOpen)} onClose={() => {
                     if (!isDeletingBooking) closeDeleteBookingFlow();
-                  })
-                }
-              >
-                {/* Un solo paso: este modal ya es la confirmación. */}
-                <div
-                  className="w-full max-w-[460px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
+                  }}>
+              {/* Un solo paso: este modal ya es la confirmación. */}
+              {deleteBookingConfirmOpen ? (
+                <div role="dialog" aria-modal="true" className={`${modalPanelScrollCls} sm:max-w-[460px]`}>
                   <div className="flex items-start justify-between gap-3 px-5 pt-5">
                     <div className="min-w-0">
-                      <h3 className="text-[20px] font-bold tracking-[-0.01em] text-p-text">
+                      <h3 className={modalTitleCls}>
                         {isEditingCourtBlock ? 'Eliminar el bloqueo' : 'Cancelar la reserva'}
                       </h3>
                       <p className="mt-1 text-[14px] text-p-text-secondary">
@@ -8225,7 +8134,7 @@ function AdminAgendaPlaygroundPage() {
                       type="button"
                       onClick={closeDeleteBookingFlow}
                       disabled={isDeletingBooking}
-                      className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+                      className={adminButton('secondary', 'lg')}
                     >
                       Volver
                     </button>
@@ -8241,7 +8150,7 @@ function AdminAgendaPlaygroundPage() {
                         void handleDeleteBooking();
                       }}
                       disabled={isDeletingBooking || isBookingFinancialLoading}
-                      className="h-10 rounded-xl bg-p-error px-5 text-sm font-bold text-ink-50 hover:bg-p-error disabled:opacity-50"
+                      className={adminButton('danger', 'lg')}
                     >
                       {isDeletingBooking
                         ? isEditingCourtBlock
@@ -8255,27 +8164,18 @@ function AdminAgendaPlaygroundPage() {
                     </button>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </AdminOverlay>
 
-            {seriesOperationResultOpen && seriesOperationResult && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, closeSeriesOperationResult)
-                }
-              >
-                <div
-                  className="w-full max-w-[620px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-text">{seriesOperationResult.title}</h3>
+            <AdminOverlay open={Boolean(seriesOperationResultOpen && seriesOperationResult)} onClose={closeSeriesOperationResult}>
+              {seriesOperationResultOpen && seriesOperationResult ? (
+                <div role="dialog" aria-modal="true" className={`${modalPanelScrollCls} sm:max-w-[620px]`}>
+                  <div className={modalHeaderCls}>
+                    <h3 className={modalTitleCls}>{seriesOperationResult.title}</h3>
                     <button
                       type="button"
                       onClick={closeSeriesOperationResult}
-                      className="h-8 w-8 rounded-full border border-p-border grid place-items-center text-p-text-muted hover:bg-p-surface-2"
+                      className={modalCloseButtonCls}
                     >
                       <X size={15} />
                     </button>
@@ -8324,36 +8224,26 @@ function AdminAgendaPlaygroundPage() {
                       <button
                         type="button"
                         onClick={closeSeriesOperationResult}
-                        className="h-10 rounded-xl bg-ink-900 px-5 text-ink-50 text-sm font-bold hover:bg-ink-900"
+                        className={adminButton('primary', 'lg')}
                       >
                         Entendido
                       </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </AdminOverlay>
 
-            {deleteParticipantConfirm.open && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () =>
-                    setDeleteParticipantConfirm({ open: false, participantId: null, participantName: '' })
-                  )
-                }
-              >
-                <div
-                  className="w-full max-w-[500px] rounded-2xl border border-p-border bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <div className="flex items-center justify-between px-5 py-4 border-b border-p-border">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-text">Eliminar participante</h3>
+            <AdminOverlay open={Boolean(deleteParticipantConfirm.open)} onClose={() =>
+                    setDeleteParticipantConfirm({ open: false, participantId: null, participantName: '' })}>
+              {deleteParticipantConfirm.open ? (
+                <div role="dialog" aria-modal="true" className={`${modalPanelScrollCls} sm:max-w-[500px]`}>
+                  <div className={modalHeaderCls}>
+                    <h3 className={modalTitleCls}>Eliminar participante</h3>
                     <button
                       type="button"
                       onClick={() => setDeleteParticipantConfirm({ open: false, participantId: null, participantName: '' })}
-                      className="h-8 w-8 rounded-full border border-p-border grid place-items-center text-p-text-muted hover:bg-p-surface-2"
+                      className={modalCloseButtonCls}
                     >
                       <X size={15} />
                     </button>
@@ -8366,7 +8256,7 @@ function AdminAgendaPlaygroundPage() {
                       <button
                         type="button"
                         onClick={() => setDeleteParticipantConfirm({ open: false, participantId: null, participantName: '' })}
-                        className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                        className={adminButton('secondary', 'lg')}
                       >
                         Volver
                       </button>
@@ -8379,30 +8269,21 @@ function AdminAgendaPlaygroundPage() {
                           }
                           setDeleteParticipantConfirm({ open: false, participantId: null, participantName: '' });
                         }}
-                        className="h-10 rounded-xl bg-p-error px-5 text-ink-50 text-sm font-bold hover:bg-p-error"
+                        className={adminButton('danger', 'lg')}
                       >
                         Sí, eliminar
                       </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </AdminOverlay>
 
-            {blockingErrorModalOpen && (
-              <div
-                className={`fixed inset-0 ${ADMIN_Z_INDEX_CLASS.modal} bg-[var(--overlay)] flex items-end justify-center p-0 sm:items-center sm:p-4`}
-                onPointerDown={handleModalBackdropPointerDown}
-                onPointerUp={(event) =>
-                  handleModalBackdropPointerUp(event, () => setBlockingErrorModalOpen(false))
-                }
-              >
-                <div
-                  className="w-full max-w-[560px] rounded-2xl border border-p-error bg-p-surface shadow-2xl max-sm:max-h-[92dvh] max-sm:overflow-y-auto max-sm:rounded-b-none max-sm:rounded-t-3xl max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]"
-                  onClick={(event) => event.stopPropagation()}
-                >
+            <AdminOverlay open={Boolean(blockingErrorModalOpen)} onClose={() => setBlockingErrorModalOpen(false)}>
+              {blockingErrorModalOpen ? (
+                <div role="dialog" aria-modal="true" className={`${modalPanelScrollCls} sm:max-w-[560px]`}>
                   <div className="flex items-center justify-between px-5 py-4 border-b border-p-error">
-                    <h3 className="text-[23px] font-bold tracking-[-0.01em] text-p-error">No se puede continuar</h3>
+                    <h3 className="text-[17px] font-semibold tracking-[-0.01em] text-p-error">No se puede continuar</h3>
                     <button
                       type="button"
                       onClick={() => setBlockingErrorModalOpen(false)}
@@ -8422,59 +8303,35 @@ function AdminAgendaPlaygroundPage() {
                       <button
                         type="button"
                         onClick={() => setBlockingErrorModalOpen(false)}
-                        className="h-10 rounded-xl bg-ink-900 px-5 text-ink-50 text-sm font-bold hover:bg-ink-900"
+                        className={adminButton('primary', 'lg')}
                       >
                         Entendido
                       </button>
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
+              ) : null}
+            </AdminOverlay>
 
-            {drawerOpen && (
-              <button
-                type="button"
-                aria-label="Cerrar panel"
-                className="absolute inset-0 z-50 bg-[var(--overlay)]"
-                onClick={() => closeBookingDrawer({ clearFormError: false })}
-              />
-            )}
-
-            <aside
-              className={`absolute inset-y-0 right-0 z-[60] w-full ${editingBookingId ? 'md:max-w-[670px]' : 'md:max-w-[540px]'} border-l border-p-border bg-p-surface shadow-2xl transition-transform duration-300 ${
-                drawerOpen ? 'translate-x-0' : 'translate-x-full'
-              }`}
-            >
-              <div className="relative h-full w-full flex flex-col">
-                {isWaitingQueuedPaymentConfirmation && (
-                  <div className="absolute inset-0 z-50 bg-p-surface/65 backdrop-blur-[1px] flex items-center justify-center">
-                    <div className="rounded-2xl border border-p-border bg-p-surface px-5 py-4 shadow-xl text-center">
-                      <div className="mx-auto h-8 w-8 rounded-full border-2 border-p-accent border-t-p-accent animate-spin" />
-                      <p className="mt-3 text-[14px] font-semibold text-p-text">
-                        Confirmando pago...
-                      </p>
-                      <p className="mt-1 text-[12px] text-p-text-muted">
-                        Esperando confirmación del sistema.
-                      </p>
-                    </div>
-                  </div>
-                )}
-                <header className="border-b border-p-border px-4 py-3.5 lg:px-6 lg:py-5 flex items-start justify-between gap-3 lg:gap-4">
-                  <button
-                    type="button"
-                    onClick={() => closeBookingDrawer({ clearFormError: false })}
-                    aria-label="Volver al calendario"
-                    className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border border-p-border text-p-text-secondary hover:bg-p-surface-2 lg:hidden"
-                  >
-                    <ChevronLeft size={17} />
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-[18px] lg:text-[22px] font-semibold leading-snug tracking-tight text-p-text">
+            <AdminDrawer
+              open={drawerOpen}
+              onClose={() => closeBookingDrawer({ clearFormError: false })}
+              size={editingBookingId ? 'lg' : 'md'}
+              // Escape cierra primero lo que esté abierto adentro (búsquedas, menús); después el drawer.
+              closeOnEscape={
+                !simplifiedOwnerSuggestionsOpen &&
+                !simplifiedNewParticipantSuggestionsOpen &&
+                !simplifiedNewParticipantOpen &&
+                !participantSearchOpenId &&
+                !bookingKindMenuOpen &&
+                !recurringCourtsMenuOpen
+              }
+              title={
+                <span className="flex flex-wrap items-center gap-2">
+                  <span>
                         {/* Reserva existente: lo primero que se lee es de quién es. */}
                         {useSimplifiedBookingSidebar && simplifiedIsEditingReservation ? simplifiedSummaryOwnerLabel : sidebarTitle}
-                      </h2>
+                      </span>
                       {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
                         <>
                           {/* Confirmada es lo normal: solo se marca lo que pide atención o ya terminó. */}
@@ -8491,9 +8348,12 @@ function AdminAgendaPlaygroundPage() {
                           )}
                         </>
                       )}
-                    </div>
+                </span>
+              }
+              subtitle={
+                <>
                     {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
-                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-p-text-secondary">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-p-text-secondary">
                         <span>
                           {simplifiedEditDateLabel} · {simplifiedHeaderTimeLabel} · {simplifiedSummaryCourtLabel}
                         </span>
@@ -8512,6 +8372,10 @@ function AdminAgendaPlaygroundPage() {
                         )}
                       </div>
                     )}
+                </>
+              }
+              headerExtra={
+                <>
                     {!useSimplifiedBookingSidebar && bookingKind !== 'block' && (
                     <div className="mt-4 flex flex-wrap items-center gap-2 relative">
                       <button
@@ -8608,42 +8472,296 @@ function AdminAgendaPlaygroundPage() {
                       )}
                     </div>
                     )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => closeBookingDrawer({ clearFormError: false })}
-                    aria-label="Cerrar panel"
-                    className="hidden h-9 w-9 rounded-full border border-p-border text-p-text-muted place-items-center hover:bg-p-surface-2 shrink-0 lg:grid"
-                  >
-                    <X size={16} />
-                  </button>
-                </header>
-
-                {useSimplifiedBookingSidebar && simplifiedIsEditingReservation && (
-                  <div className="border-b border-p-border px-4 lg:px-6">
-                    <nav className="flex items-center gap-5 lg:gap-6 overflow-x-auto">
-                      {simplifiedSectionTabs.map((tab) => {
-                        const isActive = simplifiedSidebarSection === tab.id;
-                        return (
-                          <button
-                            key={`simplified-tab-${tab.id}`}
-                            type="button"
-                            onClick={() => setSimplifiedSidebarSection(tab.id)}
-                            className={`h-12 border-b-2 text-[14px] font-semibold whitespace-nowrap transition ${
-                              isActive
-                                ? 'border-p-accent text-p-accent'
-                                : 'border-transparent text-p-text-muted hover:text-p-text'
-                            }`}
-                          >
-                            {tab.label}
-                          </button>
-                        );
-                      })}
-                    </nav>
+                </>
+              }
+              tabs={useSimplifiedBookingSidebar && simplifiedIsEditingReservation ? simplifiedSectionTabs.map((tab) => ({ id: tab.id, label: tab.label })) : []}
+              activeTabId={simplifiedSidebarSection}
+              onTabChange={(id) => setSimplifiedSidebarSection(id as typeof simplifiedSidebarSection)}
+              overlay={
+                <>
+                {isWaitingQueuedPaymentConfirmation && (
+                  <div className="absolute inset-0 z-50 bg-p-surface/65 backdrop-blur-[1px] flex items-center justify-center">
+                    <div className="rounded-2xl border border-p-border bg-p-surface px-5 py-4 shadow-xl text-center">
+                      <div className="mx-auto h-8 w-8 rounded-full border-2 border-p-accent border-t-p-accent animate-spin" />
+                      <p className="mt-3 text-[14px] font-semibold text-p-text">
+                        Confirmando pago...
+                      </p>
+                      <p className="mt-1 text-[12px] text-p-text-muted">
+                        Esperando confirmación del sistema.
+                      </p>
+                    </div>
                   </div>
                 )}
+                </>
+              }
+              bodyRef={drawerScrollContainerRef}
+              footerRef={simplifiedSidebarFooterRef}
+              bodyClassName=""
+              footer={
+                <>
+                  {useSimplifiedBookingSidebar ? (
+                    <div className="space-y-3">
+                      {shouldShowSeriesScopeHint && (
+                        <div className="rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[12px] text-p-accent">
+                          Esta reserva pertenece a una serie. Al guardar, vas a elegir si editar solo esta ocurrencia, desde esta en adelante o toda la serie.
+                        </div>
+                      )}
+                      {!drawerSelectionIsAllowed && (!editingBookingId || hasScheduleChanges) && (
+                        <div className="rounded-xl border border-p-warning bg-p-warning-bg px-3 py-2 text-[12px] text-p-warning">
+                          El club no ofrece un turno de {formatDurationLabel(selectionMinutes)} a las{' '}
+                          {slotToTime(selectedStartSlot)}. Elegí otro horario o duración.
+                        </div>
+                      )}
+                      {hasBlockingActionError && (
+                        <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2.5">
+                          <p className="text-[12px] font-semibold text-p-error">
+                            No podés continuar hasta corregir este error.
+                          </p>
+                          <p className="mt-0.5 text-[12px] text-p-error">{blockingActionMessage}</p>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-2">
+                        {editingBookingId && !isCompletedReservation ? (
+                          <div ref={simplifiedMoreActionsRef} className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setSimplifiedMoreActionsOpen((previous) => !previous)}
+                              disabled={isSubmittingBooking || isDeletingBooking}
+                              aria-haspopup="menu"
+                              aria-expanded={simplifiedMoreActionsOpen}
+                              className={adminButton('secondary', 'lg')}
+                            >
+                              <span className="sm:hidden">Más</span>
+                              <span className="hidden sm:inline">Más acciones</span>
+                            </button>
+                            <AdminMenu
+                              open={simplifiedMoreActionsOpen}
+                              onClose={() => setSimplifiedMoreActionsOpen(false)}
+                              placement="top-start"
+                              widthClassName="w-[280px]"
+                              ariaLabel="Más acciones"
+                            >
+                              {canChangeTitularFromUi && editingBooking?.state !== 'blocked' && (
+                                <>
+                                  <AdminMenuItem
+                                    icon={<User size={15} />}
+                                    hint="Pasar la reserva a otro cliente"
+                                    onClick={() => {
+                                      setSimplifiedMoreActionsOpen(false);
+                                      openChangeTitularModal();
+                                    }}
+                                  >
+                                    Cambiar titular
+                                  </AdminMenuItem>
+                                  <AdminMenuDivider />
+                                </>
+                              )}
+                              <AdminMenuItem
+                                tone="danger"
+                                icon={<Trash2 size={15} />}
+                                hint="Libera la cancha; si tiene pagos, elegís cuánto devolver"
+                                onClick={() => {
+                                  setSimplifiedMoreActionsOpen(false);
+                                  openDeleteBookingFlow();
+                                }}
+                              >
+                                Cancelar reserva
+                              </AdminMenuItem>
+                            </AdminMenu>
+                          </div>
+                        ) : isCreatingRegularBooking ? (
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-medium text-p-text-muted">Total</p>
+                            <p className="text-[18px] font-bold leading-tight tabular-nums text-p-text">
+                              {createQuoteLoading ? '…' : createQuoteTotal != null ? formatMoney(createQuoteTotal) : '—'}
+                            </p>
+                            {!createQuoteLoading && createQuoteTotal != null && createPlayerCount > 1 && (
+                              <p className="text-[11px] tabular-nums text-p-text-muted">
+                                {createPlayerCount} × {formatMoney(createQuoteTotal / createPlayerCount)}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span />
+                        )}
+                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                          {showConfirmMainAction && (
+                            <button
+                              type="button"
+                              onClick={() => void handleConfirmPendingBooking()}
+                              disabled={confirmingBooking || isSubmittingBooking || isDeletingBooking}
+                              className="h-10 rounded-xl border border-p-accent bg-p-surface px-4 text-[13px] font-semibold text-p-accent hover:bg-p-surface-2 disabled:opacity-50"
+                            >
+                              {confirmingBooking ? 'Confirmando...' : 'Confirmar reserva'}
+                            </button>
+                          )}
+                          {hasBlockingActionError && (
+                            <button
+                              type="button"
+                              onClick={() => setBlockingErrorModalOpen(true)}
+                              className="h-10 rounded-xl border border-p-error bg-p-surface px-4 text-[13px] font-semibold text-p-error hover:bg-p-error-bg"
+                            >
+                              Ver detalle
+                            </button>
+                          )}
+                          {isCreatingRegularBooking ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  chargeAfterCreateRef.current = false;
+                                  void handleCreateBooking();
+                                }}
+                                disabled={primaryActionDisabled}
+                                className={`${adminButton('secondary', 'lg')} sm:h-10`}
+                              >
+                                Reservar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  chargeAfterCreateRef.current = true;
+                                  void handleCreateBooking();
+                                }}
+                                disabled={primaryActionDisabled}
+                                className={`${adminButton('primary', 'lg')} flex-1 sm:h-10 sm:flex-none sm:min-w-[170px]`}
+                              >
+                                {isSubmittingBooking ? 'Guardando...' : 'Reservar y cobrar'}
+                              </button>
+                            </>
+                          ) : (!editingBookingId || hasDeferredEditChanges) && (
+                            <button
+                              type="button"
+                              onClick={() => void handleCreateBooking()}
+                              disabled={primaryActionDisabled}
+                              className={`${adminButton('primary', 'lg')} flex-1 sm:h-10 sm:flex-none sm:min-w-[170px]`}
+                            >
+                              {editingBookingId
+                                ? 'Guardar cambios'
+                                : isRecurringKind && Number.isFinite(recurringEstimatedOccurrencesTotal)
+                                  ? `Crear ${Number(recurringEstimatedOccurrencesTotal)} turnos`
+                                  : isRecurringKind
+                                    ? 'Crear reserva fija'
+                                    : 'Crear reserva'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                  <div className="space-y-3">
+                    {shouldShowSeriesScopeHint && (
+                      <div className="rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[12px] text-p-accent">
+                        Esta reserva pertenece a una serie. Al guardar, vas a elegir si editar solo esta ocurrencia, desde esta en adelante o toda la serie.
+                      </div>
+                    )}
+                    {bookingKind !== 'block' && !shouldHideBillingUntilConfirmed && (
+                      <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2.5">
+                        <p className="text-[12px] font-semibold text-p-text">Resumen de cobro</p>
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
+                            <p>Total</p>
+                            <p className="text-[13px] font-semibold text-p-text">
+                              {formatMoney(Number(billingSummary.totalAmount || 0))}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
+                            <p>Pagado</p>
+                            <p className="text-[13px] font-semibold text-p-positive">
+                              {formatMoney(Number(billingSummary.paidAmount || 0))}
+                            </p>
+                          </div>
+                          <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
+                            <p>Restante</p>
+                            <p className="text-[13px] font-semibold text-p-warning">
+                              {formatMoney(Number(billingSummary.remainingAmount || 0))}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between text-[11px] text-p-text-muted">
+                          <span>
+                            Lista: {quotedListPrice != null ? `${formatMoney(quotedListPrice)}` : '-'}
+                          </span>
+                          <span>
+                            Descuento: {quotedDiscountAmount > 0 ? `-${formatMoney(quotedDiscountAmount)}` : formatMoney(0)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {bookingKind !== 'block' && shouldHideBillingUntilConfirmed && (
+                      <div className="rounded-xl border border-p-warning bg-p-warning-bg px-3 py-2.5">
+                        <p className="text-[12px] font-semibold text-p-warning">Cobro pendiente de confirmación</p>
+                        <p className="mt-1 text-[12px] text-p-warning">
+                          Confirmá la reserva para habilitar pagos y saldo.
+                        </p>
+                      </div>
+                    )}
 
-                <div ref={drawerScrollContainerRef} className="flex-1 overflow-y-auto px-3 py-3 lg:px-6 lg:py-6">
+                    {hasBlockingActionError && (
+                      <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2.5">
+                        <p className="text-[12px] font-semibold text-p-error">
+                          No podés continuar hasta corregir este error.
+                        </p>
+                        <p className="mt-0.5 text-[12px] text-p-error">{blockingActionMessage}</p>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        {editingBookingId && !isCompletedReservation && (
+                          <button
+                            type="button"
+                            onClick={openDeleteBookingFlow}
+                            aria-label="Cancelar reserva"
+                            title="Cancelar reserva"
+                            disabled={isSubmittingBooking || isDeletingBooking}
+                            className="h-10 w-10 rounded-xl border border-p-error bg-p-surface text-p-error grid place-items-center hover:bg-p-error-bg disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                          </button>
+                        )}
+                        {editingBookingId &&
+                          !isCompletedReservation &&
+                          canChangeTitularFromUi &&
+                          editingBooking?.state !== 'blocked' && (
+                          <button
+                            type="button"
+                            onClick={openChangeTitularModal}
+                            disabled={isSubmittingBooking || isDeletingBooking}
+                            className={adminButton('secondary', 'lg')}
+                          >
+                            Cambiar titular
+                          </button>
+                        )}
+                        {hasBlockingActionError && (
+                          <button
+                            type="button"
+                            onClick={() => setBlockingErrorModalOpen(true)}
+                            className="h-10 rounded-xl border border-p-error bg-p-surface px-4 text-[13px] font-semibold text-p-error hover:bg-p-error-bg"
+                          >
+                            Ver detalle
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void handleCreateBooking()}
+                          disabled={primaryActionDisabled}
+                          className={`${adminButton('primary', 'lg')} sm:min-w-[232px]`}
+                        >
+                          {isSubmittingBooking
+                            ? primaryActionLabel
+                            : bookingKind === 'block'
+                              ? editingBookingId
+                                ? 'Guardar cambios'
+                                : `Bloquear ${slotToTime(selectedStartSlot)}–${slotToTime(selectedEndSlot)}`
+                              : `${primaryActionLabel} • ${primaryActionMeta}`}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  )}
+                </>
+              }
+            >
                   {useSimplifiedBookingSidebar ? (
                     <section className="flex flex-col">
                       {showSimplifiedDetailsSection && (simplifiedIsEditingReservation ? (
@@ -8695,11 +8813,7 @@ function AdminAgendaPlaygroundPage() {
                                               setScheduleInputsDirty(true);
                                               setFormError('');
                                             }}
-                                            className={`h-11 rounded-xl border px-4 text-[14px] font-semibold transition ${
-                                              active
-                                                ? 'border-ink-900 bg-ink-900 text-ink-50'
-                                                : 'border-p-border bg-p-surface text-p-text hover:border-p-border-strong'
-                                            }`}
+                                            className={adminChip(active, 'xl')}
                                           >
                                             {formatDurationLabel(choice.durationMinutes)}
                                           </button>
@@ -8815,11 +8929,7 @@ function AdminAgendaPlaygroundPage() {
                                             setScheduleInputsDirty(true);
                                             setFormError('');
                                           }}
-                                          className={`h-11 rounded-xl border px-4 text-[14px] font-semibold transition ${
-                                            active
-                                              ? 'border-ink-900 bg-ink-900 text-ink-50'
-                                              : 'border-p-border bg-p-surface text-p-text hover:border-p-border-strong'
-                                          }`}
+                                          className={adminChip(active, 'xl')}
                                         >
                                           {formatDurationLabel(choice.durationMinutes)}
                                         </button>
@@ -8878,11 +8988,7 @@ function AdminAgendaPlaygroundPage() {
                                           setRecurringResult(null);
                                           setFormError('');
                                         }}
-                                        className={`h-9 w-10 rounded-lg border text-[13px] font-semibold transition ${
-                                          active
-                                            ? 'border-ink-900 bg-ink-900 text-ink-50'
-                                            : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong'
-                                        }`}
+                                        className={`${adminChip(active)} w-10 !px-0`}
                                       >
                                         {day.short}
                                       </button>
@@ -9031,7 +9137,7 @@ function AdminAgendaPlaygroundPage() {
                               type="button"
                               onClick={() => void handleAddConsumption()}
                               disabled={!canAddConsumption}
-                              className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-4 text-[14px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+                              className={adminButton('primary', 'lg')}
                             >
                               <Plus size={14} />
                               {consumptionAddInFlight ? 'Agregando...' : 'Agregar'}
@@ -9384,7 +9490,7 @@ function AdminAgendaPlaygroundPage() {
                                           <button
                                             type="button"
                                             onClick={() => setExpandedParticipantId(null)}
-                                            className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                                            className={adminButton('secondary', 'sm')}
                                           >
                                             Cancelar
                                           </button>
@@ -9406,111 +9512,83 @@ function AdminAgendaPlaygroundPage() {
                             <>
                               <div className="mt-3 grid grid-cols-1 gap-3">
                                 <div ref={simplifiedOwnerInputContainerRef} className="relative">
-                                <div className="h-12 rounded-xl border border-p-border bg-p-surface px-3 flex items-center gap-2">
-                                  <input
-                                    ref={simplifiedOwnerNameInputRef}
-                                    aria-label="Nombre del cliente"
-                                    value={ownerParticipant?.name || ''}
-                                    onChange={(event) => {
-                                      if (!ownerParticipant) return;
-                                      void runSimplifiedOwnerSearch(ownerParticipant.id, event.target.value);
-                                    }}
-                                    onFocus={() => {
-                                      if ((ownerParticipant?.name || '').trim().length > 0) {
-                                        setSimplifiedOwnerSuggestionsOpen(true);
-                                      }
-                                    }}
-                                    onBlur={() => {
-                                      window.setTimeout(() => setSimplifiedOwnerSuggestionsOpen(false), 120);
-                                    }}
-                                    placeholder="Buscá por nombre, teléfono o DNI"
-                                    className="w-full bg-transparent text-[15px] text-p-text outline-none"
-                                  />
-                                  {ownerHasTypedName ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (!ownerParticipant) return;
-                                        updateParticipant(ownerParticipant.id, {
-                                          name: '',
-                                          contact: '',
-                                          dni: undefined,
-                                          sourceType: 'guest',
-                                          entityRef: undefined,
-                                          selectedUserId: undefined,
-                                          personKind: undefined,
-                                          personKey: undefined,
-                                          personSearchQuery: undefined,
-                                          badges: undefined,
-                                        });
-                                        setSimplifiedOwnerAdded(false);
-                                        setSimplifiedEditingParticipantId(null);
-                                        setSimplifiedOwnerSuggestionsOpen(false);
-                                        setSimplifiedOwnerSearchLoading(false);
-                                        setSimplifiedOwnerSuggestions([]);
-                                        setSimplifiedNewParticipantOpen(false);
-                                        setSimplifiedNewParticipantName('');
-                                        setSimplifiedNewParticipantContact('');
-                                        setSimplifiedNewParticipantSourceTypeDraft('guest');
-                                        setSimplifiedNewParticipantEntityRefDraft('');
-                                        setSimplifiedNewParticipantSuggestionsOpen(false);
-                                        setSimplifiedNewParticipantSearchLoading(false);
-                                        setSimplifiedNewParticipantSuggestions([]);
-                                      }}
-                                      className="h-7 w-7 rounded-full text-p-text-muted grid place-items-center hover:bg-p-surface-2"
-                                      title="Limpiar titular"
-                                    >
-                                      <X size={14} />
-                                    </button>
-                                  ) : (
-                                    <Search size={18} className="text-p-text-muted" />
-                                  )}
-                                </div>
+                                <AdminSearchInput
+                                  ref={simplifiedOwnerNameInputRef}
+                                  size="lg"
+                                  aria-label="Nombre del cliente"
+                                  value={ownerParticipant?.name || ''}
+                                  onChange={(value) => {
+                                    if (!ownerParticipant) return;
+                                    void runSimplifiedOwnerSearch(ownerParticipant.id, value);
+                                  }}
+                                  onFocus={() => {
+                                    if ((ownerParticipant?.name || '').trim().length > 0) {
+                                      setSimplifiedOwnerSuggestionsOpen(true);
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    window.setTimeout(() => setSimplifiedOwnerSuggestionsOpen(false), 120);
+                                  }}
+                                  placeholder="Buscá por nombre, teléfono o DNI"
+                                  onClear={() => {
+                                    if (!ownerParticipant) return;
+                                    updateParticipant(ownerParticipant.id, {
+                                      name: '',
+                                      contact: '',
+                                      dni: undefined,
+                                      sourceType: 'guest',
+                                      entityRef: undefined,
+                                      selectedUserId: undefined,
+                                      personKind: undefined,
+                                      personKey: undefined,
+                                      personSearchQuery: undefined,
+                                      badges: undefined,
+                                    });
+                                    setSimplifiedOwnerAdded(false);
+                                    setSimplifiedEditingParticipantId(null);
+                                    setSimplifiedOwnerSuggestionsOpen(false);
+                                    setSimplifiedOwnerSearchLoading(false);
+                                    setSimplifiedOwnerSuggestions([]);
+                                    setSimplifiedNewParticipantOpen(false);
+                                    setSimplifiedNewParticipantName('');
+                                    setSimplifiedNewParticipantContact('');
+                                    setSimplifiedNewParticipantSourceTypeDraft('guest');
+                                    setSimplifiedNewParticipantEntityRefDraft('');
+                                    setSimplifiedNewParticipantSuggestionsOpen(false);
+                                    setSimplifiedNewParticipantSearchLoading(false);
+                                    setSimplifiedNewParticipantSuggestions([]);
+                                  }}
+                                />
                                 {simplifiedOwnerSuggestionsOpen &&
                                   simplifiedOwnerSuggestionsFloatingStyle &&
                                   createPortal(
-                                  <div
-                                    style={{
-                                      ...simplifiedOwnerSuggestionsFloatingStyle,
-                                      maxHeight: undefined,
-                                    }}
-                                    className="rounded-xl border border-p-border bg-p-surface shadow-lg overflow-hidden"
+                                  <AdminPersonList
+                                    variant="floating"
+                                    minChars={1}
+                                    loading={simplifiedOwnerSearchLoading}
+                                    query={ownerParticipant?.name || ''}
+                                    count={simplifiedOwnerSuggestions.length}
+                                    empty="No hay clientes con ese dato."
+                                    style={{ ...simplifiedOwnerSuggestionsFloatingStyle, maxHeight: undefined }}
+                                    maxHeight={simplifiedOwnerSuggestionsFloatingStyle.maxHeight}
                                   >
-                                    <div
-                                      style={{ maxHeight: simplifiedOwnerSuggestionsFloatingStyle.maxHeight }}
-                                      className="overflow-y-auto overscroll-contain p-1"
-                                    >
-                                      {simplifiedOwnerSearchLoading && (
-                                        <p className="px-3 py-2 text-[13px] text-p-text-muted">Buscando...</p>
-                                      )}
                                       {simplifiedOwnerSuggestions.slice(0, 8).map((suggestion) => (
-                                        <button
+                                        <AdminPersonOption
                                           key={`owner-suggestion-${suggestion.id}`}
-                                          type="button"
                                           onMouseDown={(event) => event.preventDefault()}
                                           onClick={() => {
                                             if (!ownerParticipant) return;
                                             applySimplifiedOwnerSuggestion(ownerParticipant.id, suggestion);
                                           }}
-                                          className="w-full text-left rounded-lg px-3 py-2 hover:bg-p-surface-2 focus:bg-p-surface-2 focus:outline-none"
-                                        >
-                                          <span className="block truncate text-[14px] font-semibold text-p-text">{suggestion.label}</span>
-                                          {(suggestion.secondary || (Array.isArray(suggestion.badges) && suggestion.badges.length > 0)) && (
-                                            <span className="mt-0.5 block truncate text-[12px] text-p-text-muted">
-                                              {describeOwnerSuggestion(suggestion.secondary, suggestion.badges)}
-                                            </span>
-                                          )}
-                                        </button>
+                                          name={suggestion.label}
+                                          detail={describeOwnerSuggestion(suggestion.secondary, suggestion.badges) || undefined}
+                                        />
                                       ))}
                                       {ownerHasTypedName && (
                                         <>
-                                          {simplifiedOwnerSuggestions.length === 0 && !simplifiedOwnerSearchLoading && (
-                                            <p className="px-3 py-2 text-[13px] text-p-text-muted">
-                                              No hay clientes con ese dato.
-                                            </p>
-                                          )}
-                                          <button
-                                            type="button"
+                                          <AdminPersonCreateOption
+                                            label="Cliente nuevo"
+                                            value={ownerParticipant.name.trim()}
                                             onMouseDown={(event) => event.preventDefault()}
                                             onClick={() => {
                                               if (!ownerParticipant) return;
@@ -9532,17 +9610,10 @@ function AdminAgendaPlaygroundPage() {
                                               setFormError('');
                                               window.setTimeout(() => simplifiedOwnerPhoneInputRef.current?.focus(), 0);
                                             }}
-                                            className="mt-1 flex w-full items-center gap-2 rounded-lg border-t border-p-border px-3 py-2.5 text-left text-[14px] hover:bg-p-surface-2"
-                                          >
-                                            <Plus size={15} className="shrink-0 text-p-accent" />
-                                            <span className="min-w-0 truncate text-p-text">
-                                              Cliente nuevo: <strong className="font-semibold">{ownerParticipant.name.trim()}</strong>
-                                            </span>
-                                          </button>
+                                          />
                                         </>
                                       )}
-                                    </div>
-                                  </div>,
+                                  </AdminPersonList>,
                                   document.body
                                 )}
                                 </div>
@@ -9643,14 +9714,15 @@ function AdminAgendaPlaygroundPage() {
                                   {!simplifiedNewPlayerAsGuest ? (
                                     <div ref={simplifiedNewParticipantInputContainerRef} className="relative">
                                       <div className="flex items-center gap-2">
-                                        <div className="relative flex-1">
-                                          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                                          <input
+                                          <AdminSearchInput
+                                            size="lg"
+                                            wrapperClassName="flex-1"
+                                            aria-label="Buscar jugador"
                                             autoFocus
                                             value={simplifiedNewParticipantName}
-                                            onChange={(event) => {
+                                            onChange={(value) => {
                                               setSimplifiedNewPlayerError('');
-                                              void runSimplifiedNewParticipantSearch(event.target.value);
+                                              void runSimplifiedNewParticipantSearch(value);
                                             }}
                                             onFocus={() => {
                                               if (simplifiedNewParticipantName.trim().length > 0) {
@@ -9667,9 +9739,7 @@ function AdminAgendaPlaygroundPage() {
                                               }
                                             }}
                                             placeholder="Buscá jugador por nombre, teléfono o DNI"
-                                            className="h-11 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[15px] outline-none focus:border-p-border-strong"
                                           />
-                                        </div>
                                         <button
                                           type="button"
                                           onClick={resetSimplifiedNewParticipantDraft}
@@ -9681,32 +9751,25 @@ function AdminAgendaPlaygroundPage() {
                                       {simplifiedNewParticipantSuggestionsOpen &&
                                         simplifiedNewParticipantSuggestionsFloatingStyle &&
                                         createPortal(
-                                        <div
-                                          style={{
-                                            ...simplifiedNewParticipantSuggestionsFloatingStyle,
-                                            maxHeight: undefined,
-                                          }}
-                                          className="rounded-xl border border-p-border bg-p-surface shadow-lg overflow-hidden"
+                                        <AdminPersonList
+                                          variant="floating"
+                                          minChars={1}
+                                          loading={simplifiedNewParticipantSearchLoading}
+                                          query={simplifiedNewParticipantName}
+                                          count={simplifiedNewParticipantSuggestions.length}
+                                          empty="No hay clientes con ese dato."
+                                          style={{ ...simplifiedNewParticipantSuggestionsFloatingStyle, maxHeight: undefined }}
+                                          maxHeight={simplifiedNewParticipantSuggestionsFloatingStyle.maxHeight}
                                         >
-                                          <div
-                                            style={{ maxHeight: simplifiedNewParticipantSuggestionsFloatingStyle.maxHeight }}
-                                            className="overflow-y-auto overscroll-contain p-1"
-                                          >
-                                            {simplifiedNewParticipantSearchLoading && (
-                                              <p className="px-3 py-2 text-[13px] text-p-text-muted">Buscando...</p>
-                                            )}
                                             {simplifiedNewParticipantSuggestions.slice(0, 8).map((suggestion) => {
                                               const memberNote = describeMemberStatus(suggestion.badges);
                                               return (
-                                                <button
+                                                <AdminPersonOption
                                                   key={`new-suggestion-${suggestion.id}`}
-                                                  type="button"
                                                   onMouseDown={(event) => event.preventDefault()}
                                                   onClick={() => void addSimplifiedPlayerFromSuggestion(suggestion)}
-                                                  className="w-full text-left rounded-lg px-3 py-2 hover:bg-p-surface-2 focus:bg-p-surface-2 focus:outline-none"
-                                                >
-                                                  <span className="block truncate text-[14px] font-semibold text-p-text">{suggestion.label}</span>
-                                                  <span className="mt-0.5 block truncate text-[12px] text-p-text-muted">
+                                                  name={suggestion.label}
+                                                  detail={<>
                                                     {describeOwnerSuggestion(suggestion.secondary, (suggestion.badges || []).filter((badge) => !/socio/i.test(String(badge))))}
                                                     {memberNote ? (
                                                       <span className={memberNote.tone === 'warning' ? 'text-p-warning' : 'text-p-positive'}>
@@ -9714,18 +9777,15 @@ function AdminAgendaPlaygroundPage() {
                                                         {memberNote.label}
                                                       </span>
                                                     ) : null}
-                                                  </span>
-                                                </button>
+                                                  </>}
+                                                />
                                               );
                                             })}
                                             {simplifiedNewParticipantName.trim().length > 0 && (
                                               <>
-                                                {simplifiedNewParticipantSuggestions.length === 0 && !simplifiedNewParticipantSearchLoading && (
-                                                  <p className="px-3 py-2 text-[13px] text-p-text-muted">No hay clientes con ese dato.</p>
-                                                )}
-                                                <div className="my-1 h-px bg-p-border" />
-                                                <button
-                                                  type="button"
+                                                <AdminPersonCreateOption
+                                                  label="Jugador nuevo"
+                                                  value={simplifiedNewParticipantName.trim()}
                                                   onMouseDown={(event) => event.preventDefault()}
                                                   onClick={() => {
                                                     setSimplifiedNewParticipantSourceTypeDraft('guest');
@@ -9741,17 +9801,10 @@ function AdminAgendaPlaygroundPage() {
                                                     setSimplifiedNewPlayerAsGuest(true);
                                                     setFormError('');
                                                   }}
-                                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-[14px] text-p-text hover:bg-p-surface-2"
-                                                >
-                                                  <Plus size={15} className="shrink-0 text-p-accent" />
-                                                  <span className="truncate">
-                                                    Jugador nuevo: <strong className="font-semibold">{simplifiedNewParticipantName.trim()}</strong>
-                                                  </span>
-                                                </button>
+                                                />
                                               </>
                                             )}
-                                          </div>
-                                        </div>,
+                                        </AdminPersonList>,
                                         document.body
                                       )}
                                     </div>
@@ -9788,7 +9841,7 @@ function AdminAgendaPlaygroundPage() {
                                           type="button"
                                           onClick={() => void submitSimplifiedNewPlayerDraft()}
                                           disabled={!hasValidSimplifiedNewParticipantName}
-                                          className="h-11 rounded-xl bg-ink-900 px-4 text-[14px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+                                          className={adminButton('primary', 'lg')}
                                         >
                                           Agregar
                                         </button>
@@ -9975,11 +10028,7 @@ function AdminAgendaPlaygroundPage() {
                                     setScheduleInputsDirty(true);
                                     setFormError('');
                                   }}
-                                  className={`h-9 rounded-lg border px-3 text-[13px] font-semibold transition ${
-                                    active
-                                      ? 'border-ink-900 bg-ink-900 text-ink-50'
-                                      : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong'
-                                  }`}
+                                  className={adminChip(active)}
                                 >
                                   {choice.label}
                                 </button>
@@ -10062,7 +10111,7 @@ function AdminAgendaPlaygroundPage() {
                               type="button"
                               onClick={() => void handleConfirmPendingBooking()}
                               disabled={confirmingBooking}
-                              className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-60"
+                              className={adminButton('primary', 'sm')}
                             >
                               {confirmingBooking ? 'Confirmando...' : 'Confirmar reserva'}
                             </button>
@@ -10138,40 +10187,36 @@ function AdminAgendaPlaygroundPage() {
                             </p>
                             <div className="grid grid-cols-[1fr_20px] gap-2 items-center">
                               <div className="relative">
-                                <div className="h-11 rounded-xl border border-p-border px-3 flex items-center gap-2 text-p-text-muted">
-                                  <Search size={14} />
-                                  <input
-                                    value={participant.name}
-                                    onChange={(event) => void runParticipantSearch(participant.id, event.target.value)}
-                                    onFocus={() => {
-                                      const suggestions = participantSuggestionsById[participant.id];
-                                      if (Array.isArray(suggestions) && suggestions.length > 0) {
-                                        setParticipantSearchOpenId(participant.id);
-                                      }
-                                    }}
-                                    placeholder="Buscar nombre, correo o teléfono"
-                                    className="w-full bg-transparent outline-none text-[13px] text-p-text"
-                                  />
-                                </div>
+                                <AdminSearchInput
+                                  size="lg"
+                                  clearable={false}
+                                  aria-label="Buscar participante"
+                                  value={participant.name}
+                                  onChange={(value) => void runParticipantSearch(participant.id, value)}
+                                  onFocus={() => {
+                                    const suggestions = participantSuggestionsById[participant.id];
+                                    if (Array.isArray(suggestions) && suggestions.length > 0) {
+                                      setParticipantSearchOpenId(participant.id);
+                                    }
+                                  }}
+                                  placeholder="Buscá por nombre, teléfono o email"
+                                />
                                 {participantSearchOpenId === participant.id && (
-                                  <div className="absolute left-0 right-0 top-12 z-30 rounded-xl border border-p-border bg-p-surface shadow-lg p-1">
-                                    {participantSearchLoadingId === participant.id && (
-                                      <p className="px-2 py-1 text-[11px] text-p-text-muted">Buscando...</p>
-                                    )}
+                                  <AdminPersonList
+                                    variant="floating"
+                                    className="absolute left-0 right-0 top-12 z-30"
+                                    loading={participantSearchLoadingId === participant.id}
+                                    count={(participantSuggestionsById[participant.id] || []).length}
+                                  >
                                     {(participantSuggestionsById[participant.id] || []).slice(0, 8).map((suggestion) => (
-                                      <button
+                                      <AdminPersonOption
                                         key={suggestion.id}
-                                        type="button"
                                         onClick={() => applyParticipantSuggestion(participant.id, suggestion)}
-                                        className="w-full text-left rounded-lg px-2 py-1.5 hover:bg-p-surface-2"
-                                      >
-                                        <span className="block text-[12px] font-semibold text-p-text">{suggestion.label}</span>
-                                        {suggestion.secondary && (
-                                          <span className="block text-[11px] text-p-text-muted">{suggestion.secondary}</span>
-                                        )}
-                                      </button>
+                                        name={suggestion.label}
+                                        detail={suggestion.secondary || undefined}
+                                      />
                                     ))}
-                                  </div>
+                                  </AdminPersonList>
                                 )}
                               </div>
                               {showParticipantActions && (
@@ -10221,7 +10266,7 @@ function AdminAgendaPlaygroundPage() {
                                   <button
                                     type="button"
                                     onClick={() => setExpandedParticipantId(null)}
-                                    className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                                    className={adminButton('secondary', 'sm')}
                                   >
                                     Cancelar
                                   </button>
@@ -10302,286 +10347,7 @@ function AdminAgendaPlaygroundPage() {
                   )}
                     </>
                   )}
-                </div>
-
-                <footer ref={simplifiedSidebarFooterRef} className="border-t border-p-border bg-p-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:px-6 lg:py-4">
-                  {useSimplifiedBookingSidebar ? (
-                    <div className="space-y-3">
-                      {shouldShowSeriesScopeHint && (
-                        <div className="rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[12px] text-p-accent">
-                          Esta reserva pertenece a una serie. Al guardar, vas a elegir si editar solo esta ocurrencia, desde esta en adelante o toda la serie.
-                        </div>
-                      )}
-                      {!drawerSelectionIsAllowed && (!editingBookingId || hasScheduleChanges) && (
-                        <div className="rounded-xl border border-p-warning bg-p-warning-bg px-3 py-2 text-[12px] text-p-warning">
-                          El club no ofrece un turno de {formatDurationLabel(selectionMinutes)} a las{' '}
-                          {slotToTime(selectedStartSlot)}. Elegí otro horario o duración.
-                        </div>
-                      )}
-                      {hasBlockingActionError && (
-                        <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2.5">
-                          <p className="text-[12px] font-semibold text-p-error">
-                            No podés continuar hasta corregir este error.
-                          </p>
-                          <p className="mt-0.5 text-[12px] text-p-error">{blockingActionMessage}</p>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between gap-2">
-                        {editingBookingId && !isCompletedReservation ? (
-                          <div ref={simplifiedMoreActionsRef} className="relative">
-                            <button
-                              type="button"
-                              onClick={() => setSimplifiedMoreActionsOpen((previous) => !previous)}
-                              disabled={isSubmittingBooking || isDeletingBooking}
-                              aria-haspopup="menu"
-                              aria-expanded={simplifiedMoreActionsOpen}
-                              className="h-10 inline-flex items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
-                            >
-                              <MoreVertical size={15} />
-                              <span className="sm:hidden">Más</span>
-                              <span className="hidden sm:inline">Más acciones</span>
-                            </button>
-                            {simplifiedMoreActionsOpen && (
-                              <div
-                                role="menu"
-                                className="absolute bottom-[calc(100%+8px)] left-0 z-40 w-[280px] rounded-2xl border border-p-border bg-p-surface p-1.5 shadow-xl"
-                              >
-                                {canChangeTitularFromUi && editingBooking?.state !== 'blocked' && (
-                                  <button
-                                    type="button"
-                                    role="menuitem"
-                                    onClick={() => {
-                                      setSimplifiedMoreActionsOpen(false);
-                                      openChangeTitularModal();
-                                    }}
-                                    className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-p-surface-2"
-                                  >
-                                    <span className="flex items-start gap-2.5">
-                                      <User size={15} className="mt-0.5 text-p-text-secondary" />
-                                      <span>
-                                        <span className="block text-[14px] font-semibold text-p-text">Cambiar titular</span>
-                                        <span className="block text-[12px] text-p-text-muted">Pasar la reserva a otro cliente</span>
-                                      </span>
-                                    </span>
-                                  </button>
-                                )}
-                                {canChangeTitularFromUi && editingBooking?.state !== 'blocked' && (
-                                  <div className="my-1 h-px bg-p-border" />
-                                )}
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setSimplifiedMoreActionsOpen(false);
-                                    openDeleteBookingFlow();
-                                  }}
-                                  className="w-full rounded-xl px-3 py-2.5 text-left hover:bg-p-error-bg"
-                                >
-                                  <span className="flex items-start gap-2.5">
-                                    <Trash2 size={15} className="mt-0.5 text-p-error" />
-                                    <span>
-                                      <span className="block text-[14px] font-semibold text-p-error">Cancelar reserva</span>
-                                      <span className="block text-[12px] text-p-text-muted">Libera la cancha; si tiene pagos, elegís cuánto devolver</span>
-                                    </span>
-                                  </span>
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        ) : isCreatingRegularBooking ? (
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-medium text-p-text-muted">Total</p>
-                            <p className="text-[18px] font-bold leading-tight tabular-nums text-p-text">
-                              {createQuoteLoading ? '…' : createQuoteTotal != null ? formatMoney(createQuoteTotal) : '—'}
-                            </p>
-                            {!createQuoteLoading && createQuoteTotal != null && createPlayerCount > 1 && (
-                              <p className="text-[11px] tabular-nums text-p-text-muted">
-                                {createPlayerCount} × {formatMoney(createQuoteTotal / createPlayerCount)}
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <span />
-                        )}
-                        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-                          {showConfirmMainAction && (
-                            <button
-                              type="button"
-                              onClick={() => void handleConfirmPendingBooking()}
-                              disabled={confirmingBooking || isSubmittingBooking || isDeletingBooking}
-                              className="h-10 rounded-xl border border-p-accent bg-p-surface px-4 text-[13px] font-semibold text-p-accent hover:bg-p-surface-2 disabled:opacity-50"
-                            >
-                              {confirmingBooking ? 'Confirmando...' : 'Confirmar reserva'}
-                            </button>
-                          )}
-                          {hasBlockingActionError && (
-                            <button
-                              type="button"
-                              onClick={() => setBlockingErrorModalOpen(true)}
-                              className="h-10 rounded-xl border border-p-error bg-p-surface px-4 text-[13px] font-semibold text-p-error hover:bg-p-error-bg"
-                            >
-                              Ver detalle
-                            </button>
-                          )}
-                          {isCreatingRegularBooking ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  chargeAfterCreateRef.current = false;
-                                  void handleCreateBooking();
-                                }}
-                                disabled={primaryActionDisabled}
-                                className="h-11 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50 sm:h-10"
-                              >
-                                Reservar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  chargeAfterCreateRef.current = true;
-                                  void handleCreateBooking();
-                                }}
-                                disabled={primaryActionDisabled}
-                                className="h-11 flex-1 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50 sm:h-10 sm:flex-none sm:min-w-[170px]"
-                              >
-                                {isSubmittingBooking ? 'Guardando...' : 'Reservar y cobrar'}
-                              </button>
-                            </>
-                          ) : (!editingBookingId || hasDeferredEditChanges) && (
-                            <button
-                              type="button"
-                              onClick={() => void handleCreateBooking()}
-                              disabled={primaryActionDisabled}
-                              className="h-11 flex-1 sm:h-10 sm:flex-none sm:min-w-[170px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
-                            >
-                              {editingBookingId
-                                ? 'Guardar cambios'
-                                : isRecurringKind && Number.isFinite(recurringEstimatedOccurrencesTotal)
-                                  ? `Crear ${Number(recurringEstimatedOccurrencesTotal)} turnos`
-                                  : isRecurringKind
-                                    ? 'Crear reserva fija'
-                                    : 'Crear reserva'}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                  <div className="space-y-3">
-                    {shouldShowSeriesScopeHint && (
-                      <div className="rounded-xl border border-p-accent bg-p-positive-bg px-3 py-2 text-[12px] text-p-accent">
-                        Esta reserva pertenece a una serie. Al guardar, vas a elegir si editar solo esta ocurrencia, desde esta en adelante o toda la serie.
-                      </div>
-                    )}
-                    {bookingKind !== 'block' && !shouldHideBillingUntilConfirmed && (
-                      <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-2.5">
-                        <p className="text-[12px] font-semibold text-p-text">Resumen de cobro</p>
-                        <div className="mt-2 grid grid-cols-3 gap-2">
-                          <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
-                            <p>Total</p>
-                            <p className="text-[13px] font-semibold text-p-text">
-                              {formatMoney(Number(billingSummary.totalAmount || 0))}
-                            </p>
-                          </div>
-                          <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
-                            <p>Pagado</p>
-                            <p className="text-[13px] font-semibold text-p-positive">
-                              {formatMoney(Number(billingSummary.paidAmount || 0))}
-                            </p>
-                          </div>
-                          <div className="rounded-lg bg-p-surface px-2 py-1.5 text-[11px] text-p-text-muted">
-                            <p>Restante</p>
-                            <p className="text-[13px] font-semibold text-p-warning">
-                              {formatMoney(Number(billingSummary.remainingAmount || 0))}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mt-2 flex items-center justify-between text-[11px] text-p-text-muted">
-                          <span>
-                            Lista: {quotedListPrice != null ? `${formatMoney(quotedListPrice)}` : '-'}
-                          </span>
-                          <span>
-                            Descuento: {quotedDiscountAmount > 0 ? `-${formatMoney(quotedDiscountAmount)}` : formatMoney(0)}
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                    {bookingKind !== 'block' && shouldHideBillingUntilConfirmed && (
-                      <div className="rounded-xl border border-p-warning bg-p-warning-bg px-3 py-2.5">
-                        <p className="text-[12px] font-semibold text-p-warning">Cobro pendiente de confirmación</p>
-                        <p className="mt-1 text-[12px] text-p-warning">
-                          Confirmá la reserva para habilitar pagos y saldo.
-                        </p>
-                      </div>
-                    )}
-
-                    {hasBlockingActionError && (
-                      <div className="rounded-xl border border-p-error bg-p-error-bg px-3 py-2.5">
-                        <p className="text-[12px] font-semibold text-p-error">
-                          No podés continuar hasta corregir este error.
-                        </p>
-                        <p className="mt-0.5 text-[12px] text-p-error">{blockingActionMessage}</p>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-end gap-2 pt-1">
-                      <div className="flex items-center gap-2">
-                        {editingBookingId && !isCompletedReservation && (
-                          <button
-                            type="button"
-                            onClick={openDeleteBookingFlow}
-                            aria-label="Cancelar reserva"
-                            title="Cancelar reserva"
-                            disabled={isSubmittingBooking || isDeletingBooking}
-                            className="h-10 w-10 rounded-xl border border-p-error bg-p-surface text-p-error grid place-items-center hover:bg-p-error-bg disabled:opacity-40 disabled:cursor-not-allowed"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        )}
-                        {editingBookingId &&
-                          !isCompletedReservation &&
-                          canChangeTitularFromUi &&
-                          editingBooking?.state !== 'blocked' && (
-                          <button
-                            type="button"
-                            onClick={openChangeTitularModal}
-                            disabled={isSubmittingBooking || isDeletingBooking}
-                            className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-40"
-                          >
-                            Cambiar titular
-                          </button>
-                        )}
-                        {hasBlockingActionError && (
-                          <button
-                            type="button"
-                            onClick={() => setBlockingErrorModalOpen(true)}
-                            className="h-10 rounded-xl border border-p-error bg-p-surface px-4 text-[13px] font-semibold text-p-error hover:bg-p-error-bg"
-                          >
-                            Ver detalle
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => void handleCreateBooking()}
-                          disabled={primaryActionDisabled}
-                          className="h-10 sm:min-w-[232px] rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900 disabled:opacity-50"
-                        >
-                          {isSubmittingBooking
-                            ? primaryActionLabel
-                            : bookingKind === 'block'
-                              ? editingBookingId
-                                ? 'Guardar cambios'
-                                : `Bloquear ${slotToTime(selectedStartSlot)}–${slotToTime(selectedEndSlot)}`
-                              : `${primaryActionLabel} • ${primaryActionMeta}`}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  )}
-                </footer>
-              </div>
-            </aside>
+            </AdminDrawer>
             </section>
           </AdminPlaygroundShell>
 

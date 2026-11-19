@@ -1,4 +1,5 @@
 import { CalendarDays, Plus, X } from 'lucide-react';
+import { adminChip } from '../../../components/admin/ui/adminChip';
 
 /** Mismo formato que guarda el club: listas en texto ("60, 90", "08:00-12:00\n16:00-23:00", "08:00-60"). */
 export type ActivityScheduleConfig = {
@@ -18,6 +19,8 @@ type ActivityScheduleEditorProps = {
   hasPendingChanges?: boolean;
   exceptionsCount?: number;
   onOpenExceptions?: () => void;
+  /** Dentro de otra tarjeta: sin borde propio ni encabezado. */
+  embedded?: boolean;
 };
 
 const DURATION_PRESETS = [30, 45, 60, 90, 120, 150, 180];
@@ -63,6 +66,7 @@ export default function ActivityScheduleEditor({
   hasPendingChanges = false,
   exceptionsCount = 0,
   onOpenExceptions,
+  embedded = false,
 }: ActivityScheduleEditorProps) {
   const durations = parseDurations(config.scheduleDurations);
   const durationOptions = Array.from(new Set([...DURATION_PRESETS, ...durations])).sort((a, b) => a - b);
@@ -101,7 +105,8 @@ export default function ActivityScheduleEditor({
   })();
 
   return (
-    <div className="rounded-xl border border-p-border p-4">
+    <div className={embedded ? '' : 'rounded-xl border border-p-border p-4'}>
+      {!embedded && (
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <p className="text-[15px] font-semibold text-p-text">{activityName}</p>
@@ -120,6 +125,7 @@ export default function ActivityScheduleEditor({
           </button>
         )}
       </div>
+      )}
 
       <div className="space-y-5">
         {/* Cómo se reserva */}
@@ -161,9 +167,7 @@ export default function ActivityScheduleEditor({
                   type="button"
                   aria-pressed={active}
                   onClick={() => toggleDuration(minutes)}
-                  className={`h-9 rounded-lg border px-3 text-[13px] font-semibold transition ${
-                    active ? 'border-ink-900 bg-ink-900 text-ink-50' : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                  }`}
+                  className={adminChip(active)}
                 >
                   {formatMinutes(minutes)}
                 </button>
@@ -203,9 +207,7 @@ export default function ActivityScheduleEditor({
                       type="button"
                       aria-pressed={interval === minutes}
                       onClick={() => onChange({ scheduleIntervalMinutes: String(minutes) })}
-                      className={`h-10 flex-1 rounded-lg border text-[13px] font-semibold transition ${
-                        interval === minutes ? 'border-ink-900 bg-ink-900 text-ink-50' : 'border-p-border bg-p-surface text-p-text-secondary'
-                      }`}
+                      className={`${adminChip(interval === minutes, 'lg')} flex-1`}
                     >
                       {formatMinutes(minutes)}
                     </button>

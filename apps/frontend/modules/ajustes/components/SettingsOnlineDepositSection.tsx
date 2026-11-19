@@ -1,17 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Save } from 'lucide-react';
 import { AdminFeedbackBanner } from '../../../components/admin/ui/AdminFeedback';
 import SettingsSection from './SettingsSection';
 import { useAuth } from '../../../contexts/AuthContext';
 import { PlayerPricingService, type OnlineDepositSettings } from '../../../services/PlayerPricingService';
-import { showAdminToast } from '../../../utils/adminToast';
+import { useSettingsSavedVersion, useSettingsSaveSlot } from '../SettingsSaveContext';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
 
 const inputClass =
   'h-9 w-24 rounded-lg border border-p-border bg-p-surface px-2 text-right text-[13px] text-p-text outline-none focus:border-p-text-secondary';
-const primaryButtonClass =
-  'inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50';
 
 // Ajustes > Reservas: seña online obligatoria al reservar desde la app (modo "Con seña").
 export default function SettingsOnlineDepositSection() {
@@ -32,6 +29,10 @@ export default function SettingsOnlineDepositSection() {
     setHoldMinutes(String(next.onlineDepositHoldMinutes ?? 15));
   };
 
+  const savedRequired = Boolean(settings.onlineDepositRequired);
+  const savedHoldMinutes = Number(settings.onlineDepositHoldMinutes ?? 15);
+  const changes = Number(required !== savedRequired) + Number(Number(holdMinutes) !== savedHoldMinutes);
+
   const load = useCallback(async () => {
     if (!clubSlug) return;
     setLoading(true);
@@ -46,31 +47,44 @@ export default function SettingsOnlineDepositSection() {
     }
   }, [clubSlug]);
 
+  // Recargar después de guardar la página: el modo "Con seña" se elige en la tarjeta de arriba.
+  const savedVersion = useSettingsSavedVersion();
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, savedVersion]);
 
-  const handleSave = async () => {
-    if (!clubSlug || saving) return;
+  const handleSave = async (): Promise<boolean> => {
+    if (!clubSlug) return false;
     const minutes = Number(holdMinutes);
     if (!Number.isInteger(minutes) || minutes < 5 || minutes > 240) {
       setError('El tiempo para pagar la seña tiene que ser entre 5 y 240 minutos.');
-      return;
+      return false;
     }
     try {
       setSaving(true);
       setError('');
       apply(await PlayerPricingService.updateSettings(clubSlug, { onlineDepositRequired: required, onlineDepositHoldMinutes: minutes }));
-      showAdminToast('Seña online guardada.');
+      return true;
     } catch (err) {
       reportUiError({ area: 'SettingsOnlineDepositSection', action: 'save' }, err);
       setError(extractErrorMessage(err, 'No se pudo guardar la seña online.'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
+  useSettingsSaveSlot('online-deposit', {
+    changes,
+    save: handleSave,
+    discard: () => {
+      apply(settings);
+      setError('');
+    },
+  });
+
   if (!canManage) return null;
+  if (!loading && !(settings.bookingConfirmationMode === 'DEPOSIT_REQUIRED' && Number(settings.bookingDepositPercent || 0) > 0) && !error) return null;
 
   const depositMode = settings.bookingConfirmationMode === 'DEPOSIT_REQUIRED' && Number(settings.bookingDepositPercent || 0) > 0;
   const onlineOff = settings.onlineCheckoutEnabled === false;
@@ -79,23 +93,17 @@ export default function SettingsOnlineDepositSection() {
     <SettingsSection
       title="Seña online"
       description="Cuando el club confirma reservas con seña, el jugador puede pagarla con Mercado Pago desde la app. Al cubrirla, la reserva se confirma sola."
-      action={(
-        <button type="button" className={primaryButtonClass} disabled={loading || saving || !depositMode} onClick={() => void handleSave()}>
-          <Save size={14} />
-          {saving ? 'Guardando...' : 'Guardar'}
-        </button>
-      )}
     >
       <div className="space-y-3">
         {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
         {!loading && !depositMode && (
           <AdminFeedbackBanner tone="info">
-            Para usar la seña online, elegí la confirmación &quot;Con seña&quot; y cargá el porcentaje en Confirmación de reservas.
+            Para usar la seña online, elegí la confirmación &quot;Con seña&quot; y cargá el porcentaje en ¿Cómo se confirma una reserva?, más arriba.
           </AdminFeedbackBanner>
         )}
         {!loading && depositMode && onlineOff && (
           <AdminFeedbackBanner tone="warning">
-            El club tiene el pago online apagado (Ajustes → Precios): la seña se cobra en el mostrador.
+            El club tiene el pago online apagado (Ajustes → Precios y caja): la seña se cobra en el mostrador.
           </AdminFeedbackBanner>
         )}
         {depositMode && (

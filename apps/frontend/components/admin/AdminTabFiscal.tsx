@@ -5,6 +5,7 @@ import { getActiveClubSlug } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { showAdminToast } from '../../utils/adminToast';
 import { AdminFeedbackBanner } from './ui/AdminFeedback';
+import { useSettingsSaveSlot } from '../../modules/ajustes/SettingsSaveContext';
 import {
   getFiscalConfig,
   updateFiscalConfig,
@@ -276,12 +277,15 @@ export default function AdminTabFiscal() {
     return updated;
   };
 
-  const handleSaveFiscalForm = async () => {
-    if (savingFiscalForm) return;
+  const handleSaveFiscalForm = async (): Promise<boolean> => {
     const cuitDigits = onlyDigits(fiscalForm.cuit);
-    if (!fiscalForm.razonSocial.trim()) return setFiscalFormError('Falta la razón social (como figura en ARCA).');
-    if (cuitDigits.length !== 11) return setFiscalFormError('El CUIT tiene que tener 11 números.');
-    if (!fiscalForm.condicionIva) return setFiscalFormError('Elegí si el club es monotributista, responsable inscripto o exento.');
+    const fail = (message: string) => {
+      setFiscalFormError(message);
+      return false;
+    };
+    if (!fiscalForm.razonSocial.trim()) return fail('Falta la razón social (como figura en ARCA).');
+    if (cuitDigits.length !== 11) return fail('El CUIT tiene que tener 11 números.');
+    if (!fiscalForm.condicionIva) return fail('Elegí si el club es monotributista, responsable inscripto o exento.');
     try {
       setSavingFiscalForm(true);
       setFiscalFormError('');
@@ -293,14 +297,40 @@ export default function AdminTabFiscal() {
         inicioActividadesAt: fiscalForm.inicioActividadesAt ? new Date(fiscalForm.inicioActividadesAt).toISOString() : null,
       });
       applyConfig(updated);
-      showAdminToast('Datos del club guardados.');
+      return true;
     } catch (err) {
       reportUiError({ area: 'AdminTabFiscal', action: 'saveFiscalForm' }, err);
       setFiscalFormError(extractErrorMessage(err, 'No se pudieron guardar los datos.'));
+      return false;
     } finally {
       setSavingFiscalForm(false);
     }
   };
+
+  // Datos fiscales: se guardan con la barra de la página.
+  const savedFiscalForm = {
+    razonSocial: config?.razonSocial ?? '',
+    cuit: formatCuit(config?.cuit),
+    condicionIva: config?.condicionIva ?? '',
+    ingresosBrutos: config?.ingresosBrutos ?? '',
+    inicioActividadesAt: config?.inicioActividadesAt ? new Date(config.inicioActividadesAt).toISOString().slice(0, 10) : '',
+  };
+  const fiscalFormChanges = loading
+    ? 0
+    : (Object.keys(savedFiscalForm) as Array<keyof typeof savedFiscalForm>).filter((key) =>
+        key === 'cuit'
+          ? onlyDigits(fiscalForm.cuit) !== onlyDigits(savedFiscalForm.cuit)
+          : String(fiscalForm[key] ?? '').trim() !== String(savedFiscalForm[key] ?? '').trim()
+      ).length;
+
+  useSettingsSaveSlot('fiscal-data', {
+    changes: fiscalFormChanges,
+    save: handleSaveFiscalForm,
+    discard: () => {
+      applyConfig(config);
+      setFiscalFormError('');
+    },
+  });
 
   const pickFile = async (file: File, target: 'cert' | 'key') => {
     try {
@@ -684,11 +714,6 @@ export default function AdminTabFiscal() {
             {fiscalFormError}
           </AdminFeedbackBanner>
         )}
-        <div className="mt-4 flex justify-end">
-          <button type="button" className={primaryButtonClass} disabled={savingFiscalForm} onClick={() => void handleSaveFiscalForm()}>
-            {savingFiscalForm ? 'Guardando…' : 'Guardar datos'}
-          </button>
-        </div>
       </StepCard>
 
       {/* ── Paso 2: certificado ── */}

@@ -1,4 +1,5 @@
 import type { GetServerSideProps } from 'next';
+import { AdminPersonCreateOption, AdminPersonList, AdminPersonOption, AdminSearchInput, AdminSelectedPerson } from '../../components/admin/ui/AdminPersonPicker';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Pencil, Plus, Search, UserPlus, XCircle } from 'lucide-react';
 import {
@@ -58,6 +59,8 @@ import { getApiFieldErrors, normalizeApiError } from '../../utils/apiError';
 import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import { adminButton } from '../../components/admin/ui/adminButton';
+import { adminChip } from '../../components/admin/ui/adminChip';
 
 type ClassStatusFilter = 'all' | 'active' | 'completed' | 'cancelled';
 type EnrollmentFilter = 'active' | 'all' | 'cancelled';
@@ -375,7 +378,6 @@ const parseOptionalPositiveNumber = (value: string) => {
   return parsed;
 };
 
-const drawerSectionCardClass = 'rounded-[22px] border border-p-border bg-p-surface-2 p-4 md:p-5';
 const fieldInputClass =
   'h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text shadow-p-card outline-none transition focus:border-p-accent focus:ring-2 focus:ring-lima-300/30';
 const helperCardClass = 'rounded-2xl border border-p-border bg-p-surface p-4 text-[13px] text-p-text-secondary';
@@ -1838,9 +1840,9 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setClassPassAccountId(accountId);
         setClassPassAccountInitialView(initialView);
         setClassPassAccountContext({
-          title: `Pack · ${classPass.packageName}`,
+          title: classPass.packageName,
           subtitle: classPass.ownerClient?.name
-            ? `Paga: ${classPass.ownerClient.name}`
+            ? `Pack · paga ${classPass.ownerClient.name}`
             : 'Pack de Academia',
         });
         setClassPassAccountStudentClientId(classPass.beneficiaryClientId);
@@ -1963,9 +1965,9 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         setClassEnrollmentAccountId(accountId);
         setClassEnrollmentAccountInitialView(initialView);
         setClassEnrollmentAccountContext({
-          title: `Clase · ${enrollment.snapshotName}`,
+          title: enrollment.snapshotName,
           subtitle: selectedClass.teacher?.displayName
-            ? `${selectedClass.teacher.displayName} · ${formatDateRange(selectedClass.startsAt, selectedClass.endsAt)}`
+            ? `Clase con ${selectedClass.teacher.displayName} · ${formatDateRange(selectedClass.startsAt, selectedClass.endsAt)}`
             : 'Clase de Academia',
         });
         setClassEnrollmentAccountDrawerOpen(true);
@@ -2797,7 +2799,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
     <form id="class-pass-form" onSubmit={submitClassPassForm} className="space-y-4">
       {classPassFormError ? <AdminInlineError>{classPassFormError}</AdminInlineError> : null}
 
-      <AdminDrawerSection title="Para quién es" className={drawerSectionCardClass}>
+      <AdminDrawerSection title="Para quién es">
         <div className="space-y-4">
           <div className={helperCardClass}>
             <p className="font-semibold text-p-text">Crear el pack no lo cobra</p>
@@ -2827,7 +2829,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         </div>
       </AdminDrawerSection>
 
-      <AdminDrawerSection title="Pack y vigencia" className={drawerSectionCardClass}>
+      <AdminDrawerSection title="Pack y vigencia">
         <div className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <Field
@@ -2885,7 +2887,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         </div>
       </AdminDrawerSection>
 
-      <AdminDrawerSection title="Restricciones" className={drawerSectionCardClass}>
+      <AdminDrawerSection title="Restricciones">
         <div className="space-y-3">
           <CheckboxField
             label={`Restringir a la actividad actual${selectedClass?.activityType?.name ? ` (${selectedClass.activityType.name})` : ''}`}
@@ -2910,7 +2912,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
         </div>
       </AdminDrawerSection>
 
-      <AdminDrawerSection title="Notas" className={drawerSectionCardClass}>
+      <AdminDrawerSection title="Notas">
         <TextAreaField
           label="Notas"
           value={classPassForm.notes}
@@ -2946,7 +2948,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           <button
             type="button"
             onClick={() => setSeriesRequestsModal({ seriesId: null })}
-            className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800"
+            className={adminButton('primary')}
           >
             Ver pedidos
           </button>
@@ -2981,26 +2983,22 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               value={statusFilter}
               onChange={(value) => setStatusFilter(value as ClassStatusFilter)}
               ariaLabel="Qué clases ver"
-              density="compact"
+              variant="filter"
               className="w-fit"
             />
-            <div className="relative w-full sm:w-[240px] sm:flex-none">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} strokeWidth={2.5} />
-              <input
-                type="text"
-                placeholder="Buscar profesor, cancha, deporte..."
-                className="h-8 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[12px] text-p-text placeholder:text-p-text-muted outline-none transition focus:border-p-accent"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-              />
-            </div>
+            <AdminSearchInput
+              placeholder="Buscar profesor, cancha, deporte..."
+              value={searchTerm}
+              onChange={(value) => setSearchTerm(value)}
+              wrapperClassName="w-full sm:w-[240px] sm:flex-none"
+            />
             <button
               type="button"
               onClick={openCreateModal}
               disabled={!canCreateClass}
-              className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 shadow-p-md transition hover:bg-ink-800 hover:shadow-p-md disabled:cursor-not-allowed disabled:bg-ink-700/60 sm:w-auto"
+              className={`${adminButton('primary')} w-full sm:w-auto`}
             >
-              <Plus size={14} />
+              <Plus size={15} strokeWidth={2.5} />
               Nueva clase
             </button>
           </AdminFilterToolbar>
@@ -3038,7 +3036,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   <button
                     type="button"
                     onClick={openCreateModal}
-                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                    className={adminButton('primary', 'sm')}
                   >
                     <Plus size={14} />
                     Nueva clase
@@ -3115,7 +3113,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                     type="button"
                     disabled={statusBusyId === selectedClass.id}
                     onClick={() => void updateStatus(selectedClass, 'SCHEDULED')}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
+                    className={adminButton('primary', 'lg')}
                   >
                     {statusBusyId === selectedClass.id ? 'Reactivando...' : 'Reactivar clase'}
                   </button>
@@ -3124,9 +3122,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 <button
                   type="button"
                   onClick={openEnrollmentCreateModal}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800"
+                  className={adminButton('primary', 'lg')}
                 >
-                  <UserPlus size={14} />
                   Agregar alumno
                 </button>
               )}
@@ -3145,9 +3142,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   <button
                     type="button"
                     onClick={() => void openSeriesEditModal(selectedClass.seriesId as string)}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+                    className={adminButton('secondary', 'lg')}
                   >
-                    <Pencil size={14} />
                     Editar curso
                   </button>
                   <button
@@ -3169,9 +3165,8 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                 <button
                   type="button"
                   onClick={() => void openEditModal(selectedClass.id)}
-                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+                  className={adminButton('secondary', 'lg')}
                 >
-                  <Pencil size={14} />
                   Editar
                 </button>
               )}
@@ -3227,7 +3222,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <button
               type="button"
               onClick={closeModal}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-p-border px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>
@@ -3235,7 +3230,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               type="submit"
               form="class-session-form"
               disabled={submitting}
-              className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
+              className={adminButton('primary', 'lg')}
             >
               {submitting
                 ? 'Guardando...'
@@ -3284,7 +3279,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <button
               type="button"
               onClick={closeEnrollmentModal}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-p-border px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>
@@ -3292,7 +3287,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               type="submit"
               form="class-enrollment-form"
               disabled={enrollmentSubmitting}
-              className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
+              className={adminButton('primary', 'lg')}
             >
               {enrollmentSubmitting
                 ? 'Guardando...'
@@ -3309,19 +3304,15 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           {enrollmentFormError && <AdminInlineError>{enrollmentFormError}</AdminInlineError>}
 
           {showEnrollmentSummaryTab ? (
-          <AdminDrawerSection title={editingEnrollmentId ? 'Alumno' : '¿Quién viene?'} className={drawerSectionCardClass}>
+          <AdminDrawerSection title={editingEnrollmentId ? 'Alumno' : '¿Quién viene?'}>
             <div className="space-y-4">
 
               {editingEnrollmentId ? (
-                <div className="rounded-xl border border-p-border bg-p-surface px-4 py-3">
-                  <p className="text-[12px] font-semibold text-p-text">Alumno</p>
-                  <p className="mt-1 text-[13px] font-medium text-p-text">
-                    {enrollmentForm.selectedStudent?.displayName || 'Sin alumno'}
-                  </p>
-                  <p className="mt-1 text-[12px] text-p-text-muted">
-                    {enrollmentForm.selectedStudent ? personSecondaryLine(enrollmentForm.selectedStudent) : 'Sin datos'}
-                  </p>
-                </div>
+                <AdminSelectedPerson
+                  name={enrollmentForm.selectedStudent?.displayName || 'Sin alumno'}
+                  detail={enrollmentForm.selectedStudent ? personSecondaryLine(enrollmentForm.selectedStudent) : 'Sin datos'}
+                  badges={enrollmentForm.selectedStudent ? personBadges(enrollmentForm.selectedStudent) : undefined}
+                />
               ) : (
                 <PersonSearchSelectField
                   label="Nombre o teléfono"
@@ -3455,7 +3446,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           ) : null}
 
           {showEnrollmentSummaryTab ? (
-          <AdminDrawerSection title={editingEnrollmentId ? 'Asistencia y notas' : 'Notas'} className={drawerSectionCardClass}>
+          <AdminDrawerSection title={editingEnrollmentId ? 'Asistencia y notas' : 'Notas'}>
             <div className="space-y-4">
               {editingEnrollmentId ? (
                 <SelectField
@@ -3486,7 +3477,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           ) : null}
 
           {showEnrollmentCreditsTab && editingEnrollmentId ? (
-          <AdminDrawerSection title="Pack" className={drawerSectionCardClass}>
+          <AdminDrawerSection title="Pack">
             {!editingEnrollmentId || !editingEnrollment || !editingEnrollmentForCredit ? (
               <div className={helperCardClass}>
                 <p className="font-semibold text-p-text">Packs después de guardar</p>
@@ -3503,7 +3494,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                   <button
                     type="button"
                     onClick={openClassPassDrawer}
-                    className="inline-flex h-8 shrink-0 self-start items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:text-p-text sm:self-auto"
+                    className={`${adminButton('secondary', 'sm')} shrink-0 self-start gap-1.5 sm:self-auto`}
                   >
                     <Plus size={14} />
                     Agregar pack
@@ -3570,7 +3561,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                         type="button"
                         disabled={editingEnrollmentAccountActionDisabled}
                         onClick={() => void openClassEnrollmentAccountDrawer(editingEnrollment)}
-                        className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:text-p-text disabled:cursor-not-allowed disabled:opacity-60"
+                        className={adminButton('secondary', 'sm')}
                       >
                         {classEnrollmentAccountBusyId === editingEnrollment.id
                           ? 'Abriendo cuenta...'
@@ -3658,7 +3649,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                                 type="button"
                                 disabled={classPassAccountBusyId === classPass.id || Boolean(classPass.financial.blockedReason)}
                                 onClick={() => void openClassPassAccountDrawer(classPass)}
-                                className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2 hover:text-p-text disabled:cursor-not-allowed disabled:opacity-60"
+                                className={adminButton('secondary', 'sm')}
                               >
                                 {classPassAccountBusyId === classPass.id
                                   ? 'Abriendo cuenta...'
@@ -3678,7 +3669,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                                     reason: availability.reason,
                                   })
                                 }
-                                className="inline-flex h-8 items-center justify-center rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 shadow-sm transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:bg-ink-700/50"
+                                className={adminButton('primary', 'sm')}
                               >
                                 {creditUsageBusyPassId === classPass.id
                                   ? 'Usando...'
@@ -3714,7 +3705,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           ) : null}
 
           {showEnrollmentAccountTab && monthPassTarget ? (
-            <AdminDrawerSection title="Cuota del curso" className={drawerSectionCardClass}>
+            <AdminDrawerSection title="Cuota del curso">
               <div className="space-y-3">
                 <p className="text-[13px] text-p-text-secondary">
                   Cobrale el mes entero. Cada vez que marcás presente se usa una clase del mes.
@@ -3773,7 +3764,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                         type="button"
                         disabled={monthPassBusy}
                         onClick={() => void chargeCourseMonth()}
-                        className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
+                        className={`${adminButton('primary')} shrink-0`}
                       >
                         {monthPassBusy ? 'Cobrando...' : `Cobrar ${monthPassPreview.monthLabel}`}
                       </button>
@@ -3785,7 +3776,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           ) : null}
 
           {showEnrollmentAccountTab ? (
-            <AdminDrawerSection title={monthPassTarget ? 'Solo esta clase' : 'Cuenta'} className={drawerSectionCardClass}>
+            <AdminDrawerSection title={monthPassTarget ? 'Solo esta clase' : 'Cuenta'}>
               {!editingEnrollment ? (
                 <div className={helperCardClass}>
                   <p className="font-semibold text-p-text">Guardá primero la inscripción</p>
@@ -3850,7 +3841,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                           type="button"
                           disabled={editingEnrollmentAccountActionDisabled}
                           onClick={() => void openClassEnrollmentAccountDrawer(editingEnrollment)}
-                          className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:text-p-text disabled:cursor-not-allowed disabled:opacity-60"
+                          className={adminButton('secondary', 'sm')}
                         >
                           {classEnrollmentAccountBusyId === editingEnrollment.id
                             ? 'Abriendo cuenta...'
@@ -3865,7 +3856,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
           ) : null}
 
           {showEnrollmentTraceabilityTab ? (
-            <AdminDrawerSection title="Trazabilidad" className={drawerSectionCardClass}>
+            <AdminDrawerSection title="Trazabilidad">
               {!editingEnrollment || !editingEnrollmentForCredit ? (
                 <div className={helperCardClass}>
                   <p className="font-semibold text-p-text">Guardá primero la inscripción</p>
@@ -4000,7 +3991,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
             <button
               type="button"
               onClick={closeClassPassDrawer}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-p-border px-3 text-sm font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>
@@ -4008,7 +3999,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
               type="submit"
               form="class-pass-form"
               disabled={classPassSubmitting}
-              className="inline-flex h-9 items-center justify-center rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
+              className={adminButton('primary', 'lg')}
             >
               {classPassSubmitting ? 'Asignando...' : 'Asignar pack'}
             </button>
@@ -4105,7 +4096,7 @@ export function AdminClassesPageContent({ user, embedded = false }: { user: any;
                         type="button"
                         disabled={Boolean(seriesRequestBusyId)}
                         onClick={() => void answerSeriesRequest(member, true)}
-                        className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
+                        className={adminButton('primary', 'sm')}
                       >
                         {seriesRequestBusyId === member.memberId ? 'Un momento...' : 'Aceptar'}
                       </button>
@@ -4580,7 +4571,7 @@ function ClassSessionDrawerContent({
                     value={enrollmentFilter}
                     onChange={(value) => onEnrollmentFilterChange(value as EnrollmentFilter)}
                     ariaLabel="Filtro de inscripciones"
-                    density="compact"
+                    variant="filter"
                     className="w-fit"
                   />
                 </AdminFilterToolbar>
@@ -4616,7 +4607,7 @@ function ClassSessionDrawerContent({
                   <button
                     type="button"
                     onClick={onAddEnrollment}
-                    className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                    className={adminButton('primary', 'sm')}
                   >
                     <UserPlus size={14} />
                     Agregar alumno
@@ -4738,7 +4729,7 @@ function ClassEnrollmentListItem({
           <button
             type="button"
             onClick={onQuickUseCredit}
-            className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2"
+            className={adminButton('secondary', 'sm')}
           >
             {creditActionLabel === 'Usar crédito' ? 'Usar pack' : creditActionLabel}
           </button>
@@ -4746,7 +4737,7 @@ function ClassEnrollmentListItem({
         <button
           type="button"
           onClick={onManage}
-          className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2"
+          className={adminButton('secondary', 'sm')}
         >
           Ver
         </button>
@@ -4865,11 +4856,7 @@ function ChoiceChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-semibold transition ${
-        active
-          ? 'border-ink-900 bg-ink-900 text-ink-50'
-          : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong hover:text-p-text'
-      }`}
+      className={adminChip(active)}
     >
       {children}
     </button>
@@ -4908,100 +4895,49 @@ function PersonSearchSelectField({
   const safeQuery = String(query || '').trim();
   return (
     <div className="space-y-2">
-      <label className="text-[12px] font-semibold text-p-text">
+      <p className="text-[12px] font-semibold text-p-text">
         {label}
         {required ? ' *' : ''}
-      </label>
+      </p>
 
       {selected ? (
-        <div className="rounded-xl border border-p-border bg-p-surface px-3 py-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold text-p-text">{selected.displayName}</p>
-              <p className="mt-1 text-[12px] text-p-text-muted">{personSecondaryLine(selected)}</p>
-              {personBadges(selected).length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {personBadges(selected).map((badge) => (
-                    <span
-                      key={`${label}-${badge}`}
-                      className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-medium text-p-text-secondary"
-                    >
-                      {badge}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-            {!disabled ? (
-              <button
-                type="button"
-                onClick={onClear}
-                className="inline-flex h-8 items-center justify-center rounded-lg border border-p-border px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text"
-              >
-                Cambiar
-              </button>
-            ) : null}
-          </div>
-        </div>
+        <AdminSelectedPerson
+          name={selected.displayName}
+          detail={personSecondaryLine(selected)}
+          badges={personBadges(selected)}
+          onChange={disabled ? undefined : onClear}
+        />
       ) : (
         <div className="space-y-2">
-          <input
-            type="text"
+          <AdminSearchInput
             value={query}
             disabled={disabled}
-            onChange={(event) => onQueryChange(event.target.value)}
+            onChange={onQueryChange}
             placeholder={placeholder}
-            className="h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none transition focus:border-p-accent disabled:cursor-not-allowed disabled:bg-p-surface-2 disabled:text-p-text-muted"
+            aria-label={label}
           />
-          {loading ? (
-            <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-3 text-[12px] text-p-text-muted">
-              Buscando personas...
-            </div>
-          ) : safeQuery.length >= 2 ? (
-            results.length > 0 ? (
-              <div className="divide-y divide-p-border overflow-hidden rounded-xl border border-p-border bg-p-surface">
-                {results.map((candidate) => (
-                  <div key={`${label}-${candidate.personKey}`} className="px-3 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-[13px] font-semibold text-p-text">{candidate.displayName}</p>
-                        <p className="mt-1 text-[12px] text-p-text-muted">{personSecondaryLine(candidate)}</p>
-                        {personBadges(candidate).length > 0 ? (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {personBadges(candidate).map((badge) => (
-                              <span
-                                key={`${candidate.personKey}-${badge}`}
-                                className="inline-flex rounded-full border border-p-border bg-p-surface-2 px-2 py-0.5 text-[11px] font-medium text-p-text-secondary"
-                              >
-                                {badge}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {candidate.disabledReason ? (
-                          <p className="mt-2 text-[11px] text-[var(--error-fg)]">{candidate.disabledReason}</p>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        disabled={Boolean(candidate.disabledReason)}
-                        onClick={() => onSelect(candidate)}
-                        className="inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-p-border px-2.5 text-[11px] font-semibold text-p-text-muted transition hover:border-p-border-strong hover:text-p-text disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Seleccionar
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-p-border bg-p-surface-2 px-3 py-3 text-[12px] text-p-text-muted">
-                No encontramos coincidencias para esa búsqueda.
-              </div>
-            )
-          ) : helper ? (
-            <p className="text-[11px] text-p-text-muted">{helper}</p>
-          ) : null}
+          <AdminPersonList loading={loading} query={safeQuery} count={results.length} empty="No encontramos a nadie con ese dato.">
+            {results.map((candidate) =>
+              candidate.kind === 'newClientSuggestion' ? (
+                <AdminPersonCreateOption
+                  key={`${label}-${candidate.personKey}`}
+                  label="Alumno nuevo"
+                  value={candidate.displayName}
+                  onClick={() => onSelect(candidate)}
+                />
+              ) : (
+              <AdminPersonOption
+                key={`${label}-${candidate.personKey}`}
+                name={candidate.displayName}
+                detail={candidate.disabledReason || personSecondaryLine(candidate)}
+                badges={personBadges(candidate)}
+                disabled={Boolean(candidate.disabledReason)}
+                onClick={() => onSelect(candidate)}
+              />
+              )
+            )}
+          </AdminPersonList>
+          {safeQuery.length < 2 && helper ? <p className="text-[11px] text-p-text-muted">{helper}</p> : null}
         </div>
       )}
 

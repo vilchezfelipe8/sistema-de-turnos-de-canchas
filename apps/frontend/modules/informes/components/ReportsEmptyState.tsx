@@ -1,4 +1,5 @@
 import { AdminEmptyState } from '../../../components/admin/ui';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 type ReportsEmptyStateProps = {
   title: string;
@@ -22,7 +23,7 @@ export default function ReportsEmptyState({
           <button
             type="button"
             onClick={onAction}
-            className="h-10 rounded-lg border border-p-border bg-p-surface px-4 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+            className={adminButton('secondary', 'lg')}
           >
             {actionLabel}
           </button>

@@ -12,8 +12,9 @@ import {
 } from './ui';
 import ReportsEmptyState from '../../modules/informes/components/ReportsEmptyState';
 import ReportsMetricGrid, { type ReportsMetric } from '../../modules/informes/components/ReportsMetricGrid';
-import { type ReportsPeriod } from '../../modules/informes/components/ReportsPeriodToolbar';
+import AdminPeriodPicker, { type AdminPeriod as ReportsPeriod } from './ui/AdminPeriodPicker';
 import { formatReportsMoney, formatReportsNumber } from '../../modules/informes/components/reportsFormatters';
+import { adminButton } from './ui/adminButton';
 
 interface Props {
   slugProp?: string;
@@ -483,43 +484,16 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
     <div className="flex w-full flex-col gap-4" aria-busy={loading ? 'true' : undefined}>
       {/* Período: un solo control. */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-          {periodOptions.map((option) => (
-            <button
-              key={`period-${option.value}`}
-              type="button"
-              aria-pressed={!isCustomRange && activePeriod === option.value}
-              onClick={() => handlePeriodChange(option.value)}
-              className={`h-8 rounded-lg px-3 text-[13px] font-semibold transition ${
-                !isCustomRange && activePeriod === option.value
-                  ? 'bg-ink-900 text-ink-50'
-                  : 'text-p-text-secondary hover:bg-p-surface-2'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1 rounded-xl border border-p-border bg-p-surface p-1">
-          <button
-            type="button"
-            aria-label="Período anterior"
-            onClick={() => handleShiftPeriod(-1)}
-            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-surface-2"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <span className="min-w-[132px] text-center text-[13px] font-semibold text-p-text">{periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1)}</span>
-          <button
-            type="button"
-            aria-label="Período siguiente"
-            onClick={() => handleShiftPeriod(1)}
-            disabled={!isCustomRange && periodOffset === 0}
-            className="grid h-8 w-8 place-items-center rounded-lg text-p-text-muted hover:bg-p-surface-2 disabled:opacity-40 disabled:hover:bg-transparent"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
+        <AdminPeriodPicker
+          period={activePeriod}
+          periodSelected={!isCustomRange}
+          options={periodOptions}
+          onPeriodChange={handlePeriodChange}
+          label={periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1)}
+          onPrevious={() => handleShiftPeriod(-1)}
+          onNext={() => handleShiftPeriod(1)}
+          nextDisabled={!isCustomRange && periodOffset === 0}
+        />
         <button
           type="button"
           onClick={() => {
@@ -553,7 +527,7 @@ export default function AdminTabStatistics({ slugProp, focus = 'resumen' }: Prop
           <button
             type="button"
             onClick={handleApplyCustomRange}
-            className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+            className={adminButton('primary', 'lg')}
           >
             Ver
           </button>

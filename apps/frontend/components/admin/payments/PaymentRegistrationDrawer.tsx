@@ -1,5 +1,7 @@
 import React from 'react';
 import { AdminDrawerSection } from '../ui/AdminDrawer';
+import { adminButton } from '../ui/adminButton';
+import { adminChip } from '../ui/adminChip';
 
 type PaymentQuickPreset = 'FULL' | 'COURT_ONLY' | 'CUSTOM_ITEMS';
 
@@ -49,7 +51,6 @@ type Props = {
 const formatPesos = (value: number) =>
   `$ ${Number(value || 0).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const sectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
 
 export default function PaymentRegistrationDrawer({
   methodOptions,
@@ -75,7 +76,7 @@ export default function PaymentRegistrationDrawer({
   return (
     <>
       {/* Método de pago */}
-      <AdminDrawerSection className={sectionCardClass}>
+      <AdminDrawerSection>
         <span className="text-[12px] font-medium text-p-text-muted">Medio de pago</span>
         <div
           role="radiogroup"
@@ -92,11 +93,7 @@ export default function PaymentRegistrationDrawer({
                 role="radio"
                 aria-checked={isActive}
                 onClick={() => onMethodChange(option.value)}
-                className={`h-11 rounded-xl border text-[14px] font-semibold transition ${
-                  isActive
-                    ? 'border-ink-900 bg-ink-900 text-ink-50'
-                    : 'border-p-border bg-p-surface text-p-text hover:bg-p-surface-2'
-                }`}
+                className={`${adminChip(isActive, 'xl')} !px-0`}
               >
                 {option.label}
               </button>
@@ -106,7 +103,7 @@ export default function PaymentRegistrationDrawer({
       </AdminDrawerSection>
 
       {/* Conceptos a cobrar */}
-      <AdminDrawerSection title="Conceptos a cobrar" className={sectionCardClass}>
+      <AdminDrawerSection title="Conceptos a cobrar">
         <div className="grid grid-cols-3 gap-2">
           {presetOptions.map((option) => {
             const isActive = selectedPreset === option.id;
@@ -130,7 +127,7 @@ export default function PaymentRegistrationDrawer({
 
       {/* Selección manual de conceptos */}
       {selectedPreset === 'CUSTOM_ITEMS' && (
-        <AdminDrawerSection className={sectionCardClass}>
+        <AdminDrawerSection>
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-[12px] font-semibold text-p-text-secondary">Selección manual</span>
             <span className="text-[11px] font-semibold text-p-text-muted">
@@ -142,7 +139,7 @@ export default function PaymentRegistrationDrawer({
               <button
                 type="button"
                 onClick={onSelectAll}
-                className="h-7 rounded-md border border-p-border bg-p-surface px-2 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                className={adminButton('secondary', 'sm')}
               >
                 Seleccionar todo
               </button>
@@ -151,7 +148,7 @@ export default function PaymentRegistrationDrawer({
               <button
                 type="button"
                 onClick={onClear}
-                className="h-7 rounded-md border border-p-border bg-p-surface px-2 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                className={adminButton('secondary', 'sm')}
               >
                 Limpiar
               </button>
@@ -222,7 +219,7 @@ export default function PaymentRegistrationDrawer({
       )}
 
       {/* Monto final */}
-      <AdminDrawerSection className={sectionCardClass}>
+      <AdminDrawerSection>
         <label className="block">
           <span className="text-[12px] font-medium text-p-text-muted">Monto final</span>
           <div className="mt-1 h-11 rounded-xl border border-p-border bg-p-surface px-3 flex items-center justify-between">
@@ -243,7 +240,7 @@ export default function PaymentRegistrationDrawer({
 
       {/* Precio por medio de pago */}
       {methodDiscount && (
-        <AdminDrawerSection className={sectionCardClass}>
+        <AdminDrawerSection>
           <label className="flex cursor-pointer items-start gap-2">
             <input
               type="checkbox"

@@ -15,6 +15,8 @@ type SettingsSectionProps = {
   children: ReactNode;
   /** Clase adicional para el contenedor raíz. */
   className?: string;
+  /** Clase del cuerpo (por defecto con padding). */
+  bodyClassName?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -44,6 +46,7 @@ export default function SettingsSection({
   action,
   children,
   className = '',
+  bodyClassName = 'px-5 pb-5 pt-4',
 }: SettingsSectionProps) {
   return (
     <section
@@ -55,9 +58,9 @@ export default function SettingsSection({
         .join(' ')}
     >
       {/* ── Header ── */}
-      <div className="flex items-start justify-between gap-4 border-b border-p-border px-5 py-4">
+      <div className="flex items-start justify-between gap-4 px-5 pt-5">
         <div className="min-w-0">
-          <p className="text-[13px] font-semibold leading-snug text-p-text">{title}</p>
+          <p className="text-[14px] font-semibold leading-snug text-p-text">{title}</p>
           {description && (
             <p className="mt-0.5 text-[12px] leading-snug text-p-text-muted">{description}</p>
           )}
@@ -66,7 +69,7 @@ export default function SettingsSection({
       </div>
 
       {/* ── Body ── */}
-      <div className="px-5 py-4">{children}</div>
+      <div className={bodyClassName}>{children}</div>
     </section>
   );
 }

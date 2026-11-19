@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react';
 import type { CashAccountItem } from './CashAccountsList';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -162,7 +163,7 @@ export default function CashAccountDetailPanel({
               <button
                 type="button"
                 onClick={onPay}
-                className="h-11 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                className={adminButton('primary', 'lg')}
               >
                 Cobrar {formatMoney(remaining)}
               </button>
@@ -302,7 +303,7 @@ export default function CashAccountDetailPanel({
           <button
             type="button"
             onClick={onCloseAccount}
-            className="ml-auto h-9 rounded-lg border border-p-border px-3.5 text-[13px] font-semibold text-p-text hover:bg-p-surface-2"
+            className={`${adminButton('secondary', 'md')} ml-auto`}
           >
             Cerrar cuenta
           </button>

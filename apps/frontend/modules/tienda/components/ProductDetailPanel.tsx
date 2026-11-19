@@ -10,6 +10,8 @@ import {
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { showAdminToast } from '../../../utils/adminToast';
 import type { ProductRow } from './ProductsTable';
+import { adminButton } from '../../../components/admin/ui/adminButton';
+import { adminChip } from '../../../components/admin/ui/adminChip';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -230,11 +232,7 @@ export default function ProductDetailPanel({
                   type="button"
                   aria-pressed={action === kind}
                   onClick={() => openAction(kind)}
-                  className={`h-9 rounded-xl border px-3.5 text-[13px] font-semibold transition ${
-                    action === kind
-                      ? 'border-ink-900 bg-ink-900 text-ink-50'
-                      : 'border-p-border bg-p-surface text-p-text hover:bg-p-surface-2'
-                  }`}
+                  className={adminChip(action === kind)}
                 >
                   {kind === 'entry' ? 'Entró mercadería' : kind === 'count' ? 'Conté' : 'Se rompió o venció'}
                 </button>
@@ -277,7 +275,7 @@ export default function ProductDetailPanel({
                     type="button"
                     onClick={() => setAction(null)}
                     disabled={submitting}
-                    className="h-10 rounded-xl border border-p-border px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                    className={adminButton('secondary', 'lg')}
                   >
                     Cancelar
                   </button>
@@ -285,7 +283,7 @@ export default function ProductDetailPanel({
                     type="button"
                     onClick={() => void submit()}
                     disabled={submitting}
-                    className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-60"
+                    className={adminButton('primary', 'lg')}
                   >
                     {submitting ? 'Guardando...' : actionCopy[action].button}
                   </button>

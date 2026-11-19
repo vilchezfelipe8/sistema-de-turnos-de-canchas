@@ -11,6 +11,7 @@ import ServicesTable from '../modules/tienda/components/ServicesTable';
 import ServiceDrawer from '../modules/tienda/components/ServiceDrawer';
 import type { ServiceFormData } from '../modules/tienda/components/ServiceDrawer';
 import { getApiFieldErrors } from '../utils/apiError';
+import { AdminSearchInput } from './admin/ui/AdminPersonPicker';
 
 type ServicesPageProps = {
   slug: string;
@@ -199,16 +200,12 @@ export default function ServicesPage({ slug }: ServicesPageProps) {
           )}
         </p>
         {services.length > 0 && (
-          <label className="relative w-full sm:w-[260px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" size={14} />
-            <input
-              type="text"
-              placeholder="Buscar servicio"
-              className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </label>
+          <AdminSearchInput
+            placeholder="Buscar servicio"
+            value={searchTerm}
+            onChange={(value) => setSearchTerm(value)}
+            wrapperClassName="w-full sm:w-[260px]"
+          />
         )}
         <button
           type="button"

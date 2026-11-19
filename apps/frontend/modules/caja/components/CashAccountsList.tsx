@@ -1,4 +1,5 @@
 import { Check } from 'lucide-react';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -112,8 +113,11 @@ function AccountRow({
                   event.stopPropagation();
                   onPay(account.id);
                 }}
-                onKeyDown={(event) => event.stopPropagation()}
-                className="h-9 rounded-lg bg-ink-900 px-3.5 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                onKeyDown={(event) => {
+                  // Solo Enter/Espacio: que no seleccionen la fila. Escape tiene que llegar al drawer.
+                  if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+                }}
+                className={adminButton('primary')}
               >
                 Cobrar
               </button>

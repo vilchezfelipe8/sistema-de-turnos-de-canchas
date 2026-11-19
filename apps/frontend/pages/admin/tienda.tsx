@@ -3,7 +3,7 @@ import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import AdminTabProducts from '../../components/admin/AdminTabProducts';
 import AdminTabServices from '../../components/admin/AdminTabServices';
 import InventoryPage from '../../modules/tienda/components/InventoryPage';
-import { AdminSegmentedControl } from '../../components/admin/ui';
+import { AdminPage } from '../../components/admin/ui';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 
 type StoreTab = 'productos' | 'servicios' | 'inventario';
@@ -44,21 +44,20 @@ export default function AdminStorePage() {
         const clubSlug = getActiveClubSlug(normalizedUser);
 
         return (
-          <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 pb-0 lg:gap-4 lg:p-6 lg:pb-0">
-            <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Tienda</h1>
-            <AdminSegmentedControl
-              options={STORE_TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
-              value={activeTab}
-              onChange={(value) => handleChangeTab(value as StoreTab)}
-              ariaLabel="Subnavegacion de tienda"
-              className="w-fit"
-            />
-            <section className="min-h-0 flex-1 overflow-y-auto pb-6 lg:pb-8">
+          <AdminPage
+            title="Tienda"
+            description="Lo que vendés en el mostrador: productos, servicios y su stock."
+            tabs={{
+              options: STORE_TABS.map((tab) => ({ value: tab.value, label: tab.label })),
+              value: activeTab,
+              onChange: (value) => handleChangeTab(value as StoreTab),
+              ariaLabel: 'Secciones de la tienda',
+            }}
+          >
               {activeTab === 'productos' && <AdminTabProducts clubSlug={clubSlug || undefined} />}
               {activeTab === 'servicios' && <AdminTabServices clubSlug={clubSlug || undefined} />}
               {activeTab === 'inventario' && <InventoryPage slug={clubSlug || undefined} />}
-            </section>
-          </div>
+          </AdminPage>
         );
       }}
     </AdminRouteShell>

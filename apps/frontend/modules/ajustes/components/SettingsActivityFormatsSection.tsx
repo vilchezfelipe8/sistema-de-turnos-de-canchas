@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import AdminEmptyState from '../../../components/admin/ui/AdminEmptyState';
 import { AdminFeedbackBanner } from '../../../components/admin/ui/AdminFeedback';
@@ -24,8 +24,23 @@ const missingFixedDuration = (activity: ClubActivityType, durationMinutes?: numb
   return !slots.some((slot: any) => Number(slot?.duration) === Number(durationMinutes));
 };
 
+function FormatsWrapper({ compact, title, children }: { compact: boolean; title: string; children: ReactNode }) {
+  if (compact) return <div>{children}</div>;
+  return (
+    <SettingsSection title={title} description="Modalidades de juego de esta actividad.">
+      {children}
+    </SettingsSection>
+  );
+}
+
 // Ajustes > Actividades: modalidades de juego (ej. Tenis Single 2 jugadores / Dobles 4) para el precio por jugador.
-export default function SettingsActivityFormatsSection() {
+type SettingsActivityFormatsSectionProps = {
+  /** Solo las modalidades de este deporte, sin tarjeta propia. */
+  activityId?: number;
+};
+
+export default function SettingsActivityFormatsSection({ activityId }: SettingsActivityFormatsSectionProps = {}) {
+  const compact = activityId != null;
   const { user } = useAuth();
   const clubSlug = useMemo(() => getActiveClubSlug(user as any), [user]);
   const canManage = hasAdminAccess(user as any);
@@ -123,17 +138,19 @@ export default function SettingsActivityFormatsSection() {
   return (
     <div className="space-y-4">
       {error ? <AdminFeedbackBanner tone="error">{error}</AdminFeedbackBanner> : null}
-      <AdminFeedbackBanner tone="info" compact>
-        Las modalidades definen cuántos jugadores tiene un turno (ej. Single 2, Dobles 4). Se usan cuando el club cobra por jugador (Ajustes &gt; Precios).
-      </AdminFeedbackBanner>
+      {!compact && (
+        <AdminFeedbackBanner tone="info" compact>
+          Las modalidades definen cuántos jugadores tiene un turno (ej. Single 2, Dobles 4). Se usan cuando el club cobra por jugador (Ajustes &gt; Precios y caja).
+        </AdminFeedbackBanner>
+      )}
 
       {loading && activities.length === 0 ? <p className="text-[13px] text-p-text-muted">Cargando...</p> : null}
 
-      {activities.map((activity) => {
+      {activities.filter((activity) => activityId == null || activity.id === activityId).map((activity) => {
         const activityFormats = formats.filter((format) => format.activityTypeId === activity.id);
         const draft = drafts[activity.id] || { name: '', playerCount: '', durationMinutes: '' };
         return (
-          <SettingsSection key={activity.id} title={activity.name} description="Modalidades de juego de esta actividad.">
+          <FormatsWrapper key={activity.id} compact={compact} title={activity.name}>
             <div className="space-y-2">
               {activityFormats.length === 0 ? (
                 <p className="text-[13px] text-p-text-muted">Sin modalidades.</p>
@@ -147,7 +164,7 @@ export default function SettingsActivityFormatsSection() {
                   </p>
                   {format.isActive && missingFixedDuration(activity, format.durationMinutes) ? (
                     <p className="basis-full text-[12px] text-p-warning">
-                      Los horarios fijos de {activity.name} no tienen turnos de {format.durationMinutes} min. Agregalos en Ajustes &gt; Horarios para poder reservar esta modalidad.
+                      Los horarios fijos de {activity.name} no tienen turnos de {format.durationMinutes} min. Agregalos arriba, en el horario de este deporte, para poder reservar esta modalidad.
                     </p>
                   ) : null}
                   <button type="button" className={ghostButtonClass} disabled={saving} onClick={() => void handleToggle(format)}>
@@ -211,7 +228,7 @@ export default function SettingsActivityFormatsSection() {
                 <Plus size={14} /> Agregar
               </button>
             </form>
-          </SettingsSection>
+          </FormatsWrapper>
         );
       })}
     </div>

@@ -10,6 +10,7 @@ import { showAdminToast } from '../../utils/adminToast';
 import { extractErrorMessage } from '../../utils/uiError';
 import { AdminFeedbackBanner } from './ui/AdminFeedback';
 import AdminAppModal from './ui/AdminAppModal';
+import { adminButton } from './ui/adminButton';
 
 const formatUserName = (user?: { firstName?: string | null; lastName?: string | null } | null) => {
   const first = String(user?.firstName || '').trim();
@@ -506,7 +507,7 @@ export default function AdminDuplicateIncidents(props: { preferredIdentityClient
                           type="button"
                           disabled={busy}
                           onClick={() => openResolveLink(client.id, client.name || 'Sin nombre')}
-                          className="mt-2 h-9 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 disabled:opacity-50"
+                          className={`${adminButton('primary')} mt-2`}
                         >
                           Vincular usuario a este cliente
                         </button>
@@ -516,7 +517,7 @@ export default function AdminDuplicateIncidents(props: { preferredIdentityClient
                           type="button"
                           disabled={busy}
                           onClick={() => openMerge(client.id)}
-                          className="mt-2 ml-2 h-9 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary disabled:opacity-50"
+                          className={`${adminButton('secondary')} mt-2 ml-2`}
                         >
                           Fusionar manualmente
                         </button>
@@ -530,7 +531,7 @@ export default function AdminDuplicateIncidents(props: { preferredIdentityClient
                     type="button"
                     disabled={busy}
                     onClick={() => setDismissConfirmOpen(true)}
-                    className="h-9 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+                    className={adminButton('secondary')}
                   >
                     Descartar incidente
                   </button>
@@ -599,7 +600,7 @@ export default function AdminDuplicateIncidents(props: { preferredIdentityClient
                   setIdentitySignalFilter('all');
                   setIdentityConflictFilter('all');
                 }}
-                className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                className={adminButton('secondary', 'sm')}
               >
                 Limpiar filtros
               </button>
@@ -692,7 +693,7 @@ export default function AdminDuplicateIncidents(props: { preferredIdentityClient
                     onClick={() => {
                       void handleIdentityLink(identityDetail.clientId, identityDetail.recommendedUserId || 0);
                     }}
-                    className="h-9 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 disabled:opacity-50"
+                    className={adminButton('primary')}
                   >
                     {busy ? 'Vinculando...' : 'Vincular usuario sugerido'}
                   </button>
@@ -703,7 +704,7 @@ export default function AdminDuplicateIncidents(props: { preferredIdentityClient
                     type="button"
                     disabled={busy}
                     onClick={() => setIdentityDismissConfirmOpen(true)}
-                    className="h-9 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+                    className={adminButton('secondary')}
                   >
                     Descartar caso
                   </button>
@@ -730,7 +731,7 @@ export default function AdminDuplicateIncidents(props: { preferredIdentityClient
                             onClick={() => {
                               void handleIdentityLink(identityDetail.clientId, candidate.userId);
                             }}
-                            className="mt-2 h-9 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 disabled:opacity-50"
+                            className={`${adminButton('primary')} mt-2`}
                           >
                             {busy ? 'Vinculando...' : 'Vincular este usuario'}
                           </button>
@@ -754,7 +755,7 @@ export default function AdminDuplicateIncidents(props: { preferredIdentityClient
                           type="button"
                           disabled={busy}
                           onClick={() => openIdentityMerge(client.clientId, client.name)}
-                          className="mt-2 h-9 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary disabled:opacity-50"
+                          className={`${adminButton('secondary')} mt-2`}
                         >
                           Fusionar con este cliente
                         </button>

@@ -4,6 +4,8 @@ import { useRouter } from 'next/router';
 import { Repeat, Search, X } from 'lucide-react';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
+import AdminPage from '../../components/admin/ui/AdminPageHeader';
+import AdminSegmentedControl from '../../components/admin/ui/AdminSegmentedControl';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { showAdminToast } from '../../utils/adminToast';
@@ -17,6 +19,8 @@ import {
   type BookingListResult,
   type BookingListView,
 } from '../../services/AdminBookingListService';
+import { adminButton } from '../../components/admin/ui/adminButton';
+import { AdminSearchInput } from '../../components/admin/ui/AdminPersonPicker';
 
 // Reservas: todas las reservas de varios días, para buscar sin saber la fecha.
 
@@ -191,7 +195,7 @@ function BookingRow({
             type="button"
             disabled={busy}
             onClick={() => void onAction!(booking, 'played')}
-            className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+            className={`${adminButton('primary', 'sm')} !text-ink-50`}
             title="La confirma y queda la cuenta para cobrar"
           >
             {busy ? 'Guardando…' : 'Se jugó'}
@@ -200,7 +204,7 @@ function BookingRow({
             type="button"
             disabled={busy}
             onClick={() => void onAction!(booking, 'not_played')}
-            className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+            className={adminButton('secondary', 'sm')}
             title="La cancela, sin avisarle al jugador"
           >
             No se jugó
@@ -216,7 +220,7 @@ function BookingRow({
                 type="button"
                 disabled={busy}
                 onClick={() => setAskCancel(false)}
-                className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+                className={adminButton('secondary', 'sm')}
               >
                 No
               </button>
@@ -238,14 +242,14 @@ function BookingRow({
                 type="button"
                 disabled={busy}
                 onClick={() => void onAction!(booking, 'confirm')}
-                className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+                className={`${adminButton('primary', 'sm')} !text-ink-50`}
               >
                 {busy ? 'Confirmando…' : 'Confirmar'}
               </button>
               {hasPayments ? (
                 <Link
                   href={href}
-                  className="inline-flex h-8 items-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2"
+                  className={adminButton('secondary', 'sm')}
                   title="Ya pagó algo: cancelala desde el calendario para decidir la devolución"
                 >
                   Cancelar en el calendario
@@ -255,7 +259,7 @@ function BookingRow({
                   type="button"
                   disabled={busy}
                   onClick={() => setAskCancel(true)}
-                  className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+                  className={adminButton('secondary', 'sm')}
                 >
                   Cancelar
                 </button>
@@ -338,7 +342,7 @@ function FixedBookingRow({
               type="button"
               disabled={busy}
               onClick={() => setAskCancel(false)}
-              className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+              className={adminButton('secondary', 'sm')}
             >
               No
             </button>
@@ -359,7 +363,7 @@ function FixedBookingRow({
             {hasPayments && nextHref ? (
               <Link
                 href={nextHref}
-                className="inline-flex h-8 items-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2"
+                className={adminButton('secondary', 'sm')}
                 title="Algún turno ya tiene pagos: cancelalo desde el calendario para decidir la devolución"
               >
                 Cancelar en el calendario
@@ -369,7 +373,7 @@ function FixedBookingRow({
                 type="button"
                 disabled={busy}
                 onClick={() => setAskCancel(true)}
-                className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2 disabled:opacity-50"
+                className={adminButton('secondary', 'sm')}
               >
                 Cancelar turno fijo
               </button>
@@ -599,33 +603,28 @@ function BookingsContent({ slug }: { slug: string }) {
   const filtered = Boolean(queryText || dateFilter);
 
   return (
-    <section className="h-full min-h-0 overflow-y-auto p-4 pb-20 lg:p-6">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h1 className="text-[22px] font-bold text-p-text">Reservas</h1>
-            <p className="text-[13px] text-p-text-muted">Buscá cualquier reserva sin tener que saber el día.</p>
-          </div>
-          <Link
-            href="/admin/agenda"
-            className="inline-flex h-9 items-center rounded-lg bg-ink-900 px-3.5 text-[13px] font-semibold !text-ink-50 hover:bg-ink-800"
-          >
-            Ir al calendario
-          </Link>
-        </div>
+    <AdminPage
+      title="Reservas"
+      description="Buscá cualquier reserva sin tener que saber el día."
+      actions={
+        <Link
+              href="/admin/agenda"
+              className={`${adminButton('primary')} !text-ink-50`}
+            >
+              Ir al calendario
+            </Link>
+      }
+    >
+      <div className="flex flex-col gap-4">
 
         <div className="flex flex-col gap-2 sm:flex-row">
-          <label className="relative flex-1">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-            <input
-              type="search"
-              value={searchDraft}
-              onChange={(e) => setSearchDraft(e.target.value)}
-              placeholder="Nombre, teléfono o código"
-              aria-label="Buscar reservas"
-              className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text placeholder:text-p-text-muted focus:border-p-accent focus:outline-none"
-            />
-          </label>
+          <AdminSearchInput
+            value={searchDraft}
+            onChange={(value) => setSearchDraft(value)}
+            placeholder="Nombre, teléfono o código"
+            aria-label="Buscar reservas"
+            wrapperClassName="flex-1"
+          />
           <div className={`flex items-center gap-2 ${view === 'FIXED' ? 'hidden' : ''}`}>
             <input
               type="date"
@@ -647,39 +646,24 @@ function BookingsContent({ slug }: { slug: string }) {
           </div>
         </div>
 
-        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-          <div className="flex w-max gap-1.5">
-            {VIEWS.map((option) => {
-              const count = option.countKey
-                ? result
-                  ? result.counts[option.countKey]
-                  : null
-                : fixedItems
-                  ? fixedItems.length
-                  : null;
-              const selected = view === option.value;
-              // "Sin resolver" solo aparece cuando hay algo para resolver.
-              if (option.value === 'TO_RESOLVE' && !selected && !(count && count > 0)) return null;
-              const alert = (option.value === 'PENDING' || option.value === 'TO_RESOLVE') && (count ?? 0) > 0;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => setQuery(option.value === 'FIXED' ? { ver: option.value, dia: '' } : { ver: option.value })}
-                  className={`h-8 whitespace-nowrap rounded-full border px-3 text-[12px] font-semibold transition ${
-                    selected ? 'border-ink-900 bg-ink-900 text-ink-50' : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                  }`}
-                >
-                  {option.label}
-                  {count !== null && count > 0 && (
-                    <span className={`ml-1.5 tabular-nums ${alert && !selected ? 'text-p-warning' : ''}`}>{count}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <AdminSegmentedControl
+          variant="filter"
+          ariaLabel="Qué reservas ver"
+          className="self-start"
+          value={view}
+          onChange={(next) => setQuery(next === 'FIXED' ? { ver: 'FIXED', dia: '' } : { ver: next as PageView })}
+          options={VIEWS.flatMap((option) => {
+            const count = option.countKey ? (result ? result.counts[option.countKey] : null) : fixedItems ? fixedItems.length : null;
+            // "Sin resolver" solo aparece cuando hay algo para resolver.
+            if (option.value === 'TO_RESOLVE' && view !== option.value && !(count && count > 0)) return [];
+            return [{
+              value: option.value,
+              label: option.label,
+              count,
+              alert: (option.value === 'PENDING' || option.value === 'TO_RESOLVE') && (count ?? 0) > 0,
+            }];
+          })}
+        />
 
         {view !== 'TO_RESOLVE' && (result?.counts.toResolve ?? 0) > 0 && (
           <AdminFeedbackBanner tone="warning">
@@ -791,7 +775,7 @@ function BookingsContent({ slug }: { slug: string }) {
           </div>
         )}
       </div>
-    </section>
+    </AdminPage>
   );
 }
 

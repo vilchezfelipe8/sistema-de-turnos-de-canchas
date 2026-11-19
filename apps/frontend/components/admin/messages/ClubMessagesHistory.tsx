@@ -4,6 +4,7 @@ import { fetchWithAuth } from '../../../utils/apiClient';
 import { getApiUrl } from '../../../utils/apiUrl';
 import { throwApiErrorFromResponse } from '../../../utils/apiError';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
+import AdminSegmentedControl from '../ui/AdminSegmentedControl';
 
 export type ClubMessageItem = {
   id: string;
@@ -105,24 +106,16 @@ export default function ClubMessagesHistory() {
     <section>
       <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 px-1">
         <p className="text-[13px] font-semibold text-p-text">Qué se mandó</p>
-        <div className="flex gap-1">
-          {([
+        <AdminSegmentedControl
+          variant="filter"
+          ariaLabel="Filtrar"
+          value={filter}
+          onChange={(value) => setFilter(value as Filter)}
+          options={([
             { id: 'all', label: 'Todos' },
             { id: 'failed', label: 'No llegaron' },
-          ] as Array<{ id: Filter; label: string }>).map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              aria-pressed={filter === option.id}
-              onClick={() => setFilter(option.id)}
-              className={`h-7 rounded-lg px-2.5 text-[12px] font-semibold ${
-                filter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
-              }`}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+          ] as Array<{ id: Filter; label: string }>).map((option) => ({ value: option.id, label: option.label }))}
+        />
       </div>
 
       {error ? (

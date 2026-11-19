@@ -17,8 +17,11 @@ import { normalizeSessionUser } from '../../utils/session';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { useRouter } from 'next/router';
 import { lockBodyScroll } from '../../utils/bodyScrollLock';
+import { useInSettingsSavePage, useSettingsSaveSlot } from '../../modules/ajustes/SettingsSaveContext';
+import { adminButton } from './ui/adminButton';
+import { AdminPersonList, AdminPersonOption, AdminSearchInput } from './ui/AdminPersonPicker';
 
-type AdminTabClubSection =
+export type AdminTabClubSection =
   | 'identity'
   | 'reservations'
   | 'schedules'
@@ -29,9 +32,12 @@ type AdminTabClubSection =
   | 'cash';
 
 type AdminTabClubProps = {
-  forcedTab?: AdminTabClubSection;
+  /** Una o varias secciones fijas. Varias comparten carga y barra de guardado. */
+  forcedTab?: AdminTabClubSection | AdminTabClubSection[];
   title?: string;
   subtitle?: string;
+  /** Oculta el título propio cuando la página ya tiene encabezado. */
+  hideHeader?: boolean;
 };
 
 type ClubOperationalStatus = 'OPEN' | 'TEMPORARY_CLOSED' | 'PERMANENTLY_CLOSED';
@@ -471,6 +477,7 @@ export default function AdminTabClub({
   forcedTab,
   title = 'Configuración del club',
   subtitle = 'Identidad, operación y agenda de tu establecimiento',
+  hideHeader = false,
 }: AdminTabClubProps = {}) {
   const router = useRouter();
   const [club, setClub] = useState<Club | null>(null);
@@ -579,7 +586,12 @@ export default function AdminTabClub({
   const clientSearchWrapperRef = useRef<HTMLDivElement | null>(null);
 
   const [activeTab, setActiveTab] = useState<AdminTabClubSection>('identity');
-  const effectiveTab: AdminTabClubSection = forcedTab ?? activeTab;
+  const [selectedScheduleActivityId, setSelectedScheduleActivityId] = useState<number | null>(null);
+  const forcedSections: AdminTabClubSection[] | null = forcedTab
+    ? (Array.isArray(forcedTab) ? forcedTab : [forcedTab])
+    : null;
+  const isSectionVisible = (section: AdminTabClubSection) =>
+    forcedSections ? forcedSections.includes(section) : activeTab === section;
 
   const closeModal = () => setModalState((prev) => ({ ...prev, show: false, onConfirm: undefined, onCancel: undefined, holdToConfirm: false, holdDuration: undefined, confirmDisabled: undefined }));
   const showInfo = (message: ReactNode, title = 'Información') => setModalState({ show: true, title, message, cancelText: '', confirmText: 'OK' });
@@ -1104,6 +1116,9 @@ export default function AdminTabClub({
 
   const configChanges = [...buildConfigChanges()].sort((a, b) => Number(Boolean(b.critical)) - Number(Boolean(a.critical)));
   const hasUnsavedChanges = configChanges.length > 0;
+  // Dentro de Ajustes la barra de guardado y el aviso al salir son de la página.
+  const managedBySettingsPage = useInSettingsSavePage();
+  const ownSaveBarVisible = hasUnsavedChanges && !managedBySettingsPage;
 
   const restoreFromSnapshot = () => {
     const base = initialConfigRef.current;
@@ -1139,19 +1154,19 @@ export default function AdminTabClub({
   };
 
   useEffect(() => {
-    if (!hasUnsavedChanges) return;
+    if (!ownSaveBarVisible) return;
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [hasUnsavedChanges]);
+  }, [ownSaveBarVisible]);
 
   useEffect(() => {
     const onRouteChangeStart = (url: string) => {
       if (allowNavigationRef.current) return;
-      if (!hasUnsavedChanges) return;
+      if (!ownSaveBarVisible) return;
       if (url === router.asPath) return;
 
       pendingRouteRef.current = url;
@@ -1188,7 +1203,7 @@ export default function AdminTabClub({
 
     router.events.on('routeChangeStart', onRouteChangeStart);
     return () => router.events.off('routeChangeStart', onRouteChangeStart);
-  }, [hasUnsavedChanges, router]);
+  }, [ownSaveBarVisible, router]);
 
   useEffect(() => {
     const onUnhandledRejection = (event: PromiseRejectionEvent) => {
@@ -1409,13 +1424,13 @@ export default function AdminTabClub({
     }
   };
 
-  const handleUpdateClub = async (e?: React.FormEvent, skipConfirm = false) => {
+  const handleUpdateClub = async (e?: React.FormEvent, skipConfirm = false): Promise<boolean> => {
     e?.preventDefault();
-    if (!club) { showError('No se pudo identificar el club'); return; }
+    if (!club) { showError('No se pudo identificar el club'); return false; }
     if (!skipConfirm) {
       if (!hasUnsavedChanges) {
         showInfo('No hay cambios pendientes para guardar.');
-        return;
+        return false;
       }
       const criticalChanges = configChanges.filter((change) => change.critical);
       const topChanges = configChanges.slice(0, 12);
@@ -1463,7 +1478,7 @@ export default function AdminTabClub({
           await handleUpdateClub(undefined, true);
         }
       });
-      return;
+      return false;
     }
     try {
       const fixedBookingSettingsByActivity = activitySettings.reduce((acc, activity) => {
@@ -1487,7 +1502,7 @@ export default function AdminTabClub({
       if (clubForm.bookingConfirmationMode === 'DEPOSIT_REQUIRED') {
         if (!Number.isFinite(normalizedDepositPercent) || normalizedDepositPercent <= 0 || normalizedDepositPercent > 100) {
           showError('En modo "Con seña", el porcentaje de seña es obligatorio y debe ser mayor a 0 y menor o igual a 100.');
-          return;
+          return false;
         }
       }
 
@@ -1502,39 +1517,39 @@ export default function AdminTabClub({
       if (clubForm.lightsEnabled) {
         if (!Number.isFinite(lightsExtraAmountRaw) || lightsExtraAmountRaw <= 0) {
           showError('Si activás recargo nocturno, el monto extra debe ser mayor a 0.');
-          return;
+          return false;
         }
         if (!/^\d{2}:\d{2}$/.test(String(clubForm.lightsFromHour || ''))) {
           showError('Si activás recargo nocturno, debés seleccionar desde qué hora aplica.');
-          return;
+          return false;
         }
         if (!LIGHTS_FROM_HOUR_OPTIONS.includes(String(clubForm.lightsFromHour || ''))) {
           showError('La hora de inicio del recargo nocturno debe ser una de las opciones permitidas.');
-          return;
+          return false;
         }
       }
       if (clubForm.autoCancelPendingBookingsEnabled) {
         if (!Number.isFinite(cancelMinutesRaw) || cancelMinutesRaw <= 0) {
           showError('Si activás auto-cancelación, los minutos antes del turno deben ser mayores a 0.');
-          return;
+          return false;
         }
       }
       if (!Number.isFinite(simpleAdvanceUserRaw) || simpleAdvanceUserRaw < 0) {
         showError('La anticipación máxima para usuarios debe ser 0 o mayor.');
-        return;
+        return false;
       }
       if (!Number.isFinite(simpleAdvanceAdminRaw) || simpleAdvanceAdminRaw < 0) {
         showError('La anticipación máxima para admins debe ser 0 o mayor.');
-        return;
+        return false;
       }
       if (clubForm.autoCancelPendingBookingsEnabled && clubForm.autoCancelPendingWarningEnabled) {
         if (!Number.isFinite(warningMinutesRaw) || warningMinutesRaw <= 0) {
           showError('Si activás aviso previo, los minutos de aviso deben ser mayores a 0.');
-          return;
+          return false;
         }
         if (warningMinutesRaw <= cancelMinutesRaw) {
           showError('El aviso previo debe configurarse con más minutos que la cancelación automática.');
-          return;
+          return false;
         }
       }
 
@@ -1543,27 +1558,27 @@ export default function AdminTabClub({
       if (clubForm.clubOperationalStatus === 'TEMPORARY_CLOSED') {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedClosureStartDate) || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedClosureEndDate)) {
           showError('En cierre temporal debés completar fecha de inicio y fin con formato válido.');
-          return;
+          return false;
         }
         if (normalizedClosureStartDate > normalizedClosureEndDate) {
           showError('La fecha de inicio del cierre temporal no puede ser mayor a la fecha de fin.');
-          return;
+          return false;
         }
         const todayDateKey = getTodayDateKey();
         const previousTemporaryClosureStartDate = String(club.temporaryClosureStartDate || '').trim();
         const previousTemporaryClosureEndDate = String(club.temporaryClosureEndDate || '').trim();
         if (normalizedClosureStartDate < todayDateKey && normalizedClosureStartDate !== previousTemporaryClosureStartDate) {
           showError(`La fecha de inicio del cierre temporal no puede ser pasada (minimo permitido: ${todayDateKey}).`);
-          return;
+          return false;
         }
         if (normalizedClosureEndDate < todayDateKey && normalizedClosureEndDate !== previousTemporaryClosureEndDate) {
           showError(`La fecha de fin del cierre temporal no puede ser pasada (minimo permitido: ${todayDateKey}).`);
-          return;
+          return false;
         }
         const overlapsExceptionalDates = closureDatesSet.some((date) => date >= normalizedClosureStartDate && date <= normalizedClosureEndDate);
         if (overlapsExceptionalDates) {
           showError('Hay fechas de cierre puntual que se superponen con el cierre temporal. Eliminá las superpuestas para continuar.');
-          return;
+          return false;
         }
       }
       const todayDateKeyForClosureDates = getTodayDateKey();
@@ -1575,11 +1590,11 @@ export default function AdminTabClub({
       const newlyAddedPastClosureDate = closureDatesSet.find((date) => date < todayDateKeyForClosureDates && !previousClosureDatesSet.has(date));
       if (newlyAddedPastClosureDate) {
         showError(`No podes agregar cierres puntuales en fechas pasadas (${newlyAddedPastClosureDate}). Minimo permitido: ${todayDateKeyForClosureDates}.`);
-        return;
+        return false;
       }
       if (clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' && closureDatesSet.length > 0) {
         showError('No podés guardar fechas de cierre puntual cuando el club está en cierre permanente.');
-        return;
+        return false;
       }
 
         const payload: any = {
@@ -1663,11 +1678,57 @@ export default function AdminTabClub({
         activityScheduleForm
       });
       await loadPersistentConfigHistory(updatedClub.id);
-      showAdminToast('Información del club actualizada correctamente.');
+      if (!managedBySettingsPage) showAdminToast('Información del club actualizada correctamente.');
+      return true;
     } catch (error: any) {
       showError(extractErrorMessage(error, 'No se pudo actualizar la información del club.'));
+      return false;
     }
   };
+
+  // Guardado desde la barra de la página: los cambios críticos piden confirmación.
+  const saveFromSettingsPage = () => new Promise<boolean>((resolve) => {
+    const criticalChanges = configChanges.filter((change) => change.critical);
+    if (criticalChanges.length === 0) {
+      void handleUpdateClub(undefined, true).then(resolve);
+      return;
+    }
+    setModalState({
+      show: true,
+      title: 'Confirmar cambios importantes',
+      message: (
+        <div className="space-y-2">
+          <p className="text-[13px] text-p-text">Estos cambios afectan cómo opera el club:</p>
+          <ul className="space-y-1 rounded-xl border border-p-border bg-p-surface-2 p-3 text-[12px] text-p-text-secondary">
+            {criticalChanges.map((change) => (
+              <li key={`${change.label}-${change.after}`}>
+                {change.label}: {change.before} → <span className="font-semibold text-p-text">{change.after}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ),
+      isWarning: true,
+      cancelText: 'Cancelar',
+      confirmText: 'Guardar cambios',
+      holdToConfirm: true,
+      holdDuration: 1400,
+      onConfirm: async () => {
+        closeModal();
+        resolve(await handleUpdateClub(undefined, true));
+      },
+      onCancel: () => {
+        closeModal();
+        resolve(false);
+      },
+    });
+  });
+
+  useSettingsSaveSlot('club', {
+    changes: configChanges.length,
+    save: saveFromSettingsPage,
+    discard: restoreFromSnapshot,
+  });
 
   const handleJumpToNextException = async (activity: ClubActivityType) => {
     const summary = activityExceptionSummary[activity.id];
@@ -2231,8 +2292,8 @@ export default function AdminTabClub({
 
   const inputCls = "h-10 w-full rounded-xl border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-accent transition placeholder:text-p-text-muted";
   const labelCls = "mb-1.5 block text-[11px] font-semibold uppercase tracking-wide text-p-text-muted";
-  const cardCls = "rounded-xl border border-p-border bg-p-surface p-4";
-  const cardTitleCls = "mb-4 text-[13px] font-semibold text-p-text";
+  const cardCls = "rounded-xl border border-p-border bg-p-surface p-5";
+  const cardTitleCls = "mb-4 text-[14px] font-semibold text-p-text";
   const checkboxCls = (active: boolean) => `flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition cursor-pointer ${active ? 'border-p-accent bg-ink-900' : 'border-p-border bg-p-surface'}`;
 
   // Format "2026-05-01" → "Vie 1 de mayo" (no timezone shift)
@@ -2254,10 +2315,10 @@ export default function AdminTabClub({
       {/* ── Fixed unsaved-changes bar ── Oculta mientras el drawer de excepciones está abierto para evitar confusión con el footer del drawer */}
       <div
         className={`fixed bottom-0 left-0 right-0 transition-transform duration-200 ease-out lg:left-[var(--admin-shell-sidebar-left,168px)] ${
-          hasUnsavedChanges && !Boolean(exceptionModalActivity) ? 'translate-y-0' : 'translate-y-full'
+          ownSaveBarVisible && !Boolean(exceptionModalActivity) ? 'translate-y-0' : 'translate-y-full'
         }`}
         style={{ zIndex: ADMIN_Z_INDEX.stickyBar }}
-        aria-hidden={!hasUnsavedChanges || Boolean(exceptionModalActivity)}
+        aria-hidden={!ownSaveBarVisible || Boolean(exceptionModalActivity)}
       >
         <div className="flex items-center gap-3 border-t border-p-border bg-p-surface px-5 py-3 shadow-p-lg">
           <span className="h-2 w-2 shrink-0 rounded-full bg-p-warning" />
@@ -2268,14 +2329,14 @@ export default function AdminTabClub({
             <button
               type="button"
               onClick={handleDiscardChanges}
-              className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+              className={adminButton('secondary', 'sm')}
             >
               Descartar
             </button>
             <button
               type="button"
               onClick={() => void handleUpdateClub()}
-              className="h-8 rounded-lg bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-900"
+              className={adminButton('primary', 'sm')}
             >
               Guardar cambios
             </button>
@@ -2283,23 +2344,18 @@ export default function AdminTabClub({
         </div>
       </div>
 
-      <div className={`flex w-full flex-col gap-4 transition-[padding-bottom] duration-200 ${hasUnsavedChanges && !Boolean(exceptionModalActivity) ? 'pb-16' : ''}`}>
+      <div className={`flex w-full flex-col gap-4 transition-[padding-bottom] duration-200 ${ownSaveBarVisible && !Boolean(exceptionModalActivity) ? 'pb-16' : ''}`}>
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
+        {!hideHeader && (
+        <div className={`flex items-start gap-4 ${hideHeader ? 'justify-end -mb-2' : 'justify-between'}`}>
+          {!hideHeader && (
           <div>
             <h1 className="text-[15px] font-semibold text-p-text">{title}</h1>
             {subtitle && <p className="text-[12px] text-p-text-muted mt-0.5">{subtitle}</p>}
           </div>
-          {effectiveTab === 'reservations' && (
-            <button
-              type="button"
-              onClick={restoreBookingPolicyDefaults}
-              className="shrink-0 h-8 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] font-medium text-p-text-muted hover:bg-p-surface-2 transition"
-            >
-              Restaurar recomendados
-            </button>
           )}
         </div>
+        )}
 
         {!forcedTab && (
           <AdminSegmentedControl
@@ -2329,9 +2385,9 @@ export default function AdminTabClub({
             <p className="text-[13px] text-p-text-muted">No se pudo cargar la información del club.</p>
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 space-y-4 overflow-y-auto">
             {/* ----- TAB: IDENTIDAD ----- */}
-            {effectiveTab === 'identity' && (
+            {isSectionVisible('identity') && (
               <div className="space-y-4">
                 {/* Datos básicos */}
                 <div className={`${cardCls} relative z-20 overflow-visible`}>
@@ -2545,102 +2601,110 @@ export default function AdminTabClub({
                   </div>
                 </div>
 
-                {/* Logo */}
+                {/* Imágenes */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>Logo del club</p>
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-p-border bg-p-surface-2">
-                      {logoPreview
-                        // eslint-disable-next-line @next/next/no-img-element
-                        ? <img src={logoPreview} alt="Logo" className="h-full w-full object-contain p-1" />
-                        : <ImageIcon size={24} className="text-p-text-muted" />
-                      }
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="h-9 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text hover:bg-p-surface-2 transition"
-                        >
-                          Subir imagen
-                        </button>
+                  <p className={cardTitleCls}>Imágenes</p>
+                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-[160px_minmax(0,1fr)]">
+                    {/* Logo */}
+                    <div>
+                      <p className="mb-2 text-[12px] font-medium text-p-text">Logo</p>
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        aria-label={logoPreview ? 'Cambiar logo' : 'Subir logo'}
+                        className="group relative flex aspect-square w-full max-w-[160px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-p-border-strong bg-p-surface-2 transition hover:border-p-accent"
+                      >
+                        {logoPreview
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={logoPreview} alt="Logo del club" className="h-full w-full object-contain p-2" />
+                          : (
+                            <span className="flex flex-col items-center gap-1 text-p-text-muted">
+                              <ImageIcon size={22} />
+                              <span className="text-[11px] font-medium">Subir logo</span>
+                            </span>
+                          )}
                         {logoPreview && (
-                          <button
-                            type="button"
-                            onClick={handleRemoveLogo}
-                            className="h-9 rounded-xl border border-p-error bg-p-error-bg px-3 text-[12px] font-medium text-p-error hover:bg-p-error-bg transition"
-                          >
-                            Eliminar
+                          <span className="absolute inset-0 grid place-items-center bg-ink-900/55 text-[12px] font-semibold text-ink-50 opacity-0 transition group-hover:opacity-100">
+                            Cambiar
+                          </span>
+                        )}
+                      </button>
+                      <div className="mt-2 flex items-center gap-3 text-[11px]">
+                        <span className="text-p-text-muted">512×512, hasta 2 MB</span>
+                        {logoPreview && (
+                          <button type="button" onClick={handleRemoveLogo} className="font-semibold text-p-error hover:underline">
+                            Quitar
                           </button>
                         )}
                       </div>
-                      <p className="text-[11px] text-p-text-muted">Recomendado: 512×512px, máx 2MB (PNG/JPG)</p>
                       {logoError && (
-                        <p className="flex items-center gap-1 text-[11px] text-p-error">
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-p-error">
                           <AlertTriangle size={11} /> {logoError}
                         </p>
                       )}
+                      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
                     </div>
-                    <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
-                  </div>
-                </div>
 
-                {/* Imagen del club */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Imagen de portada</p>
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-                    <div className="flex h-36 w-full shrink-0 items-center justify-center overflow-hidden rounded-xl border border-p-border bg-p-surface-2 lg:w-64">
-                      {clubImagePreview
-                        // eslint-disable-next-line @next/next/no-img-element
-                        ? <img src={clubImagePreview} alt="Portada" className="h-full w-full object-cover" />
-                        : (
-                          <div className="flex flex-col items-center gap-1 text-p-text-muted">
-                            <ImageIcon size={28} />
-                            <span className="text-[11px]">Sin imagen</span>
-                          </div>
-                        )
-                      }
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => clubImageInputRef.current?.click()}
-                          className="h-9 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text hover:bg-p-surface-2 transition"
-                        >
-                          Subir imagen
-                        </button>
+                    {/* Portada */}
+                    <div className="min-w-0">
+                      <p className="mb-2 text-[12px] font-medium text-p-text">Portada</p>
+                      <button
+                        type="button"
+                        onClick={() => clubImageInputRef.current?.click()}
+                        aria-label={clubImagePreview ? 'Cambiar portada' : 'Subir portada'}
+                        className="group relative flex aspect-[16/9] w-full max-w-[400px] items-center justify-center overflow-hidden rounded-xl border border-dashed border-p-border-strong bg-p-surface-2 transition hover:border-p-accent"
+                      >
+                        {clubImagePreview
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={clubImagePreview} alt="Portada del club" className="h-full w-full object-cover" />
+                          : (
+                            <span className="flex flex-col items-center gap-1 text-p-text-muted">
+                              <ImageIcon size={26} />
+                              <span className="text-[11px] font-medium">Subir portada</span>
+                            </span>
+                          )}
                         {clubImagePreview && (
-                          <button
-                            type="button"
-                            onClick={handleRemoveClubImage}
-                            className="h-9 rounded-xl border border-p-error bg-p-error-bg px-3 text-[12px] font-medium text-p-error hover:bg-p-error-bg transition"
-                          >
-                            Eliminar
+                          <span className="absolute inset-0 grid place-items-center bg-ink-900/55 text-[12px] font-semibold text-ink-50 opacity-0 transition group-hover:opacity-100">
+                            Cambiar
+                          </span>
+                        )}
+                      </button>
+                      <div className="mt-2 flex items-center gap-3 text-[11px]">
+                        <span className="text-p-text-muted">1600×900, hasta 4 MB. Es la foto grande de tu página.</span>
+                        {clubImagePreview && (
+                          <button type="button" onClick={handleRemoveClubImage} className="font-semibold text-p-error hover:underline">
+                            Quitar
                           </button>
                         )}
                       </div>
-                      <p className="text-[11px] text-p-text-muted">Recomendado: 1600×900px, máx 4MB (PNG/JPG)</p>
                       {clubImageError && (
-                        <p className="flex items-center gap-1 text-[11px] text-p-error">
+                        <p className="mt-1 flex items-center gap-1 text-[11px] text-p-error">
                           <AlertTriangle size={11} /> {clubImageError}
                         </p>
                       )}
+                      <input ref={clubImageInputRef} type="file" accept="image/*" className="hidden" onChange={handleClubImageFileChange} />
                     </div>
-                    <input ref={clubImageInputRef} type="file" accept="image/*" className="hidden" onChange={handleClubImageFileChange} />
                   </div>
                 </div>
               </div>
             )}
 
             {/* ----- TAB: RESERVAS ----- */}
-            {effectiveTab === 'reservations' && (
+            {isSectionVisible('reservations') && (
               <div className="space-y-4">
 
                 {/* Confirmación de reservas */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>¿Cómo se confirma una reserva?</p>
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <p className={cardTitleCls} style={{ marginBottom: 0 }}>¿Cómo se confirma una reserva?</p>
+                    <button
+                      type="button"
+                      onClick={restoreBookingPolicyDefaults}
+                      className="shrink-0 text-[12px] font-semibold text-p-text-muted underline-offset-2 transition hover:text-p-text hover:underline"
+                    >
+                      Usar lo recomendado
+                    </button>
+                  </div>
                   <div className="space-y-4">
                     <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                       {BOOKING_CONFIRMATION_MODES.map((mode) => {
@@ -2799,20 +2863,34 @@ export default function AdminTabClub({
             )}
 
             {/* ----- TAB: HORARIOS ----- */}
-            {effectiveTab === 'schedules' && (
+            {isSectionVisible('schedules') && (() => {
+              const normalizeKey = (value: string) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+              const selectedActivity = activityTypes.find((item) => item.id === selectedScheduleActivityId) || activityTypes[0] || null;
+              const selectedConfig = selectedActivity ? activityScheduleForm[selectedActivity.id] : null;
+              const fixedSetting = selectedActivity
+                ? activitySettings.find((item) => [normalizeKey(item.key), normalizeKey(item.label)].includes(normalizeKey(selectedActivity.name))) || null
+                : null;
+              const selectedExceptions = selectedActivity ? Number(activityExceptionSummary[selectedActivity.id]?.count || 0) : 0;
+              const selectedPendingExceptions = selectedActivity
+                ? pendingScheduleExceptionMutations.filter((item) => item.activityId === selectedActivity.id).length
+                : 0;
+              const subTitleCls = 'mb-1 text-[13px] font-semibold text-p-text';
+              return (
               <div className="space-y-4">
-                {/* Días de apertura */}
+                {/* Calendario del club */}
                 <div className={cardCls}>
-                  <p className={cardTitleCls}>¿Qué días abre el club?</p>
+                  <p className={cardTitleCls}>Calendario del club</p>
+                  <p className={subTitleCls}>Días que abre</p>
                   <p className="mb-3 text-[12px] text-p-text-muted">Si no marcás ninguno, abre todos los días.</p>
                   <div className="flex flex-wrap gap-2">
-                    {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map((label, idx) => {
-                      const day = idx % 7;
+                    {['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((label, idx) => {
+                      const day = (idx + 1) % 7;
                       const active = openingDaysSet.includes(day);
                       return (
                         <button
                           key={label}
                           type="button"
+                          aria-pressed={active}
                           onClick={() => toggleOpeningDay(day)}
                           className={`h-9 w-12 rounded-xl text-[12px] font-medium transition ${active ? 'bg-p-positive-bg text-p-accent border border-p-accent' : 'border border-p-border bg-p-surface text-p-text-muted hover:bg-p-surface-2'}`}
                         >
@@ -2821,111 +2899,177 @@ export default function AdminTabClub({
                       );
                     })}
                   </div>
-                </div>
 
-                {/* Horario de cada deporte */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Horario de cada deporte</p>
-                  {activityTypes.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay deportes cargados.</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {activityTypes.map((activity) => {
-                        const cfg = activityScheduleForm[activity.id];
-                        if (!cfg) return null;
-                        return (
-                          <ActivityScheduleEditor
-                            key={activity.id}
-                            activityName={activity.name}
-                            config={cfg}
-                            onChange={(patch) =>
-                              setActivityScheduleForm((prev) => ({
-                                ...prev,
-                                [activity.id]: { ...prev[activity.id], ...patch },
-                              }))
-                            }
-                            hasPendingChanges={pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id)}
-                            exceptionsCount={Number(activityExceptionSummary[activity.id]?.count || 0)}
-                            onOpenExceptions={() => openExceptionModalForActivity(activity)}
-                          />
-                        );
-                      })}
-                    </div>
+                  <div className="mt-5 border-t border-p-border pt-5">
+                    <p className={subTitleCls}>Días cerrados</p>
+                    <p className="mb-3 text-[12px] text-p-text-muted">Feriados o días puntuales en que cierra todo el club. Para cerrar un solo deporte, usá sus feriados y cierres más abajo.</p>
+                    {clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' && (
+                    <p className="mb-3 text-[12px] text-p-error">En cierre permanente no se permiten fechas de cierre puntual.</p>
                   )}
-                </div>
-
-                {/* Modalidades (antes en Ajustes > Actividades): se guardan solas. */}
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Modalidades de juego</p>
-                  <SettingsActivityFormatsSection />
-                </div>
-
-                {/* Turnos fijos por actividad */}
-                {activitySettings.length > 0 && (
-                  <div className={cardCls}>
-                    <p className={cardTitleCls}>Reservas fijas (todas las semanas)</p>
-                    <p className="mb-3 text-[12px] text-p-text-muted">Cuántos turnos a futuro se crean para cada reserva fija.</p>
-                    <div className="space-y-3">
-                      {activitySettings.map((activity) => (
-                        <div key={activity.key} className="grid grid-cols-1 gap-3 md:grid-cols-3 rounded-xl border border-p-border p-3">
-                          <div>
-                            <label className={labelCls}>Deporte</label>
-                            <input
-                              type="text"
-                              value={activity.label}
-                              readOnly
-                              className={`${inputCls} bg-p-surface-2`}
-                            />
-                          </div>
-                          <div>
-                            <label className={labelCls}>Se crean los turnos de los próximos (días)</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={clubForm.fixedBookingSettingsByActivity[activity.key]?.fixedBookingDaysAhead ?? DEFAULT_FIXED_BOOKING_DAYS_AHEAD}
-                              onChange={(e) => setClubForm((prev) => ({
-                                ...prev,
-                                fixedBookingSettingsByActivity: {
-                                  ...prev.fixedBookingSettingsByActivity,
-                                  [activity.key]: {
-                                    ...(prev.fixedBookingSettingsByActivity[activity.key] || {
-                                      fixedBookingDaysAhead: DEFAULT_FIXED_BOOKING_DAYS_AHEAD,
-                                      fixedBookingGenerationFrequencyDays: DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS
-                                    }),
-                                    fixedBookingDaysAhead: e.target.value
-                                  }
-                                }
-                              }))}
-                              className={inputCls}
-                            />
-                          </div>
-                          <div>
-                            <label className={labelCls}>Se completan cada (días)</label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={clubForm.fixedBookingSettingsByActivity[activity.key]?.fixedBookingGenerationFrequencyDays ?? DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS}
-                              onChange={(e) => setClubForm((prev) => ({
-                                ...prev,
-                                fixedBookingSettingsByActivity: {
-                                  ...prev.fixedBookingSettingsByActivity,
-                                  [activity.key]: {
-                                    ...(prev.fixedBookingSettingsByActivity[activity.key] || {
-                                      fixedBookingDaysAhead: DEFAULT_FIXED_BOOKING_DAYS_AHEAD,
-                                      fixedBookingGenerationFrequencyDays: DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS
-                                    }),
-                                    fixedBookingGenerationFrequencyDays: e.target.value
-                                  }
-                                }
-                              }))}
-                              className={inputCls}
-                            />
-                          </div>
-                        </div>
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
+                    <div className="w-full md:w-64">
+                      <AdminDateInput
+                        value={closureDateInput}
+                        onChange={setClosureDateInput}
+                        min={getTodayDateKey()}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addClosureDate}
+                      disabled={clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' || !closureDateInput}
+                      className={adminButton('primary')}
+                    >
+                      Agregar cierre
+                    </button>
+                  </div>
+                  {closureDatesSet.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {closureDatesSet.map((date) => (
+                        <span key={date} className="inline-flex items-center gap-1.5 rounded-lg border border-p-border bg-p-surface-2 px-2.5 py-1.5 text-[12px] text-p-text">
+                          {formatExceptionDate(date)}
+                          <button
+                            type="button"
+                            onClick={() => removeClosureDate(date)}
+                            aria-label={`Quitar cierre del ${formatExceptionDate(date)}`}
+                            className="text-p-text-muted hover:text-p-error transition"
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
                       ))}
                     </div>
+                  )}
                   </div>
-                )}
+                </div>
+
+                {/* Por deporte */}
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Por deporte</p>
+                  {activityTypes.length === 0 || !selectedActivity ? (
+                    <p className="text-[12px] text-p-text-muted">No hay deportes cargados.</p>
+                  ) : (
+                    <>
+                      <div role="tablist" aria-label="Deportes" className="mb-5 flex flex-wrap gap-1 rounded-xl bg-p-surface-2 p-1">
+                        {activityTypes.map((activity) => {
+                          const active = activity.id === selectedActivity.id;
+                          const pending = pendingScheduleExceptionMutations.some((item) => item.activityId === activity.id);
+                          return (
+                            <button
+                              key={activity.id}
+                              type="button"
+                              role="tab"
+                              aria-selected={active}
+                              onClick={() => setSelectedScheduleActivityId(activity.id)}
+                              className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-semibold transition ${active ? 'bg-p-surface text-p-text shadow-sm' : 'text-p-text-muted hover:text-p-text'}`}
+                            >
+                              {activity.name}
+                              {pending && <span className="h-1.5 w-1.5 rounded-full bg-p-warning" aria-label="con cambios" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="space-y-6">
+                        {/* Horario */}
+                        <section>
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <p className={subTitleCls}>Horario de {selectedActivity.name}</p>
+                            <button
+                              type="button"
+                              onClick={() => openExceptionModalForActivity(selectedActivity)}
+                              className={adminButton('secondary', 'sm')}
+                            >
+                              <CalendarDays size={13} className="text-p-accent" />
+                              Feriados y cierres
+                              {selectedExceptions > 0 && (
+                                <span className="rounded-full bg-p-positive-bg px-1.5 text-[10px] font-semibold text-p-accent">{selectedExceptions}</span>
+                              )}
+                              {selectedPendingExceptions > 0 && (
+                                <span className="rounded-full bg-p-warning-bg px-1.5 text-[10px] font-semibold text-p-warning">{selectedPendingExceptions} sin guardar</span>
+                              )}
+                            </button>
+                          </div>
+                          {selectedConfig ? (
+                            <ActivityScheduleEditor
+                              key={selectedActivity.id}
+                              embedded
+                              activityName={selectedActivity.name}
+                              config={selectedConfig}
+                              onChange={(patch) =>
+                                setActivityScheduleForm((prev) => ({
+                                  ...prev,
+                                  [selectedActivity.id]: { ...prev[selectedActivity.id], ...patch },
+                                }))
+                              }
+                            />
+                          ) : null}
+                        </section>
+
+                        {/* Modalidades (se guardan solas) */}
+                        <section className="border-t border-p-border pt-5">
+                          <p className={subTitleCls}>Modalidades</p>
+                          <p className="mb-3 text-[12px] text-p-text-muted">Cuántos jugadores tiene un turno (ej. Single 2, Dobles 4). Se usan si cobrás por jugador. Se guardan al agregarlas.</p>
+                          <SettingsActivityFormatsSection key={selectedActivity.id} activityId={selectedActivity.id} />
+                        </section>
+
+                        {/* Reservas fijas */}
+                        {fixedSetting && (
+                          <section className="border-t border-p-border pt-5">
+                            <p className={subTitleCls}>Reservas fijas</p>
+                            <p className="mb-3 text-[12px] text-p-text-muted">Para las reservas de todas las semanas: cuántos días a futuro se crean los turnos y cada cuánto se completan.</p>
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                <label className="block">
+                                  <span className={labelCls}>Se crean los próximos (días)</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={clubForm.fixedBookingSettingsByActivity[fixedSetting.key]?.fixedBookingDaysAhead ?? DEFAULT_FIXED_BOOKING_DAYS_AHEAD}
+                                    onChange={(e) => setClubForm((prev) => ({
+                                      ...prev,
+                                      fixedBookingSettingsByActivity: {
+                                        ...prev.fixedBookingSettingsByActivity,
+                                        [fixedSetting.key]: {
+                                          ...(prev.fixedBookingSettingsByActivity[fixedSetting.key] || {
+                                            fixedBookingDaysAhead: DEFAULT_FIXED_BOOKING_DAYS_AHEAD,
+                                            fixedBookingGenerationFrequencyDays: DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS
+                                          }),
+                                          fixedBookingDaysAhead: e.target.value
+                                        }
+                                      }
+                                    }))}
+                                    className={inputCls}
+                                  />
+                                </label>
+                                <label className="block">
+                                  <span className={labelCls}>Se completan cada (días)</span>
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    value={clubForm.fixedBookingSettingsByActivity[fixedSetting.key]?.fixedBookingGenerationFrequencyDays ?? DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS}
+                                    onChange={(e) => setClubForm((prev) => ({
+                                      ...prev,
+                                      fixedBookingSettingsByActivity: {
+                                        ...prev.fixedBookingSettingsByActivity,
+                                        [fixedSetting.key]: {
+                                          ...(prev.fixedBookingSettingsByActivity[fixedSetting.key] || {
+                                            fixedBookingDaysAhead: DEFAULT_FIXED_BOOKING_DAYS_AHEAD,
+                                            fixedBookingGenerationFrequencyDays: DEFAULT_FIXED_BOOKING_GENERATION_FREQUENCY_DAYS
+                                          }),
+                                          fixedBookingGenerationFrequencyDays: e.target.value
+                                        }
+                                      }
+                                    }))}
+                                    className={inputCls}
+                                  />
+                                </label>
+                            </div>
+                          </section>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
 
                 {/* Profesor */}
                 <div className={cardCls}>
@@ -2957,119 +3101,11 @@ export default function AdminTabClub({
                   </div>
                 </div>
               </div>
-            )}
-
-            {/* ----- TAB: EXCEPCIONES ----- */}
-            {effectiveTab === 'exceptions' && (
-              <div className="space-y-4">
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Fechas de cierre puntual</p>
-                  <p className="mb-3 text-[12px] text-p-text-muted">Bloqueá días específicos por feriado, mantenimiento o una excepción general del club.</p>
-                  {clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' && (
-                    <p className="mb-3 text-[12px] text-p-error">En cierre permanente no se permiten fechas de cierre puntual.</p>
-                  )}
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                    <div className="w-full md:w-64">
-                      <AdminDateInput
-                        value={closureDateInput}
-                        onChange={setClosureDateInput}
-                        min={getTodayDateKey()}
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addClosureDate}
-                      disabled={clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' || !closureDateInput}
-                      className="h-9 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
-                    >
-                      Agregar cierre
-                    </button>
-                  </div>
-                  {closureDatesSet.length > 0 && (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {closureDatesSet.map((date) => (
-                        <span key={date} className="inline-flex items-center gap-1.5 rounded-lg border border-p-border bg-p-surface-2 px-2.5 py-1.5 text-[12px] text-p-text">
-                          {date}
-                          <button
-                            type="button"
-                            onClick={() => removeClosureDate(date)}
-                            className="text-p-text-muted hover:text-p-error transition"
-                          >
-                            <X size={12} />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Excepciones por actividad</p>
-                  <p className="mb-4 text-[12px] text-p-text-muted">Abrí cada actividad para cargar cierres, rangos especiales o turnos excepcionales por fecha.</p>
-                  {activityTypes.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">No hay actividades configuradas.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {activityTypes.map((activity) => {
-                        const pendingCount = pendingScheduleExceptionMutations.filter((item) => item.activityId === activity.id).length;
-                        const savedCount = Number(activityExceptionSummary[activity.id]?.count || 0);
-                        return (
-                          <div key={activity.id} className="flex flex-col gap-3 rounded-xl border border-p-border p-4 md:flex-row md:items-center md:justify-between">
-                            <div>
-                              <p className="text-[13px] font-semibold text-p-text">{activity.name}</p>
-                              <p className="mt-1 text-[11px] text-p-text-muted">
-                                {savedCount > 0 ? `${savedCount} excepción${savedCount === 1 ? '' : 'es'} cargada${savedCount === 1 ? '' : 's'}` : 'Sin excepciones cargadas'}
-                                {pendingCount > 0 ? ` · ${pendingCount} pendiente${pendingCount === 1 ? '' : 's'} de guardar` : ''}
-                              </p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => openExceptionModalForActivity(activity)}
-                              className="inline-flex h-8 items-center gap-2 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] font-semibold text-p-text transition hover:border-p-border-strong hover:bg-p-surface-2"
-                            >
-                              <span className="grid h-4 w-4 place-items-center rounded-full bg-p-surface-2 text-p-accent">
-                                <CalendarDays size={11} />
-                              </span>
-                              <span>Gestionar excepciones</span>
-                              {savedCount > 0 && (
-                                <span className="rounded-full bg-p-positive-bg px-1.5 py-0.5 text-[10px] font-semibold text-p-accent">
-                                  {savedCount}
-                                </span>
-                              )}
-                              <ChevronRight size={12} className="text-p-text-muted" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* ----- TAB: CAJA ----- */}
-            {effectiveTab === 'cash' && (
-              <div className="space-y-4">
-                <div className={cardCls}>
-                  <p className={cardTitleCls}>Cerrar la caja</p>
-                  <p className="mb-3 text-[12px] text-p-text-muted">
-                    Si lo activás, no se puede cerrar la caja mientras haya cuentas abiertas con plata por cobrar.
-                  </p>
-                  <label className="flex cursor-pointer items-center gap-2.5">
-                    <div
-                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
-                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
-                    >
-                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-ink-50" />}
-                    </div>
-                    <span className="text-[12px] text-p-text">No dejar cerrar la caja si hay cuentas abiertas</span>
-                  </label>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* ----- TAB: PRECIOS ----- */}
-            {effectiveTab === 'pricing' && (
+            {isSectionVisible('pricing') && (
               <div className="space-y-4">
                 <div className={cardCls}>
                   <p className={cardTitleCls}>Luces de noche</p>
@@ -3124,7 +3160,7 @@ export default function AdminTabClub({
                         setDiscountDrawerMode('create');
                         setDiscountDrawerOpen(true);
                       }}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[11px] font-semibold text-ink-50 transition hover:bg-ink-900"
+                      className={adminButton('primary', 'sm')}
                     >
                       + Nuevo descuento
                     </button>
@@ -3132,7 +3168,7 @@ export default function AdminTabClub({
                   {loadingDiscountPolicies ? (
                     <p className="text-[12px] text-p-text-muted">Cargando...</p>
                   ) : discountPolicies.length === 0 ? (
-                    <p className="text-[12px] text-p-text-muted">Todavía no hay descuentos. Creá el primero con el botón de arriba.</p>
+                    <p className="text-[12px] text-p-text-muted">Descuentos que le das a clientes puntuales (ej. 10% a un profe). Creá uno y después asignáselo a quien quieras.</p>
                   ) : (
                     <div className="space-y-2">
                       {discountPolicies.map((policy) => (
@@ -3145,14 +3181,14 @@ export default function AdminTabClub({
                               )}
                             </div>
                             <p className="mt-0.5 text-[11px] text-p-text-muted">
-                              {policy.scope} · {policy.amountType === 'PERCENT' ? `${policy.amountValue}%` : `$${policy.amountValue}`} · prio {policy.priority}
+                              {({ BOOKING: 'Turnos', PRODUCT: 'Productos', SERVICE: 'Servicios', ALL: 'Todo' } as Record<string, string>)[policy.scope] || policy.scope} · {policy.amountType === 'PERCENT' ? `${policy.amountValue}% menos` : `$${policy.amountValue} menos`}
                               {policy.isStackable ? ' · acumulable' : ''}
                             </p>
                           </div>
                           <button
                             type="button"
                             onClick={() => handleStartEditDiscountPolicy(policy)}
-                            className="h-8 shrink-0 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] text-p-text-muted transition hover:bg-p-surface-2"
+                            className={`${adminButton('secondary', 'sm')} shrink-0`}
                           >
                             Editar
                           </button>
@@ -3162,41 +3198,43 @@ export default function AdminTabClub({
                   )}
                 </div>
 
-                {/* Asignación a clientes */}
+                {/* Asignación a clientes: solo si hay descuentos activos */}
+                {discountPolicies.some((policy) => policy.isActive) && (
                 <div className={cardCls}>
                   <p className={cardTitleCls}>Darle un descuento a un cliente</p>
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="md:col-span-2">
                       <label className={labelCls}>Buscar cliente</label>
                       <div className="relative z-30" ref={clientSearchWrapperRef}>
-                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-p-text-muted" />
-                        <input
-                          type="text"
+                        <AdminSearchInput
                           value={clientSearch}
-                          onChange={handleDiscountClientSearchChange}
+                          onChange={(value) =>
+                            handleDiscountClientSearchChange({ target: { value } } as React.ChangeEvent<HTMLInputElement>)
+                          }
                           onFocus={() => setShowClientSearchDropdown(true)}
-                          className={`${inputCls} pl-9`}
-                          placeholder="Nombre o email..."
+                          placeholder="Buscá por nombre o email"
+                          aria-label="Buscar cliente"
                         />
                         {showClientSearchDropdown && clientSearchResults.length > 0 && (
-                          <div
-                            className="absolute left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto rounded-xl border border-p-border bg-p-surface shadow-lg"
+                          <AdminPersonList
+                            variant="floating"
+                            count={clientSearchResults.length}
+                            className="absolute left-0 right-0 top-full mt-1"
                             style={{ zIndex: ADMIN_Z_INDEX.dropdown }}
+                            maxHeight={224}
                           >
                             {clientSearchResults.map((client) => (
-                              <button
+                              <AdminPersonOption
                                 key={client.id}
-                                type="button"
+                                name={client.name}
+                                detail={client.email || undefined}
+                                selected={String(selectedDiscountClient?.id ?? '') === String(client.id)}
                                 onClick={() => {
                                   void handleSelectDiscountClient(client);
                                 }}
-                                className="flex w-full flex-col px-3 py-2.5 text-left hover:bg-p-surface-2 transition first:rounded-t-xl last:rounded-b-xl"
-                              >
-                                <span className="text-[12px] font-medium text-p-text">{client.name}</span>
-                                <span className="text-[11px] text-p-text-muted">{client.email}</span>
-                              </button>
+                              />
                             ))}
-                          </div>
+                          </AdminPersonList>
                         )}
                       </div>
                     </div>
@@ -3228,7 +3266,7 @@ export default function AdminTabClub({
                         type="button"
                         disabled={!selectedDiscountClient || !selectedPolicyIdForAssignment}
                         onClick={() => void handleAssignPolicyToClient()}
-                        className="h-9 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
+                        className={adminButton('primary')}
                       >
                         Asignar
                       </button>
@@ -3255,7 +3293,7 @@ export default function AdminTabClub({
                                 <button
                                   type="button"
                                   onClick={() => void handleToggleAssignment(assignment.id, !Boolean(assignment.isActive))}
-                                  className="h-8 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] text-p-text-secondary hover:bg-p-surface-2 transition"
+                                  className={adminButton('secondary', 'sm')}
                                 >
                                   {assignment.isActive ? 'Desactivar' : 'Activar'}
                                 </button>
@@ -3274,11 +3312,33 @@ export default function AdminTabClub({
                     </div>
                   )}
                 </div>
+                )}
+              </div>
+            )}
+
+            {/* ----- TAB: CAJA ----- */}
+            {isSectionVisible('cash') && (
+              <div className="space-y-4">
+                <div className={cardCls}>
+                  <p className={cardTitleCls}>Cerrar la caja</p>
+                  <p className="mb-3 text-[12px] text-p-text-muted">
+                    Si lo activás, no se puede cerrar la caja mientras haya cuentas abiertas con plata por cobrar.
+                  </p>
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <div
+                      className={checkboxCls(clubForm.enforceCashShiftCloseWithOpenAccounts)}
+                      onClick={() => setClubForm({ ...clubForm, enforceCashShiftCloseWithOpenAccounts: !clubForm.enforceCashShiftCloseWithOpenAccounts })}
+                    >
+                      {clubForm.enforceCashShiftCloseWithOpenAccounts && <Check size={12} strokeWidth={3} className="text-ink-50" />}
+                    </div>
+                    <span className="text-[12px] text-p-text">No dejar cerrar la caja si hay cuentas abiertas</span>
+                  </label>
+                </div>
               </div>
             )}
 
             {/* ----- TAB: AUDITORÍA ----- */}
-            {effectiveTab === 'audit' && (
+            {isSectionVisible('audit') && (
               <div className="space-y-4">
                 {/* Historial de cambios */}
                 <div className={cardCls}>
@@ -3320,7 +3380,7 @@ export default function AdminTabClub({
             )}
 
             {/* ----- TAB: RESEÑAS ----- */}
-            {effectiveTab === 'reviews' && (
+            {isSectionVisible('reviews') && (
               <div className="space-y-4">
                 <div className={cardCls}>
                   <div className="mb-4 flex items-center justify-between">
@@ -3372,7 +3432,7 @@ export default function AdminTabClub({
                                 type="button"
                                 disabled={reviewStatusUpdatingId === review.id || review.status === 'PUBLISHED'}
                                 onClick={() => void handleUpdateReviewStatus(review.id, 'PUBLISHED')}
-                                className="h-8 rounded-xl bg-ink-900 px-3 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
+                                className={adminButton('primary', 'sm')}
                               >
                                 Mostrar
                               </button>
@@ -3409,16 +3469,15 @@ export default function AdminTabClub({
             <button
               type="button"
               onClick={handleCancelEditDiscountPolicy}
-              className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-muted transition hover:bg-p-surface-2"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>
             <button
               type="button"
               onClick={() => discountDrawerMode === 'create' ? void handleCreateDiscountPolicy() : void handleSaveDiscountPolicy()}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
+              className={adminButton('primary', 'lg')}
             >
-              <Check size={14} />
               {discountDrawerMode === 'create' ? 'Crear política' : 'Guardar cambios'}
             </button>
           </div>
@@ -3618,7 +3677,7 @@ export default function AdminTabClub({
                   setExceptionModalSelectedDate('');
                   setExceptionModalSelectedId(null);
                 }}
-                className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+                className={adminButton('secondary', 'lg')}
               >
                 ← Volver
               </button>
@@ -3630,7 +3689,6 @@ export default function AdminTabClub({
                   disabled={activityExceptionBusy[exceptionModalActivityId ?? -1]}
                   className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-error bg-p-error-bg px-4 text-[13px] font-semibold text-p-error transition hover:bg-[var(--error-fg)] hover:text-ink-50 disabled:opacity-40"
                 >
-                  <Trash2 size={14} />
                   {exceptionModalSelectedIsPendingDraft ? 'Descartar' : 'Eliminar'}
                 </button>
               )}
@@ -3638,9 +3696,8 @@ export default function AdminTabClub({
                 type="button"
                 onClick={() => void handleSaveExceptionFromModal()}
                 disabled={activityExceptionBusy[exceptionModalActivityId ?? -1]}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900 disabled:opacity-40"
+                className={adminButton('primary', 'lg')}
               >
-                <Check size={14} />
                 Guardar borrador
               </button>
             </div>
@@ -3664,7 +3721,7 @@ export default function AdminTabClub({
                 <button
                   type="button"
                   onClick={handleCreateExceptionInModal}
-                  className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
+                  className={adminButton('primary', 'lg')}
                 >
                   Crear borrador
                 </button>
