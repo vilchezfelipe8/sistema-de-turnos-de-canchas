@@ -49,6 +49,7 @@ const money = (value: number) =>
   value.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
 const badge = (plan: MyPlan) => {
+  if (plan.awaitingPayment) return { label: 'Falta pagar', tone: ' is-warn' };
   if (plan.status === 'PAUSED' || plan.pause?.started) {
     return { label: 'En pausa', tone: '' };
   }
@@ -58,9 +59,22 @@ const badge = (plan: MyPlan) => {
   return { label: 'Al día', tone: ' is-ok' };
 };
 
+type Props = {
+  /** Solo los planes de este club (pestaña Gimnasio de la página del club). */
+  clubSlug?: string;
+  /** 'club': se muestra como panel de la página del club y el pago vuelve ahí. */
+  variant?: 'profile' | 'club';
+  /** Avisa qué planes se muestran (la pestaña Gimnasio decide si ofrece comprar uno). */
+  onLoaded?: (plans: MyPlan[]) => void;
+  /** Cambia cuando hay que volver a cargar (por ejemplo, después de comprar). */
+  reloadKey?: number;
+};
+
 /** "Mis planes" del jugador: estado, próxima cuota y clases incluidas que le quedan. */
-export default function MyPlansCard() {
-  const [plans, setPlans] = useState<MyPlan[] | null>(null);
+export default function MyPlansCard({ clubSlug, variant = 'profile', onLoaded, reloadKey = 0 }: Props = {}) {
+  const inClub = variant === 'club';
+  const [allPlans, setPlans] = useState<MyPlan[] | null>(null);
+  const plans = allPlans && clubSlug ? allPlans.filter((plan) => plan.clubSlug === clubSlug) : allPlans;
   const [busyId, setBusyId] = useState<string | null>(null);
   // Formulario de pausa abierto (id del plan) y sus fechas.
   const [pauseFor, setPauseFor] = useState<string | null>(null);
@@ -79,7 +93,12 @@ export default function MyPlansCard() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, reloadKey]);
+
+  useEffect(() => {
+    if (plans) onLoaded?.(plans);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allPlans]);
 
   // Vuelta de Mercado Pago (?plan=...&checkoutStatus=...): se avisa cómo salió y se limpia la URL.
   useEffect(() => {
@@ -87,7 +106,7 @@ export default function MyPlansCard() {
     const params = new URLSearchParams(window.location.search);
     const status = params.get('checkoutStatus');
     if (!params.get('plan') || !status) return;
-    if (status === 'success') notice('¡Pago recibido! En unos segundos se marca la cuota como pagada.', 'success');
+    if (status === 'success') notice('¡Pago recibido! En unos segundos queda acreditado en tu plan.', 'success');
     else if (status === 'pending') notice('Tu pago está en proceso. Cuando se acredite, la cuota queda pagada.', 'info');
     else notice('El pago no se completó. Podés intentarlo de nuevo.', 'error');
     params.delete('plan');
@@ -95,15 +114,15 @@ export default function MyPlansCard() {
     const query = params.toString();
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
     // El aviso de Mercado Pago puede tardar unos segundos: se vuelve a mirar.
-    const timer = window.setTimeout(() => void load(), 4000);
-    return () => window.clearTimeout(timer);
+    const timers = [4000, 12000].map((ms) => window.setTimeout(() => void load(), ms));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const pay = async (plan: MyPlan) => {
     try {
       setBusyId(plan.id);
-      const { initPoint } = await ClubService.payMyPlanInstallment(plan.id);
+      const { initPoint } = await ClubService.payMyPlanInstallment(plan.id, inClub ? 'club' : 'perfil');
       window.location.href = initPoint;
     } catch (error) {
       reportUiError({ area: 'MyPlansCard', action: 'pay' }, error);
@@ -168,11 +187,19 @@ export default function MyPlansCard() {
   if (!plans || plans.length === 0) return null;
 
   return (
-    <div className="p-public-card pf-card" id="mis-planes" style={{ marginTop: 16 }}>
+    <div
+      className={inClub ? 'cl-panel' : 'p-public-card pf-card'}
+      id="mis-planes"
+      style={inClub ? { scrollMarginTop: 88 } : { marginTop: 16 }}
+    >
       <style>{CSS}</style>
-      <h2 className="pf-card-title">
-        <BadgeCheck size={18} aria-hidden="true" /> Mis planes
-      </h2>
+      {inClub ? (
+        <h2 className="cl-panel-h">{plans.length === 1 ? 'Tu plan' : 'Tus planes'}</h2>
+      ) : (
+        <h2 className="pf-card-title">
+          <BadgeCheck size={18} aria-hidden="true" /> Mis planes
+        </h2>
+      )}
       <div className="mp-list">
         {plans.map((plan) => {
           const state = badge(plan);
@@ -183,16 +210,34 @@ export default function MyPlansCard() {
           const pausesLeft = plan.pauseMaxCount - plan.pausesUsed;
           const pauseDays = pauseStart && pauseEnd ? daysBetween(pauseStart, pauseEnd) : 0;
           const pauseTooLong = pauseDays > plan.pauseMaxDays;
+          const awaiting = Boolean(plan.awaitingPayment);
+          const payAmount = awaiting && plan.purchaseAmount ? plan.purchaseAmount : next?.amount ?? 0;
+          const primaryClass = inClub ? 'cl-review-cta' : 'pf-save';
+          const secondaryClass = inClub ? 'cl-course-link' : 'pf-secondary-btn';
           return (
-            <article key={plan.id} className="mp-row">
+            <article key={plan.id} className={inClub ? 'cl-review-card' : 'mp-row'}>
               <div className="mp-head">
                 <div>
                   <p className="mp-title">{plan.planName}</p>
-                  <p className="mp-sub">{[plan.clubName, plan.optionLabel, term, who].filter(Boolean).join(' · ')}</p>
+                  <p className="mp-sub">{[inClub ? null : plan.clubName, plan.optionLabel, term, who].filter(Boolean).join(' · ')}</p>
                 </div>
                 <span className={`mp-badge${state.tone}`}>{state.label}</span>
               </div>
 
+              {awaiting ? (
+                <div className="mp-lines">
+                  <p className="mp-line">
+                    {plan.canPayOnline ? (
+                      <>
+                        Para activarlo pagá <strong>{money(payAmount)}</strong> con Mercado Pago. Hasta que se acredite no podés reservar
+                        turnos.
+                      </>
+                    ) : (
+                      'Tu compra está esperando el pago. Consultá en el club.'
+                    )}
+                  </p>
+                </div>
+              ) : (
               <div className="mp-lines">
                 <p className="mp-line">
                   {plan.paidThrough ? (
@@ -218,6 +263,7 @@ export default function MyPlansCard() {
                   </p>
                 ) : null}
               </div>
+              )}
 
               {plan.classes.length > 0 ? (
                 <div className="mp-chips" aria-label="Clases incluidas">
@@ -229,9 +275,10 @@ export default function MyPlansCard() {
                 </div>
               ) : null}
 
+              {inClub && (!next || plan.canPayOnline) ? null : (
               <div className="mp-foot">
-                {plan.clubSlug ? (
-                  <Link href={`/club/${plan.clubSlug}`} className="mp-link">
+                {plan.clubSlug && !inClub ? (
+                  <Link href={`/club/${plan.clubSlug}?tab=gimnasio`} className="mp-link">
                     Ver club
                   </Link>
                 ) : (
@@ -239,21 +286,22 @@ export default function MyPlansCard() {
                 )}
                 {next && !plan.canPayOnline ? <p className="mp-note">Las cuotas se pagan en el club.</p> : null}
               </div>
+              )}
 
               {plan.canPayOnline || plan.canPause || (plan.pause && !busy) ? (
                 <div className="mp-actions">
                   {plan.canPayOnline && next ? (
-                    <button type="button" className="pf-save" disabled={busy} onClick={() => void pay(plan)}>
-                      <BusyLabel busy={busy}>{`Pagar cuota ${money(next.amount)}`}</BusyLabel>
+                    <button type="button" className={primaryClass} disabled={busy} onClick={() => void pay(plan)}>
+                      <BusyLabel busy={busy}>{awaiting ? `Pagar ${money(payAmount)} y activar` : `Pagar cuota ${money(next.amount)}`}</BusyLabel>
                     </button>
                   ) : null}
                   {plan.canPause && pauseFor !== plan.id ? (
-                    <button type="button" className="pf-secondary-btn" disabled={busy} onClick={() => openPause(plan)}>
+                    <button type="button" className={secondaryClass} disabled={busy} onClick={() => openPause(plan)}>
                       Pausar
                     </button>
                   ) : null}
                   {plan.pause ? (
-                    <button type="button" className="pf-secondary-btn" disabled={busy} onClick={() => void endPause(plan)}>
+                    <button type="button" className={secondaryClass} disabled={busy} onClick={() => void endPause(plan)}>
                       {plan.pause.started ? 'Volver antes' : 'Anular pausa'}
                     </button>
                   ) : null}
@@ -294,13 +342,13 @@ export default function MyPlansCard() {
                   <div className="mp-actions" style={{ marginTop: 0 }}>
                     <button
                       type="button"
-                      className="pf-save"
+                      className={primaryClass}
                       disabled={busy || !pauseEnd || pauseTooLong}
                       onClick={() => void submitPause(plan)}
                     >
                       <BusyLabel busy={busy}>{pauseDays > 0 ? `Pausar ${pauseDays} ${pauseDays === 1 ? 'día' : 'días'}` : 'Pausar'}</BusyLabel>
                     </button>
-                    <button type="button" className="pf-secondary-btn" disabled={busy} onClick={() => setPauseFor(null)}>
+                    <button type="button" className={secondaryClass} disabled={busy} onClick={() => setPauseFor(null)}>
                       Cancelar
                     </button>
                   </div>

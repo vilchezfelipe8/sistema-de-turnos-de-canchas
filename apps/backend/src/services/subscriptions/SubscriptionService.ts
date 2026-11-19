@@ -33,6 +33,8 @@ type DbClient = TxClient | typeof prisma;
 
 const EPSILON = 0.009;
 const DEFAULT_TIME_ZONE = 'America/Argentina/Buenos_Aires';
+/** Una compra online sin pagar se cancela sola después de este tiempo. */
+export const ONLINE_PURCHASE_TTL_HOURS = 24;
 
 export type BillingTypeValue = 'RECURRING' | 'FIXED_TERM';
 export type EntitlementKindValue = 'ACTIVITY_ACCESS' | 'CLASS_CREDITS';
@@ -67,6 +69,8 @@ export type PlanInput = {
   suspendMemberAfterDays?: number | null;
   grantsMemberCategoryId?: string | null;
   sortOrder?: number;
+  /** Se puede comprar desde la app del club. Si no viene, al editar queda como estaba. */
+  sellOnline?: boolean;
   options: PlanOptionInput[];
   entitlements?: PlanEntitlementInput[];
 };
@@ -132,6 +136,7 @@ function mapPlan(plan: PlanRow) {
     suspendMemberAfterDays: plan.suspendMemberAfterDays,
     grantsMemberCategory: plan.grantsMemberCategory,
     isActive: plan.isActive,
+    sellOnline: plan.sellOnline,
     sortOrder: plan.sortOrder,
     subscriptionsCount: plan._count.subscriptions,
     options: plan.options.map((option) => ({
@@ -303,6 +308,7 @@ export class SubscriptionService {
         suspendMemberAfterDays: data.suspendMemberAfterDays,
         grantsMemberCategoryId: data.grantsMemberCategoryId,
         sortOrder: data.sortOrder,
+        sellOnline: input.sellOnline === true,
         options: {
           create: data.options.map(({ id: _id, ...option }) => option),
         },
@@ -346,6 +352,7 @@ export class SubscriptionService {
           suspendMemberAfterDays: data.suspendMemberAfterDays,
           grantsMemberCategoryId: data.grantsMemberCategoryId,
           sortOrder: data.sortOrder,
+          ...(typeof input.sellOnline === 'boolean' ? { sellOnline: input.sellOnline } : {}),
         },
       });
 
@@ -453,7 +460,24 @@ export class SubscriptionService {
   }
 
   async sell(clubId: number, actorUserId: number, input: SellSubscriptionInput) {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction((tx) => this.sellTx(tx, clubId, actorUserId, input));
+    return this.getSubscription(clubId, result);
+  }
+
+  /**
+   * Vende el plan dentro de una transacción y devuelve el id de la suscripción.
+   * `awaitingOnlinePayment`: compra desde la app. Se crean las cuotas y sus cuentas, pero las clases
+   * incluidas y el alta como socio quedan para cuando se paga (ver activateOnlinePurchaseTx).
+   */
+  async sellTx(
+    tx: TxClient,
+    clubId: number,
+    actorUserId: number,
+    input: SellSubscriptionInput,
+    options: { awaitingOnlinePayment?: boolean } = {}
+  ): Promise<string> {
+    const awaitingOnlinePayment = options.awaitingOnlinePayment === true;
+    {
       const clientId = String(input.clientId || '').trim();
       const payerClientId = String(input.payerClientId || '').trim() || clientId;
       const clients = await tx.client.findMany({
@@ -527,6 +551,7 @@ export class SubscriptionService {
           endDate: schedule.endDate ? dateKeyToDate(schedule.endDate) : null,
           currentPeriodEnd: dateKeyToDate(schedule.currentPeriodEnd),
           autoRenew: plan.billingType === 'RECURRING',
+          awaitingOnlinePayment,
           notes: String(input.notes || '').trim() || null,
           createdByUserId: actorUserId,
         },
@@ -556,52 +581,154 @@ export class SubscriptionService {
         });
       }
 
-      // Clases incluidas: un pack por cada mes que cubre el plan (ver grantPlanClassPassesTx).
-      const periods = schedule.installments.filter((item) => item.kind === 'PERIOD');
-      await this.grantPlanClassPassesTx(tx, {
-        clubId,
-        subscriptionId: subscription.id,
-        planName: plan.name,
-        entitlements: plan.entitlements.map((row) => ({
-          kind: row.kind,
-          activityTypeId: row.activityTypeId,
-          activityTypeName: row.activityType?.name ?? null,
-          creditsPerPeriod: row.creditsPerPeriod,
-          classType: row.classType,
-        })),
-        ownerClientId: payerClientId,
-        beneficiaryClientId: clientId,
-        beneficiaryUserId: clients.find((row) => row.id === clientId)?.userId ?? null,
-        coverageStart: periods.reduce((min, item) => (item.coversFrom < min ? item.coversFrom : min), periods[0]?.coversFrom || startDate),
-        coverageEnd: periods.reduce((max, item) => (item.coversTo > max ? item.coversTo : max), periods[0]?.coversTo || startDate),
-        actorUserId,
-      });
-
       await tx.subscriptionHistory.create({
         data: {
           subscriptionId: subscription.id,
           clubId,
           action: 'CREATED',
           toStatus: 'ACTIVE',
-          detail: { planName: plan.name, optionLabel: option.label, startDate } as Prisma.InputJsonValue,
+          detail: {
+            planName: plan.name,
+            optionLabel: option.label,
+            startDate,
+            ...(awaitingOnlinePayment ? { online: true } : {}),
+          } as Prisma.InputJsonValue,
           changedByUserId: actorUserId,
         },
       });
 
-      if (plan.grantsMemberCategoryId) {
-        await this.ensureMemberTx(tx, {
+      // Compra online: las clases y el alta de socio se dan cuando se paga.
+      if (!awaitingOnlinePayment) {
+        await this.grantSaleBenefitsTx(tx, {
           clubId,
+          subscriptionId: subscription.id,
+          planName: plan.name,
+          entitlements: snapshot.entitlements,
+          grantsMemberCategoryId: plan.grantsMemberCategoryId,
           clientId,
-          categoryId: plan.grantsMemberCategoryId,
-          joinedAt: startDate,
+          payerClientId,
+          beneficiaryUserId: clients.find((row) => row.id === clientId)?.userId ?? null,
+          startDate,
+          periods: schedule.installments.filter((item) => item.kind === 'PERIOD'),
           actorUserId,
         });
-        await this.syncMemberValidUntilTx(tx, clubId, clientId, actorUserId);
       }
 
       return subscription.id;
+    }
+  }
+
+  /** Clases incluidas (un pack por mes cubierto) y alta como socio, si el plan da categoría. */
+  private async grantSaleBenefitsTx(tx: TxClient, input: {
+    clubId: number;
+    subscriptionId: string;
+    planName: string;
+    entitlements: PlanSnapshot['entitlements'];
+    grantsMemberCategoryId: string | null;
+    clientId: string;
+    payerClientId: string;
+    beneficiaryUserId: number | null;
+    startDate: string;
+    periods: Array<{ coversFrom: string; coversTo: string }>;
+    actorUserId: number;
+  }) {
+    const { periods, startDate } = input;
+    await this.grantPlanClassPassesTx(tx, {
+      clubId: input.clubId,
+      subscriptionId: input.subscriptionId,
+      planName: input.planName,
+      entitlements: input.entitlements.map((row) => ({
+        kind: row.kind,
+        activityTypeId: row.activityTypeId,
+        activityTypeName: row.activityTypeName,
+        creditsPerPeriod: row.creditsPerPeriod,
+        classType: row.classType,
+      })),
+      ownerClientId: input.payerClientId,
+      beneficiaryClientId: input.clientId,
+      beneficiaryUserId: input.beneficiaryUserId,
+      coverageStart: periods.reduce((min, item) => (item.coversFrom < min ? item.coversFrom : min), periods[0]?.coversFrom || startDate),
+      coverageEnd: periods.reduce((max, item) => (item.coversTo > max ? item.coversTo : max), periods[0]?.coversTo || startDate),
+      actorUserId: input.actorUserId,
     });
-    return this.getSubscription(clubId, result);
+
+    if (input.grantsMemberCategoryId) {
+      await this.ensureMemberTx(tx, {
+        clubId: input.clubId,
+        clientId: input.clientId,
+        categoryId: input.grantsMemberCategoryId,
+        joinedAt: startDate,
+        actorUserId: input.actorUserId,
+      });
+      await this.syncMemberValidUntilTx(tx, input.clubId, input.clientId, input.actorUserId);
+    }
+  }
+
+  /**
+   * Compra online: cuando quedan pagas la matrícula y la primera cuota, el plan se habilita
+   * (clases incluidas, socio) y se avisa al club. Devuelve true si se habilitó ahora.
+   */
+  async activateOnlinePurchaseTx(tx: TxClient, subscriptionId: string) {
+    const subscription = await tx.subscription.findUnique({
+      where: { id: subscriptionId },
+      include: {
+        installments: true,
+        plan: { select: { name: true, grantsMemberCategoryId: true } },
+        client: { select: { userId: true, name: true } },
+      },
+    });
+    if (!subscription || !subscription.awaitingOnlinePayment || subscription.status === 'CANCELLED') return false;
+    const initial = initialPurchaseInstallments(subscription.installments);
+    if (!initial.length || initial.some((row) => row.status !== 'PAID')) return false;
+
+    await tx.subscription.update({ where: { id: subscription.id }, data: { awaitingOnlinePayment: false } });
+    const snapshot = subscription.planSnapshot as unknown as PlanSnapshot;
+    await this.grantSaleBenefitsTx(tx, {
+      clubId: subscription.clubId,
+      subscriptionId: subscription.id,
+      planName: snapshot?.planName || subscription.plan.name,
+      entitlements: Array.isArray(snapshot?.entitlements) ? snapshot.entitlements : [],
+      grantsMemberCategoryId: subscription.plan.grantsMemberCategoryId,
+      clientId: subscription.clientId,
+      payerClientId: subscription.payerClientId,
+      beneficiaryUserId: subscription.client.userId ?? null,
+      startDate: dateToKey(subscription.startDate),
+      periods: subscription.installments
+        .filter((row) => row.kind === 'PERIOD' && row.status !== 'VOID')
+        .map((row) => ({ coversFrom: dateToKey(row.coversFrom), coversTo: dateToKey(row.coversTo) })),
+      actorUserId: subscription.createdByUserId,
+    });
+    await tx.subscriptionHistory.create({
+      data: {
+        subscriptionId: subscription.id,
+        clubId: subscription.clubId,
+        action: 'ONLINE_PURCHASE_PAID',
+        detail: { planName: snapshot?.planName || subscription.plan.name } as Prisma.InputJsonValue,
+      },
+    });
+
+    // Aviso al club (push a admins y staff).
+    const staff = await tx.membership.findMany({
+      where: { clubId: subscription.clubId, role: { in: ['OWNER', 'ADMIN', 'STAFF'] } },
+      select: { userId: true },
+    });
+    for (const row of staff) {
+      if (subscription.client.userId && row.userId === subscription.client.userId) continue;
+      await pushNotificationService.enqueue(tx, {
+        clubId: subscription.clubId,
+        userId: row.userId,
+        kind: 'PLAN_NOTICE',
+        aggregateType: 'Subscription',
+        aggregateId: subscription.id,
+        content: {
+          title: `${subscription.client.name || 'Un jugador'} compró un plan`,
+          body: `${snapshot?.planName || subscription.plan.name}: lo pagó con Mercado Pago desde la app.`,
+          url: '/admin/clientes',
+          tag: `plan-${subscription.id}-online`,
+        },
+      });
+    }
+    return true;
   }
 
   private async ensureMemberTx(tx: TxClient, input: {
@@ -744,6 +871,11 @@ export class SubscriptionService {
       }
     }
 
+    // Compra online (o cobrada después en el club): con la matrícula y la primera cuota pagas se habilita.
+    if (isPaid && subscription.awaitingOnlinePayment) {
+      await this.activateOnlinePurchaseTx(tx, subscription.id);
+    }
+
     await this.syncMemberValidUntilTx(tx, subscription.clubId, subscription.clientId, null);
   }
 
@@ -826,9 +958,11 @@ export class SubscriptionService {
    * - Mora: con una cuota vencida fuera de la gracia, pasa a PAST_DUE (al pagar vuelve sola a ACTIVE).
    */
   async runLifecycle() {
-    const result = { renewed: 0, expired: 0, pastDue: 0, paused: 0, resumed: 0, suspended: 0, expiringNotices: 0 };
+    const result = { renewed: 0, expired: 0, pastDue: 0, paused: 0, resumed: 0, suspended: 0, expiringNotices: 0, abandoned: 0 };
+    result.abandoned = await this.cancelAbandonedOnlinePurchases();
+    // Las compras online sin pagar no entran en mora ni se renuevan: no habilitan nada todavía.
     const candidates = await prisma.subscription.findMany({
-      where: { status: { in: ['ACTIVE', 'PAST_DUE', 'PAUSED'] } },
+      where: { status: { in: ['ACTIVE', 'PAST_DUE', 'PAUSED'] }, awaitingOnlinePayment: false },
       select: { id: true, clubId: true },
     });
     const todayByClub = new Map<number, string>();
@@ -849,6 +983,37 @@ export class SubscriptionService {
       }
     }
     return result;
+  }
+
+  /**
+   * Compras online que nadie pagó: después de ONLINE_PURCHASE_TTL_HOURS se cancelan (las cuentas se anulan
+   * y no queda deuda). Si tienen algún pago (por ejemplo un pago en efectivo de Mercado Pago a medio
+   * acreditar, o un cobro parcial en el club) se dejan para que las resuelva el club.
+   */
+  async cancelAbandonedOnlinePurchases(now = new Date()) {
+    const cutoff = new Date(now.getTime() - ONLINE_PURCHASE_TTL_HOURS * 3600_000);
+    const stale = await prisma.subscription.findMany({
+      where: { awaitingOnlinePayment: true, status: { not: 'CANCELLED' }, createdAt: { lt: cutoff } },
+      select: { id: true, clubId: true, createdByUserId: true, installments: { select: { accountId: true } } },
+    });
+    let cancelled = 0;
+    for (const row of stale) {
+      try {
+        const accountIds = row.installments.map((inst) => inst.accountId).filter((id): id is string => Boolean(id));
+        const [paid, openAttempt] = await Promise.all([
+          prisma.account.count({ where: { id: { in: accountIds }, paidAmount: { gt: 0 } } }),
+          prisma.onlinePaymentAttempt.count({
+            where: { accountId: { in: accountIds }, status: 'PENDING', providerPaymentId: { not: null } },
+          }),
+        ]);
+        if (paid > 0 || openAttempt > 0) continue;
+        await this.cancel(row.clubId, row.createdByUserId, row.id, 'Compra online sin pagar');
+        cancelled += 1;
+      } catch (error) {
+        console.error(`❌ No se pudo cancelar la compra online ${row.id}:`, error);
+      }
+    }
+    return cancelled;
   }
 
   private async runLifecycleTx(tx: TxClient, subscriptionId: string, today: string) {
@@ -1545,6 +1710,7 @@ export class SubscriptionService {
         pendingAmount: Number(pendingAmount.toFixed(2)),
         autoRenew: row.autoRenew,
         pausesUsed: row.pausesUsed,
+        awaitingOnlinePayment: row.awaitingOnlinePayment,
         pauseMaxDays: Number(snapshot?.pauseMaxDays ?? 0),
         pauseMaxCount: Number(snapshot?.pauseMaxCount ?? 0),
         pauses: [...row.pauses]
@@ -1651,6 +1817,17 @@ export class SubscriptionService {
         planName: item.planName,
         optionLabel: item.optionLabel,
         billingType: item.billingType,
+        // Comprado desde la app y sin pagar todavía: no habilita nada hasta pagar.
+        awaitingPayment: row.awaitingOnlinePayment,
+        purchaseAmount: row.awaitingOnlinePayment
+          ? Number(
+              initialPurchaseInstallments(item.installments as Array<{ kind: 'ENROLLMENT_FEE' | 'PERIOD'; sequence: number; status: string; listAmount: number; account: { remainingAmount: number } | null }>)
+                .filter((inst) => inst.status === 'PENDING')
+                .reduce((sum, inst) => sum + (inst.account ? inst.account.remainingAmount : inst.listAmount), 0)
+                .toFixed(2)
+            )
+          : null,
+        planId: row.planId,
         status: item.status,
         hasOverdue: item.hasOverdue,
         // Lo paga otro (o lo paga para otro): se muestra para quién es.
@@ -1680,7 +1857,7 @@ export class SubscriptionService {
         pauseMaxCount: item.pauseMaxCount,
         pausesUsed: item.pausesUsed,
         // El jugador puede pausar solo: plan activo, que permita pausas, con cupo y sin otra pausa por venir.
-        canPause: item.status === 'ACTIVE' && item.pauseMaxCount > 0 && item.pauseMaxDays > 0 && item.pausesUsed < item.pauseMaxCount && !pause,
+        canPause: !row.awaitingOnlinePayment && item.status === 'ACTIVE' && item.pauseMaxCount > 0 && item.pauseMaxDays > 0 && item.pausesUsed < item.pauseMaxCount && !pause,
         classes: passes
           .filter((pass) => pass.subscriptionId === row.id)
           .map((pass) => ({
@@ -1710,6 +1887,15 @@ function toInstallmentState(row: {
     dueDate: dateToKey(row.dueDate),
     status: row.status,
   };
+}
+
+/**
+ * Cuotas que se pagan al comprar el plan desde la app: la matrícula (si hay) y la primera cuota del período.
+ */
+export function initialPurchaseInstallments<T extends { kind: 'ENROLLMENT_FEE' | 'PERIOD'; sequence: number; status: string }>(rows: T[]): T[] {
+  const live = rows.filter((row) => row.status !== 'VOID');
+  const firstPeriod = live.filter((row) => row.kind === 'PERIOD').sort((a, b) => a.sequence - b.sequence)[0];
+  return [...live.filter((row) => row.kind === 'ENROLLMENT_FEE'), ...(firstPeriod ? [firstPeriod] : [])];
 }
 
 export const subscriptionService = new SubscriptionService();

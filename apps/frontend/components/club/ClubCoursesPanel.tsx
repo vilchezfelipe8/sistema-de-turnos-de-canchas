@@ -15,6 +15,8 @@ type Props = {
   onNotice?: (message: string, tone?: Tone) => void;
   /** Avisa cuántos cursos hay (para mostrar el acceso arriba en la página del club). */
   onCount?: (count: number) => void;
+  /** Se anotó o se bajó de un curso (para refrescar "Mis clases"). */
+  onChanged?: () => void;
 };
 
 const defaultNotice = (message: string, tone: Tone = 'info') => {
@@ -29,7 +31,7 @@ const shortDay = (key: string) => `${key.slice(8, 10)}/${key.slice(5, 7)}`;
 const classesLabel = (count: number) => (count === 1 ? '1 clase' : `${count} clases`);
 
 /** Cursos que el club muestra en la app: el jugador se anota (o pide lugar) y se baja. */
-export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice = defaultNotice, onCount }: Props) {
+export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice = defaultNotice, onCount, onChanged }: Props) {
   const [courses, setCourses] = useState<ClubCourse[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -87,6 +89,7 @@ export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice =
         'success'
       );
       await load();
+      onChanged?.();
     } catch (error) {
       reportUiError({ area: 'ClubCoursesPanel', action: 'join' }, error);
       onNotice(extractErrorMessage(error, 'No se pudo anotarte.'), 'error');
@@ -106,6 +109,7 @@ export default function ClubCoursesPanel({ slug, loggedIn, loginHref, onNotice =
         'success'
       );
       await load();
+      onChanged?.();
     } catch (error) {
       reportUiError({ area: 'ClubCoursesPanel', action: 'leave' }, error);
       onNotice(extractErrorMessage(error, 'No se pudo bajarte del curso.'), 'error');

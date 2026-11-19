@@ -43,6 +43,8 @@ router.post('/slug/:slug/turns/mine/:turnId/cancel', authMiddleware, activityTur
 router.get('/favorites/me', authMiddleware, clubFavoriteController.listMyFavorites);
 router.get('/courses/me', authMiddleware, clubCoursesController.mine);
 const playerSubscriptionController = new PlayerSubscriptionController();
+router.get('/slug/:slug/plans', optionalAuthMiddleware, playerSubscriptionController.listClubPlans);
+router.post('/slug/:slug/plans/:planId/purchase', authMiddleware, playerSubscriptionController.purchase);
 router.get('/subscriptions/me', authMiddleware, playerSubscriptionController.mine);
 router.post('/subscriptions/me/:id/checkout', authMiddleware, playerSubscriptionController.checkout);
 router.post('/subscriptions/me/:id/pause', authMiddleware, playerSubscriptionController.pause);

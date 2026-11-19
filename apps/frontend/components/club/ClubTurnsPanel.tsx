@@ -17,6 +17,10 @@ type Props = {
   loggedIn: boolean;
   loginHref: string;
   onNotice: (message: string, tone?: Tone) => void;
+  /** Dónde ve el jugador su plan (para pagar o despausar). Por defecto, el perfil. */
+  plansHref?: string;
+  /** Dónde se compra un plan, si el club los vende en la app. */
+  buyPlanHref?: string | null;
 };
 
 const weekdayOf = (key: string) => new Date(`${key}T12:00:00Z`).getUTCDay();
@@ -29,7 +33,7 @@ const myTurnLabel = (turn: MyTurn, today: string | undefined) =>
   `${turn.date === today ? 'Hoy' : `${WEEKDAY_SHORT[weekdayOf(turn.date)]} ${shortDay(turn.date)}`} de ${turn.time} a ${turn.endTime}`;
 
 /** Turnero del club (ej. Musculación): el socio elige día y franja con lugar. */
-export default function ClubTurnsPanel({ slug, loggedIn, loginHref, onNotice }: Props) {
+export default function ClubTurnsPanel({ slug, loggedIn, loginHref, onNotice, plansHref = '/perfil', buyPlanHref = null }: Props) {
   const [activities, setActivities] = useState<PublicTurnActivity[]>([]);
   const [mine, setMine] = useState<MyTurn[]>([]);
   const [activityId, setActivityId] = useState<number | null>(null);
@@ -222,7 +226,12 @@ export default function ClubTurnsPanel({ slug, loggedIn, loginHref, onNotice }: 
           {day!.access!.code === 'UNPAID' || day!.access!.code === 'PAUSED' ? (
             <>
               {' '}
-              <Link href="/perfil">Ver mis planes</Link>
+              <Link href={plansHref}>Ver mi plan</Link>
+            </>
+          ) : day!.access!.code === 'NO_PLAN' && buyPlanHref ? (
+            <>
+              {' '}
+              <Link href={buyPlanHref}>Ver planes</Link>
             </>
           ) : null}
         </p>

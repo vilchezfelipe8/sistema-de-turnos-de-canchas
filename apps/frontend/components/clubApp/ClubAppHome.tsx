@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Clock, LogIn, Mail, MapPin, Trophy, Zap } from 'lucide-react';
+import { ArrowRight, Clock, Dumbbell, LogIn, Mail, MapPin, Trophy, Zap } from 'lucide-react';
 import type { Club } from '../../services/ClubService';
 import {
   BOOKING_INVITATIONS_CHANGED_EVENT,
@@ -64,9 +64,11 @@ type Props = {
   slug: string;
   user: { id?: number; firstName?: string | null; name?: string | null } | null;
   loginHref: string;
+  /** El club tiene gimnasio (turnero o planes): acceso a la pestaña Gimnasio. */
+  hasGym?: boolean;
 };
 
-export default function ClubAppHome({ club, slug, user, loginHref }: Props) {
+export default function ClubAppHome({ club, slug, user, loginHref, hasGym = false }: Props) {
   const [nextMatch, setNextMatch] = useState<PlayerBookingDto | null>(null);
   const [invitations, setInvitations] = useState<PlayerBookingInvitationDto[]>([]);
   const [bookingWindow, setBookingWindow] = useState<BookingWindowEvaluation | null>(null);
@@ -230,6 +232,14 @@ export default function ClubAppHome({ club, slug, user, loginHref }: Props) {
               <p className="ca-empty">Todavía no tenés partidos próximos en el club.</p>
             )}
           </section>
+        ) : null}
+
+        {hasGym ? (
+          <Link href={`/club/${slug}?tab=gimnasio`} shallow className="ca-alert">
+            <Dumbbell size={16} style={{ color: 'var(--accent-fg)', flexShrink: 0 }} />
+            <span className="ca-alert-text">Gimnasio: tu plan, turnos y código de ingreso</span>
+            <span className="ca-alert-link">Ver</span>
+          </Link>
         ) : null}
 
         {/* Cursos que el club publica: anotarse o pedir lugar (no aparece si no hay) */}
