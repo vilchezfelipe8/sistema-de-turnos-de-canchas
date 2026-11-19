@@ -12,13 +12,17 @@ let nextLayerId = 1;
 export function useOverlayLayer(open: boolean, onEscape?: () => void, enabled = true) {
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  // Por ref: cambiar "enabled" no re-registra la capa (no la mueve arriba de otra).
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   useEffect(() => {
     if (!open) return;
     const id = nextLayerId++;
     layerStack.push(id);
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !enabled) return;
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
       if (layerStack[layerStack.length - 1] !== id) return;
+      if (!enabledRef.current) return;
       if (!onEscapeRef.current) return;
       event.preventDefault();
       onEscapeRef.current();
@@ -29,7 +33,7 @@ export function useOverlayLayer(open: boolean, onEscape?: () => void, enabled = 
       const index = layerStack.indexOf(id);
       if (index >= 0) layerStack.splice(index, 1);
     };
-  }, [open, enabled]);
+  }, [open]);
 }
 
 type AdminOverlayProps = {

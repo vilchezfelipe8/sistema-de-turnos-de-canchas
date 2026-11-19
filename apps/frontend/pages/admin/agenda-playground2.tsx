@@ -8317,7 +8317,15 @@ function AdminAgendaPlaygroundPage() {
               open={drawerOpen}
               onClose={() => closeBookingDrawer({ clearFormError: false })}
               size={editingBookingId ? 'lg' : 'md'}
-              closeOnEscape={false}
+              // Escape cierra primero lo que esté abierto adentro (búsquedas, menús); después el drawer.
+              closeOnEscape={
+                !simplifiedOwnerSuggestionsOpen &&
+                !simplifiedNewParticipantSuggestionsOpen &&
+                !simplifiedNewParticipantOpen &&
+                !participantSearchOpenId &&
+                !bookingKindMenuOpen &&
+                !recurringCourtsMenuOpen
+              }
               title={
                 <span className="flex flex-wrap items-center gap-2">
                   <span>
