@@ -118,6 +118,14 @@ export const ActivityTurnService = {
   adminDay: (slug: string, activityTypeId: number, date: string) =>
     request<AdminTurnDay>(`/clubs/${slug}/admin/turns/${activityTypeId}?date=${enc(date)}`, { method: 'GET' }, 'No se pudieron cargar los turnos.'),
 
+  /** El club anota a un cliente en una franja (valida su plan y el cupo igual que la app). */
+  adminBook: (slug: string, activityTypeId: number, startsAt: string, clientId: string) =>
+    request<{ id: string }>(
+      `/clubs/${slug}/admin/turns/${activityTypeId}`,
+      { method: 'POST', body: JSON.stringify({ startsAt, clientId }) },
+      'No se pudo anotar el turno.'
+    ),
+
   adminCancel: (slug: string, turnId: string) =>
     request<{ id: string }>(`/clubs/${slug}/admin/turns/item/${enc(turnId)}/cancel`, { method: 'POST' }, 'No se pudo cancelar el turno.'),
 

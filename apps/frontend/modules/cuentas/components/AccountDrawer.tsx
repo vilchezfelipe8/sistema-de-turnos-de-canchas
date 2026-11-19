@@ -232,6 +232,9 @@ export default function AccountDrawer({
 
   // ── View state ──────────────────────────────────────────────────────────────
   const [view, setView] = useState<AccountDrawerView>('overview');
+  // Abierto para cobrar (o agregar, cerrar, facturar): mientras carga ya se muestra ese paso,
+  // así no aparece el resumen de la cuenta medio segundo antes.
+  const [initialViewPending, setInitialViewPending] = useState(false);
   const initialViewAppliedKeyRef = useRef('');
   /** Vista con la que se abrió el panel. Si no fue el detalle, "Cancelar" cierra en vez de volver. */
   const entryViewRef = useRef<AccountDrawerInitialView>('overview');
@@ -307,6 +310,7 @@ export default function AccountDrawer({
     (targetDetail: AccountDetail) => {
       setActionError('');
       setPayError('');
+      setInitialViewPending(false);
       entryViewRef.current = initialView;
 
       if (initialView === 'add_item') {
@@ -380,6 +384,7 @@ export default function AccountDrawer({
     setInvoicesLoading(true);
     setInvoiceDraft(createDefaultInvoiceDraft(null));
     setView('overview');
+    setInitialViewPending(initialView !== 'overview');
     initialViewAppliedKeyRef.current = '';
     getAccountById(accountId)
       .then((raw) => {
@@ -389,6 +394,7 @@ export default function AccountDrawer({
       .catch((err) => {
         if (cancelled) return;
         reportUiError({ area: 'AccountDrawer', action: 'fetchDetail' }, err);
+        setInitialViewPending(false);
         setLoadError(extractErrorMessage(err, 'No se pudo cargar la cuenta.'));
       })
       .finally(() => {
@@ -1076,8 +1082,21 @@ export default function AccountDrawer({
       ? `#${shortCode(detail.id)}`
       : undefined;
 
-  const drawerTitle =
-    view === 'add_item'
+  const pendingEntry: { title: string; stepKey: AccountDrawerView } | null = !initialViewPending
+    ? null
+    : initialView === 'payment'
+    ? { title: 'Registrar cobro', stepKey: 'payment_form' }
+    : initialView === 'add_item'
+    ? { title: 'Agregar concepto', stepKey: 'add_item' }
+    : initialView === 'close'
+    ? { title: 'Cerrar cuenta', stepKey: 'close_confirm' }
+    : initialView === 'invoice'
+    ? { title: 'Emitir factura', stepKey: 'invoice_form' }
+    : null;
+
+  const drawerTitle = pendingEntry
+    ? pendingEntry.title
+    : view === 'add_item'
       ? 'Agregar concepto'
       : view === 'payment_form' || view === 'payment_preconfirm'
       ? 'Registrar cobro'
@@ -1103,7 +1122,7 @@ export default function AccountDrawer({
   // ── Footer ─────────────────────────────────────────────────────────────────
   const footer = (() => {
     if (view === 'overview') {
-      if (loading || !detail) return undefined;
+      if (loading || !detail || pendingEntry) return undefined;
       const linkClass = 'text-[13px] font-semibold hover:underline underline-offset-2 disabled:opacity-40';
       return (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -1390,7 +1409,7 @@ export default function AccountDrawer({
 
   const body = (() => {
     // ── Loading / error states ───────────────────────────────────────────────
-    if (loading) {
+    if (loading || pendingEntry) {
       return (
         <div className="flex flex-col items-center justify-center gap-3 py-16 text-p-text-muted">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-p-border border-p-accent-t" />
@@ -2351,7 +2370,7 @@ export default function AccountDrawer({
         open={open}
         onClose={handleClose}
         onBack={handleBack}
-        stepKey={view}
+        stepKey={pendingEntry?.stepKey ?? view}
         title={drawerTitle}
         subtitle={drawerSubtitle}
         statusChip={statusChip}

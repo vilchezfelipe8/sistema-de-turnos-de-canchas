@@ -24,6 +24,7 @@ import { useUserTheme } from '../../contexts/UserThemeContext';
 import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser, setActiveClubId } from '../../utils/session';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { POP_EXIT_MS, usePresence } from '../../hooks/usePresence';
+import useClubHasGym from '../../hooks/useClubHasGym';
 import AdminModal from './ui/AdminModal';
 import { useOverlayLayer } from './ui/AdminOverlay';
 import AdminAppModal from './ui/AdminAppModal';
@@ -159,14 +160,17 @@ export default function AdminPlaygroundShell({
   const hasAdminPrivileges = useMemo(() => hasAdminAccess(normalizedUser), [normalizedUser]);
   const hasOperatorPrivileges = useMemo(() => hasOperatorAccess(normalizedUser), [normalizedUser]);
   const adminClubSlug = useMemo(() => getActiveClubSlug(normalizedUser), [normalizedUser]);
+  const clubHasGym = useClubHasGym(hasOperatorPrivileges ? adminClubSlug : null);
   const visibleSidebarItems = useMemo(() => {
     const lockedLabels = CLUB_LOCKED_SIDEBAR_ITEMS[adminClubSlug || ''];
     return PLAYGROUND_SIDEBAR_ITEMS.filter((item) => {
       if (lockedLabels?.has(item.label)) return false;
+      // Gimnasio aparece solo si el club lo usa (o si ya se está en esa pantalla).
+      if (item.requires === 'gym' && !clubHasGym && item.label !== activeItem) return false;
       if (item.minAccess === 'admin') return hasAdminPrivileges;
       return hasOperatorPrivileges;
     });
-  }, [hasAdminPrivileges, hasOperatorPrivileges, adminClubSlug]);
+  }, [hasAdminPrivileges, hasOperatorPrivileges, adminClubSlug, clubHasGym, activeItem]);
   const mobileNavigation = useMemo(() => {
     const enabledItems = visibleSidebarItems.filter((item) => !item.disabled);
     if (enabledItems.length <= MOBILE_MAX_PRIMARY_ITEMS + 1) {

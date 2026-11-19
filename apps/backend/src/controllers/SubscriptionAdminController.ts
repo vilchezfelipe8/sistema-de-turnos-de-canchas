@@ -165,6 +165,10 @@ export class SubscriptionAdminController {
   listSubscriptions = async (req: ClubRequest, res: Response) => {
     try {
       const clubId = this.resolveClubId(req);
+      // Sin cliente: todos los abonados del club (pantalla Gimnasio → Abonados).
+      if (req.query.clientId === undefined || req.query.clientId === '') {
+        return res.json(await subscriptionService.listForClub(clubId));
+      }
       const clientId = this.resolveId(req.query.clientId, 'Cliente');
       return res.json(await subscriptionService.listByClient(clubId, clientId));
     } catch (error) {

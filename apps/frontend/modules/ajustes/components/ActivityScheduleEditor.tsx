@@ -1,3 +1,4 @@
+import AdminTimeSelect from '../../../components/admin/ui/AdminTimeSelect';
 import { CalendarDays, Plus, X } from 'lucide-react';
 import { adminChip } from '../../../components/admin/ui/adminChip';
 
@@ -182,19 +183,17 @@ export default function ActivityScheduleEditor({
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-p-text">Abre</span>
-                <input
-                  type="time"
+                <AdminTimeSelect
                   value={config.scheduleOpenTime}
-                  onChange={(e) => onChange({ scheduleOpenTime: e.target.value })}
+                  onChange={(value) => onChange({ scheduleOpenTime: value })}
                   className={inputCls}
                 />
               </label>
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-p-text">Cierra</span>
-                <input
-                  type="time"
+                <AdminTimeSelect
                   value={config.scheduleCloseTime}
-                  onChange={(e) => onChange({ scheduleCloseTime: e.target.value })}
+                  onChange={(value) => onChange({ scheduleCloseTime: value })}
                   className={inputCls}
                 />
               </label>
@@ -228,19 +227,17 @@ export default function ActivityScheduleEditor({
               <div className="space-y-2">
                 {windows.map((row, index) => (
                   <div key={index} className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      aria-label="Desde"
+                    <AdminTimeSelect
+                      ariaLabel="Desde"
                       value={row.from}
-                      onChange={(e) => writeWindows(windows.map((w, i) => (i === index ? { ...w, from: e.target.value } : w)))}
+                      onChange={(value) => writeWindows(windows.map((w, i) => (i === index ? { ...w, from: value } : w)))}
                       className={rowInputCls}
                     />
                     <span className="text-[13px] text-p-text-muted">a</span>
-                    <input
-                      type="time"
-                      aria-label="Hasta"
+                    <AdminTimeSelect
+                      ariaLabel="Hasta"
                       value={row.to}
-                      onChange={(e) => writeWindows(windows.map((w, i) => (i === index ? { ...w, to: e.target.value } : w)))}
+                      onChange={(value) => writeWindows(windows.map((w, i) => (i === index ? { ...w, to: value } : w)))}
                       className={rowInputCls}
                     />
                     <button
@@ -270,11 +267,11 @@ export default function ActivityScheduleEditor({
             <div className="space-y-2">
               {fixedSlots.map((row, index) => (
                 <div key={index} className="flex items-center gap-2">
-                  <input
-                    type="time"
-                    aria-label="Hora"
+                  <AdminTimeSelect
+                    ariaLabel="Hora"
+                    step={15}
                     value={row.time}
-                    onChange={(e) => writeFixed(fixedSlots.map((slot, i) => (i === index ? { ...slot, time: e.target.value } : slot)))}
+                    onChange={(value) => writeFixed(fixedSlots.map((slot, i) => (i === index ? { ...slot, time: value } : slot)))}
                     className={rowInputCls}
                   />
                   <select

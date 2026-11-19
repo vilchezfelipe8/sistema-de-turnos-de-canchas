@@ -18,6 +18,7 @@ import { formatMoney } from '../../cuentas/accountUtils';
 import { showAdminToast } from '../../../utils/adminToast';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
+import { markClubHasGym } from '../../../hooks/useClubHasGym';
 
 const inputClass =
   'h-9 w-full rounded-lg border border-p-border bg-p-surface px-3 text-[13px] text-p-text outline-none focus:border-p-text-secondary';
@@ -209,6 +210,7 @@ export default function SettingsSubscriptionPlansSection() {
         showAdminToast('Plan guardado.');
       } else {
         await SubscriptionAdminService.createPlan(clubSlug, input);
+        markClubHasGym(clubSlug);
         showAdminToast('Plan creado.');
       }
       setEditing(null);

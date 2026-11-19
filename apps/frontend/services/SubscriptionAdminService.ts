@@ -168,6 +168,10 @@ export const SubscriptionAdminService = {
       'No se pudo cambiar el estado del plan.'
     ),
 
+  /** Abonados del club: planes activos, con deuda o pausados. */
+  listForClub: (slug: string) =>
+    request<ClientSubscription[]>(`/clubs/${slug}/admin/subscriptions`, { method: 'GET' }, 'No se pudieron cargar los abonados.'),
+
   listByClient: (slug: string, clientId: string) =>
     request<ClientSubscription[]>(
       `/clubs/${slug}/admin/subscriptions?clientId=${encodeURIComponent(clientId)}`,

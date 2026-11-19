@@ -104,19 +104,17 @@ export default function PaymentRegistrationDrawer({
 
       {/* Conceptos a cobrar */}
       <AdminDrawerSection title="Conceptos a cobrar">
-        <div className="grid grid-cols-3 gap-2">
+        <div role="radiogroup" aria-label="Conceptos a cobrar" className="grid grid-cols-3 gap-2">
           {presetOptions.map((option) => {
             const isActive = selectedPreset === option.id;
             return (
               <button
                 key={`payment-preset-${option.id}`}
                 type="button"
+                role="radio"
+                aria-checked={isActive}
                 onClick={() => onPresetChange(option.id)}
-                className={`h-9 rounded-lg border text-[12px] font-semibold transition ${
-                  isActive
-                    ? 'border-p-accent bg-p-positive-bg text-p-accent'
-                    : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                }`}
+                className={`${adminChip(isActive, 'md')} !px-0`}
               >
                 {option.label}
               </button>

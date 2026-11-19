@@ -185,7 +185,8 @@
   box-sizing: border-box;
 }
 
-.pique-root a {
+/* :where() deja la especificidad en la de `a`: así las clases de color (ej. adminButton en un <a>) ganan. */
+:where(.pique-root) a {
   color: inherit;
   text-decoration: none;
 }

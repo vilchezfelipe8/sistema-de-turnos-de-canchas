@@ -163,6 +163,7 @@ import AgendaPlayerSlotsSection from '../../components/admin/agenda/AgendaPlayer
 import { normalizeApiError } from '../../utils/apiError';
 import { resolveBookingErrorBehavior } from '../../utils/bookingErrorMap';
 import BookingDrawerShell from '../../modules/admin/bookingDrawer/components/BookingDrawerShell';
+import { OVERLAY_EXIT_MS } from '../../hooks/usePresence';
 import { bookingDrawerReducer, initialBookingDrawerState } from '../../modules/admin/bookingDrawer/reducer';
 import { adminButton } from '../../components/admin/ui/adminButton';
 import { adminChip } from '../../components/admin/ui/adminChip';
@@ -1419,6 +1420,14 @@ function AdminAgendaPlaygroundPage() {
   const [isWaitingQueuedPaymentConfirmation, setIsWaitingQueuedPaymentConfirmation] = useState(false);
   const [isDeletingBooking, setIsDeletingBooking] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
+  // Entre que el servidor crea la reserva y el drawer pasa a mostrarla, la agenda ya la trae:
+  // sin esto el borrador "Nueva reserva" choca con ella y parpadea la superposición.
+  const [settlingCreatedBooking, setSettlingCreatedBooking] = useState(false);
+  // Al crear: el drawer del borrador sale y entra el de la reserva creada (no se transforma en el lugar).
+  // Solo oculta el drawer; no dispara la limpieza de cerrar (drawerOpen sigue en true).
+  const [drawerHandoff, setDrawerHandoff] = useState(false);
+  // "Reservar y cobrar": la reserva creada espera oculta mientras se cobra y entra al cerrar el cobro.
+  const revealBookingDrawerOnAccountCloseRef = useRef(false);
   // Drawer de edición: horario/cancha plegados detrás de "Modificar" y acciones secundarias en "Más acciones".
   const [simplifiedScheduleEditorOpen, setSimplifiedScheduleEditorOpen] = useState(false);
   const [simplifiedMoreActionsOpen, setSimplifiedMoreActionsOpen] = useState(false);
@@ -2976,6 +2985,10 @@ function AdminAgendaPlaygroundPage() {
 
   const closeAgendaAccountDrawer = useCallback(() => {
     setAccountDrawerOpen(false);
+    if (revealBookingDrawerOnAccountCloseRef.current) {
+      revealBookingDrawerOnAccountCloseRef.current = false;
+      setDrawerHandoff(false);
+    }
     setAccountDrawerAccountId(null);
     setAccountDrawerInitialView('overview');
     setAccountDrawerContext(undefined);
@@ -2984,11 +2997,12 @@ function AdminAgendaPlaygroundPage() {
 
   const openAgendaAccountDrawer = useCallback(async (
     bookingId: number,
-    initialView: AccountDrawerInitialView = 'overview'
-  ) => {
+    initialView: AccountDrawerInitialView = 'overview',
+    bookingTitle?: string
+  ): Promise<boolean> => {
     if (!Number.isFinite(bookingId) || bookingId <= 0) {
       showAgendaToast('No se encontró una reserva válida para abrir la cuenta.');
-      return;
+      return false;
     }
 
     const paymentLockedByPendingReservation = Boolean(
@@ -3000,7 +3014,7 @@ function AdminAgendaPlaygroundPage() {
 
     if (initialView === 'payment' && paymentLockedByPendingReservation) {
       showAgendaToast('Primero confirmá la reserva para habilitar cobros.');
-      return;
+      return false;
     }
 
     try {
@@ -3008,21 +3022,23 @@ function AdminAgendaPlaygroundPage() {
       const bookingAccount = Array.isArray(accounts) ? accounts[0] : null;
       if (!bookingAccount?.id) {
         showAgendaToast('No se encontró la cuenta de esta reserva.');
-        return;
+        return false;
       }
 
       accountDrawerBookingIdRef.current = bookingId;
       setAccountDrawerAccountId(String(bookingAccount.id));
       setAccountDrawerInitialView(initialView);
       setAccountDrawerContext({
-        title: String(editingBooking?.title || '').trim() || `Reserva #${bookingId}`,
+        title: String(bookingTitle || editingBooking?.title || '').trim() || `Reserva #${bookingId}`,
         subtitle: selectedDate.toLocaleDateString('es-AR'),
         accountStatus: bookingAccount.status === 'CLOSED' ? 'CLOSED' : 'OPEN',
       });
       setAccountDrawerOpen(true);
+      return true;
     } catch (error) {
       reportUiError({ area: 'AgendaPlayground', action: 'openAgendaAccountDrawer' }, error);
       showAgendaToast('No se pudo abrir la cuenta de la reserva.');
+      return false;
     }
   }, [
     bookingFinancial?.confirmationMode,
@@ -3907,7 +3923,7 @@ function AdminAgendaPlaygroundPage() {
   const isSelectionInPastBlocking = isSelectionInPast && (!editingBookingId || hasScheduleChanges);
   const shouldBlockSaveByQuote = hasBlockingQuoteError && (!editingBookingId || hasScheduleChanges);
   const hasConflict = useMemo(() => {
-    if (!selectedCourtId) return false;
+    if (!selectedCourtId || settlingCreatedBooking) return false;
     // La reserva que se está editando nunca choca consigo misma (ej. acortarla de 2 h a 1 h 30).
     return hasOverlapForRange({
       courtId: selectedCourtId,
@@ -3921,6 +3937,7 @@ function AdminAgendaPlaygroundPage() {
     selectedCourtId,
     selectedEndSlot,
     selectedStartSlot,
+    settlingCreatedBooking,
   ]);
   const blockingActionMessage = isSelectionInPastBlocking
     ? 'No podés guardar una reserva en un horario pasado.'
@@ -4385,7 +4402,7 @@ function AdminAgendaPlaygroundPage() {
 
   /** Duraciones que se pueden elegir con un botón para el inicio actual. */
   const drawerDurationChoices = useMemo(() => {
-    if (!drawerRuleSlots) return [] as Array<{ durationMinutes: number; endSlot: number }>;
+    if (!drawerRuleSlots) return [] as Array<{ durationMinutes: number; endSlot: number; blocked: boolean }>;
     const byDuration = new Map<number, number>();
     for (const slot of drawerRuleSlots) {
       if (slot.startSlot !== selectedStartSlot || !drawerAllowedDurations.includes(slot.durationMinutes)) continue;
@@ -4393,8 +4410,20 @@ function AdminAgendaPlaygroundPage() {
     }
     return Array.from(byDuration.entries())
       .sort((a, b) => a[0] - b[0])
-      .map(([durationMinutes, endSlot]) => ({ durationMinutes, endSlot }));
-  }, [drawerAllowedDurations, drawerRuleSlots, selectedStartSlot]);
+      .map(([durationMinutes, endSlot]) => ({
+        durationMinutes,
+        endSlot,
+        blocked: Boolean(
+          selectedCourtId &&
+            hasOverlapForRange({
+              courtId: selectedCourtId,
+              startSlot: selectedStartSlot,
+              endSlot,
+              ignoreBookingId: editingBookingId || null,
+            })
+        ),
+      }));
+  }, [drawerAllowedDurations, drawerRuleSlots, editingBookingId, hasOverlapForRange, selectedCourtId, selectedStartSlot]);
 
   /** Cambiar la hora de inicio mantiene la duración si sigue siendo válida; si no, toma la válida más parecida. */
   const applyDrawerStartSlot = (nextStart: number) => {
@@ -5578,6 +5607,7 @@ function AdminAgendaPlaygroundPage() {
         }
       }
 
+      if (createdBookingId || firstCreatedRecurringBookingId) setSettlingCreatedBooking(true);
       const refreshedBookings = await reloadSchedule();
       if (isRecurringKind) {
         if (recurringSummaryError && !recurringResultModalShouldOpen) {
@@ -5628,7 +5658,28 @@ function AdminAgendaPlaygroundPage() {
           }
         }
         if (createdBooking) {
+          // Con la reserva ya lista: sale el drawer del borrador y recién después entra el de la reserva.
+          setDrawerHandoff(true);
+          await new Promise((resolve) => window.setTimeout(resolve, OVERLAY_EXIT_MS + 40));
           openBookingInDrawer(createdBooking);
+          const chargeNow = chargeAfterCreateRef.current && pendingParticipantDrafts.length === 0;
+          if (chargeNow) {
+            // Del borrador directo al cobro; la reserva entra cuando se cierra el cobro.
+            chargeAfterCreateRef.current = false;
+            const opened = await openAgendaAccountDrawer(Number(createdBooking.id), 'payment', createdBooking.title);
+            revealBookingDrawerOnAccountCloseRef.current = opened;
+            showAgendaToast('Reserva creada.', 'success');
+            await refreshPersistedBookingView(Number(createdBooking.id), {
+              schedule: true,
+              participants: true,
+              financial: true,
+              consumptions: true,
+              history: true,
+              forceDrawerSections: true,
+            });
+            return;
+          }
+          setDrawerHandoff(false);
           if (pendingParticipantDrafts.length > 0) {
             const syncResult = await syncDraftParticipantsToPersistedBooking(
               Number(createdBooking.id),
@@ -5659,7 +5710,7 @@ function AdminAgendaPlaygroundPage() {
           showAgendaToast('Reserva creada.', 'success');
           if (chargeAfterCreateRef.current) {
             chargeAfterCreateRef.current = false;
-            await openAgendaAccountDrawer(Number(createdBooking.id), 'payment');
+            await openAgendaAccountDrawer(Number(createdBooking.id), 'payment', createdBooking.title);
           }
           return;
         }
@@ -5824,6 +5875,8 @@ function AdminAgendaPlaygroundPage() {
       reportUiError({ area: 'AgendaPlayground', action: 'createBooking' }, error);
     } finally {
       setIsSubmittingBooking(false);
+      setSettlingCreatedBooking(false);
+      if (!revealBookingDrawerOnAccountCloseRef.current) setDrawerHandoff(false);
     }
   };
 
@@ -6996,20 +7049,6 @@ function AdminAgendaPlaygroundPage() {
                   onOpenBooking={openBookingInDrawer}
                   onCreateAt={(courtId, startSlot, endSlot) => openQuickCreateBooking(courtId, { startSlot, endSlot })}
                   onCreateBooking={() => openQuickCreateBooking(visibleCourts[0]?.id)}
-                  onConfirmBooking={async (booking) => {
-                    const bookingId = Number(booking.id);
-                    if (!Number.isFinite(bookingId) || bookingId <= 0) return;
-                    try {
-                      await confirmBooking(bookingId);
-                      await reloadSchedule();
-                      showAgendaToast('Reserva confirmada.', 'success');
-                    } catch (error) {
-                      reportUiError({ area: 'AgendaPlayground', action: 'confirmBookingFromMobileGrid' }, error);
-                      const normalized = normalizeApiError(error, 'No se pudo confirmar la reserva.');
-                      showAgendaToast(toUserSafeMessage(normalized.message, 'No se pudo confirmar la reserva.'));
-                    }
-                  }}
-                  onChargeBooking={(booking) => void openAgendaAccountDrawer(Number(booking.id), 'payment')}
                   courtRules={mobileCourtRules}
                   pastSlotCount={pastSlotCount}
                   onFindFreeSlot={() => setFreeFinderOpen(true)}
@@ -7085,6 +7124,7 @@ function AdminAgendaPlaygroundPage() {
                                       !hasDragSelection;
                                     const hasDrawerSelection =
                                       drawerOpen &&
+                                      !(settlingCreatedBooking && !editingBookingId) &&
                                       selectedCourtId === court.id &&
                                       selectedEndSlot > selectedStartSlot &&
                                       (!editingBookingId || hasScheduleChanges);
@@ -8314,7 +8354,7 @@ function AdminAgendaPlaygroundPage() {
             </AdminOverlay>
 
             <AdminDrawer
-              open={drawerOpen}
+              open={drawerOpen && !drawerHandoff}
               onClose={() => closeBookingDrawer({ clearFormError: false })}
               size={editingBookingId ? 'lg' : 'md'}
               // Escape cierra primero lo que esté abierto adentro (búsquedas, menús); después el drawer.
@@ -8808,6 +8848,8 @@ function AdminAgendaPlaygroundPage() {
                                             key={`edit-duration-${choice.durationMinutes}`}
                                             type="button"
                                             aria-pressed={active}
+                                            disabled={choice.blocked && !active}
+                                            title={choice.blocked ? 'Se pisa con otra reserva' : undefined}
                                             onClick={() => {
                                               setSelectedEndSlot(choice.endSlot);
                                               setScheduleInputsDirty(true);
@@ -8924,6 +8966,8 @@ function AdminAgendaPlaygroundPage() {
                                           key={`create-duration-${choice.durationMinutes}`}
                                           type="button"
                                           aria-pressed={active}
+                                          disabled={choice.blocked && !active}
+                                          title={choice.blocked ? 'Se pisa con otra reserva' : undefined}
                                           onClick={() => {
                                             setSelectedEndSlot(choice.endSlot);
                                             setScheduleInputsDirty(true);

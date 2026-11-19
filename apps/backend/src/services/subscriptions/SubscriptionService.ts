@@ -1591,6 +1591,17 @@ export class SubscriptionService {
     return this.mapSubscriptions(clubId, rows);
   }
 
+  /** Abonados del club: planes vigentes (activos, con deuda o pausados), los que vencen primero arriba. */
+  async listForClub(clubId: number) {
+    const rows = await prisma.subscription.findMany({
+      where: { clubId, status: { in: ['ACTIVE', 'PAST_DUE', 'PAUSED'] } },
+      include: this.subscriptionInclude,
+      orderBy: [{ currentPeriodEnd: 'asc' }],
+      take: 1000,
+    });
+    return this.mapSubscriptions(clubId, rows);
+  }
+
   // ── App del jugador ────────────────────────────────────────────────────
 
   /**
