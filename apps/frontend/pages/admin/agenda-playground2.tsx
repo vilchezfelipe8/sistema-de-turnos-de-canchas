@@ -1419,6 +1419,9 @@ function AdminAgendaPlaygroundPage() {
   const [isWaitingQueuedPaymentConfirmation, setIsWaitingQueuedPaymentConfirmation] = useState(false);
   const [isDeletingBooking, setIsDeletingBooking] = useState(false);
   const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
+  // Entre que el servidor crea la reserva y el drawer pasa a mostrarla, la agenda ya la trae:
+  // sin esto el borrador "Nueva reserva" choca con ella y parpadea la superposición.
+  const [settlingCreatedBooking, setSettlingCreatedBooking] = useState(false);
   // Drawer de edición: horario/cancha plegados detrás de "Modificar" y acciones secundarias en "Más acciones".
   const [simplifiedScheduleEditorOpen, setSimplifiedScheduleEditorOpen] = useState(false);
   const [simplifiedMoreActionsOpen, setSimplifiedMoreActionsOpen] = useState(false);
@@ -3907,7 +3910,7 @@ function AdminAgendaPlaygroundPage() {
   const isSelectionInPastBlocking = isSelectionInPast && (!editingBookingId || hasScheduleChanges);
   const shouldBlockSaveByQuote = hasBlockingQuoteError && (!editingBookingId || hasScheduleChanges);
   const hasConflict = useMemo(() => {
-    if (!selectedCourtId) return false;
+    if (!selectedCourtId || settlingCreatedBooking) return false;
     // La reserva que se está editando nunca choca consigo misma (ej. acortarla de 2 h a 1 h 30).
     return hasOverlapForRange({
       courtId: selectedCourtId,
@@ -3921,6 +3924,7 @@ function AdminAgendaPlaygroundPage() {
     selectedCourtId,
     selectedEndSlot,
     selectedStartSlot,
+    settlingCreatedBooking,
   ]);
   const blockingActionMessage = isSelectionInPastBlocking
     ? 'No podés guardar una reserva en un horario pasado.'
@@ -5578,6 +5582,7 @@ function AdminAgendaPlaygroundPage() {
         }
       }
 
+      if (createdBookingId || firstCreatedRecurringBookingId) setSettlingCreatedBooking(true);
       const refreshedBookings = await reloadSchedule();
       if (isRecurringKind) {
         if (recurringSummaryError && !recurringResultModalShouldOpen) {
@@ -5824,6 +5829,7 @@ function AdminAgendaPlaygroundPage() {
       reportUiError({ area: 'AgendaPlayground', action: 'createBooking' }, error);
     } finally {
       setIsSubmittingBooking(false);
+      setSettlingCreatedBooking(false);
     }
   };
 
@@ -7085,6 +7091,7 @@ function AdminAgendaPlaygroundPage() {
                                       !hasDragSelection;
                                     const hasDrawerSelection =
                                       drawerOpen &&
+                                      !(settlingCreatedBooking && !editingBookingId) &&
                                       selectedCourtId === court.id &&
                                       selectedEndSlot > selectedStartSlot &&
                                       (!editingBookingId || hasScheduleChanges);
