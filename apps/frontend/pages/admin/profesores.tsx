@@ -8,6 +8,8 @@ import { getApiFieldErrors } from '../../utils/apiError';
 import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import { adminButton } from '../../components/admin/ui/adminButton';
+import { adminChip } from '../../components/admin/ui/adminChip';
 
 type TeacherStatusFilter = 'all' | 'active' | 'inactive';
 
@@ -319,9 +321,7 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
                 type="button"
                 aria-pressed={active}
                 onClick={() => toggleSpecialty(name)}
-                className={`h-9 rounded-lg border px-3 text-[13px] font-semibold transition ${
-                  active ? 'border-ink-900 bg-ink-900 text-ink-50' : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                }`}
+                className={adminChip(active)}
               >
                 {name}
               </button>
@@ -435,7 +435,7 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
         <button
           type="button"
           onClick={openCreateModal}
-          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-3.5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800"
+          className={adminButton('primary')}
         >
           <Plus size={15} strokeWidth={2.5} />
           Nuevo profesor
@@ -595,7 +595,7 @@ export function AdminTeachersPageContent({ user, embedded = false }: { user: any
               type="submit"
               form="teacher-form"
               disabled={submitting}
-              className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-800 disabled:cursor-wait disabled:opacity-70"
+              className={adminButton('primary', 'lg')}
             >
               {submitting ? 'Guardando...' : editingTeacherId ? 'Guardar cambios' : 'Crear profesor'}
             </button>

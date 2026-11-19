@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
-import { lockBodyScroll } from '../../../utils/bodyScrollLock';
-import { ADMIN_Z_INDEX_CLASS } from '../../../utils/adminZIndex';
+import { ADMIN_Z_INDEX, ADMIN_Z_INDEX_CLASS } from '../../../utils/adminZIndex';
+import AdminOverlay from './AdminOverlay';
+import {
+  modalBodyCls,
+  modalCloseButtonCls,
+  modalFooterCls,
+  modalHeaderCls,
+  modalPanelCls,
+  modalSecondaryButtonCls,
+  modalTitleCls,
+} from './adminModalStyles';
 
 type AdminAppModalProps = {
   show: boolean;
@@ -49,17 +57,11 @@ export default function AdminAppModal({
   zIndexClass = ADMIN_Z_INDEX_CLASS.modal,
   hideCloseButton = false
 }: AdminAppModalProps) {
-  const [mounted, setMounted] = useState(false);
   const [inputText, setInputText] = useState(inputValue);
   const [holdProgress, setHoldProgress] = useState(0);
   const [holding, setHolding] = useState(false);
   const holdRef = useRef<number | null>(null);
   const holdStartRef = useRef(0);
-  const backdropMouseDownRef = useRef(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   useEffect(() => {
     if (!show) return;
@@ -67,18 +69,6 @@ export default function AdminAppModal({
     cancelHold();
   }, [show, inputValue]);
 
-  useEffect(() => {
-    if (!show) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (closeOnEscape && event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKeyDown);
-    const releaseBodyScrollLock = lockBodyScroll();
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      releaseBodyScrollLock();
-    };
-  }, [show, onClose, closeOnEscape]);
 
   const handleConfirm = () => {
     if (onConfirm) {
@@ -132,8 +122,6 @@ export default function AdminAppModal({
     cancelHold();
   };
 
-  if (!show) return null;
-
   const disabled = confirmDisabled || (showInput && !inputText.trim());
   const titleLower = String(title || '').toLowerCase();
   const isSuccess = !isWarning && (titleLower.includes('exito') || titleLower.includes('listo') || titleLower.includes('ok'));
@@ -145,36 +133,21 @@ export default function AdminAppModal({
     <Info size={16} />
   );
 
-  const modalContent = (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className={`fixed inset-0 ${zIndexClass} flex items-center justify-center bg-[var(--overlay)] p-4`}
-      onMouseDown={(event) => {
-        if (!closeOnBackdrop) return;
-        backdropMouseDownRef.current = event.target === event.currentTarget;
-      }}
-      onTouchStart={(event) => {
-        if (!closeOnBackdrop) return;
-        backdropMouseDownRef.current = event.target === event.currentTarget;
-      }}
-      onClick={
-        closeOnBackdrop
-          ? (event) => {
-              const startedOnBackdrop = backdropMouseDownRef.current;
-              backdropMouseDownRef.current = false;
-              if (startedOnBackdrop && event.target === event.currentTarget) onClose();
-            }
-          : undefined
-      }
+  const zIndex = Number(zIndexClass.match(/\d+/)?.[0]) || ADMIN_Z_INDEX.modal;
+
+  return (
+    <AdminOverlay
+      open={show}
+      onClose={onClose}
+      closeOnBackdrop={closeOnBackdrop}
+      closeOnEscape={closeOnEscape}
+      zIndex={zIndex}
+      portal
     >
-      <div
-        onClick={(event) => event.stopPropagation()}
-        className="flex max-h-[92vh] w-full max-w-[560px] flex-col overflow-hidden rounded-2xl border border-p-border bg-p-surface shadow-p-lg"
-      >
-        <div className="flex items-start justify-between gap-3 border-b border-p-border px-5 py-4">
+      <div role="dialog" aria-modal="true" aria-label={title} className={`${modalPanelCls} sm:max-w-[480px]`}>
+        <div className={modalHeaderCls}>
           <div className="min-w-0">
-            <h3 className="flex items-center gap-2 text-[15px] font-semibold text-p-text">
+            <h3 className={`flex items-center gap-2 ${modalTitleCls}`}>
               <span className={isWarning ? 'text-p-error' : isSuccess ? 'text-p-positive' : 'text-p-accent'}>{icon}</span>
               <span className="truncate">{title}</span>
             </h3>
@@ -183,16 +156,16 @@ export default function AdminAppModal({
             <button
               type="button"
               onClick={onClose}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-p-border text-p-text-muted hover:bg-p-surface-2"
-              title="Cerrar"
+              className={modalCloseButtonCls}
+              aria-label="Cerrar"
             >
               <X size={14} />
             </button>
           ) : null}
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5">
-          <div className="text-[13px] text-p-text-secondary leading-5">
+        <div className={`${modalBodyCls} space-y-4`}>
+          <div className="text-[13px] leading-5 text-p-text-secondary">
             {typeof message === 'string' ? <p className="m-0">{message}</p> : message}
           </div>
 
@@ -211,12 +184,12 @@ export default function AdminAppModal({
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-p-border px-5 py-4">
+        <div className={modalFooterCls}>
           {cancelText && (
             <button
               type="button"
               onClick={onCancel ?? onClose}
-              className="h-9 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+              className={modalSecondaryButtonCls}
             >
               {cancelText}
             </button>
@@ -234,11 +207,11 @@ export default function AdminAppModal({
               if (holdToConfirm) releaseHold();
             }}
             disabled={disabled}
-            className={`relative h-9 overflow-hidden rounded-lg px-4 text-[12px] font-semibold transition ${
+            className={`relative inline-flex h-9 select-none items-center justify-center overflow-hidden rounded-lg px-4 text-[13px] font-semibold transition-[background-color,color,opacity,transform] duration-150 active:scale-[0.97] ${
               disabled
                 ? 'cursor-not-allowed bg-p-surface-3 text-p-text-muted'
                 : isWarning
-                  ? 'bg-[#ea6b67] text-ink-50 hover:bg-[#e35b57]'
+                  ? 'bg-p-error text-white hover:opacity-90'
                   : 'bg-ink-900 text-ink-50 hover:bg-ink-800'
             }`}
           >
@@ -247,11 +220,11 @@ export default function AdminAppModal({
                 <span
                   aria-hidden="true"
                   className={`pointer-events-none absolute inset-y-0 left-0 ${
-                    isWarning ? 'bg-[#cf4742]' : 'bg-ink-700'
+                    isWarning ? 'bg-black/20' : 'bg-ink-700'
                   }`}
                   style={{
                     width: `${(holding ? holdProgress : 0) * 100}%`,
-                    transition: holding ? 'none' : 'width 0.18s ease'
+                    transition: holding ? 'none' : 'width 0.18s var(--ease-out)'
                   }}
                 />
                 <span
@@ -264,9 +237,6 @@ export default function AdminAppModal({
           </button>
         </div>
       </div>
-    </div>
+    </AdminOverlay>
   );
-
-  if (!mounted || typeof document === 'undefined') return null;
-  return createPortal(modalContent, document.body);
 }

@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import AdminAppModal from '../../components/admin/ui/AdminAppModal';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { showAdminToast } from '../../utils/adminToast';
+import { adminButton } from '../../components/admin/ui/adminButton';
 
 // Guardado único de una página de Ajustes: cada tarjeta registra sus cambios
 // pendientes y la página muestra una sola barra "Guardar cambios / Descartar".
@@ -196,7 +197,7 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
               type="button"
               onClick={handleDiscard}
               disabled={saving}
-              className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-50"
+              className={adminButton('secondary', 'sm')}
             >
               Descartar
             </button>
@@ -204,7 +205,7 @@ export function SettingsSaveProvider({ children }: { children: ReactNode }) {
               type="button"
               onClick={() => void handleSaveAll()}
               disabled={saving}
-              className="h-8 rounded-lg bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
+              className={adminButton('primary', 'sm')}
             >
               {saving ? 'Guardando…' : 'Guardar cambios'}
             </button>

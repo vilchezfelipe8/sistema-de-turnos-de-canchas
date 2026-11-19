@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import AdminDrawer from '../../../components/admin/ui/AdminDrawer';
 import { AdminInlineError } from '../../../components/admin/ui';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,7 +88,7 @@ export default function ProductDrawer({
         type="button"
         onClick={onClose}
         disabled={submitting}
-        className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+        className={adminButton('secondary', 'lg')}
       >
         Cancelar
       </button>
@@ -95,7 +96,7 @@ export default function ProductDrawer({
         form="product-drawer-form"
         type="submit"
         disabled={submitting}
-        className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
+        className={adminButton('primary', 'lg')}
       >
         {submitting ? 'Guardando...' : isEditing ? 'Guardar cambios' : formData.isCombo ? 'Crear combo' : 'Crear producto'}
       </button>

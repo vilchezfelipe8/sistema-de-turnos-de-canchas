@@ -11,6 +11,7 @@ import { showAdminToast } from '../../../utils/adminToast';
 import { getApiFieldErrors } from '../../../utils/apiError';
 import { getActiveClubSlug, getActiveMembershipRole, hasAdminAccess } from '../../../utils/session';
 import { extractErrorMessage } from '../../../utils/uiError';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 const OWNER_ROLE_OPTIONS: ClubMembershipRole[] = ['ADMIN', 'STAFF'];
 const ADMIN_ROLE_OPTIONS: ClubMembershipRole[] = ['STAFF'];
@@ -194,7 +195,7 @@ export default function SettingsMembersSection() {
               type="button"
               onClick={handleInvite}
               disabled={inviteSubmitting || !clubSlug}
-              className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+              className={`${adminButton('primary', 'lg')} w-full gap-2`}
             >
               <UserPlus size={14} />
               {inviteSubmitting ? 'Sumando...' : 'Darle acceso'}

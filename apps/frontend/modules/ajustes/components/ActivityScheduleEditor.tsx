@@ -1,4 +1,5 @@
 import { CalendarDays, Plus, X } from 'lucide-react';
+import { adminChip } from '../../../components/admin/ui/adminChip';
 
 /** Mismo formato que guarda el club: listas en texto ("60, 90", "08:00-12:00\n16:00-23:00", "08:00-60"). */
 export type ActivityScheduleConfig = {
@@ -166,9 +167,7 @@ export default function ActivityScheduleEditor({
                   type="button"
                   aria-pressed={active}
                   onClick={() => toggleDuration(minutes)}
-                  className={`h-9 rounded-lg border px-3 text-[13px] font-semibold transition ${
-                    active ? 'border-ink-900 bg-ink-900 text-ink-50' : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                  }`}
+                  className={adminChip(active)}
                 >
                   {formatMinutes(minutes)}
                 </button>
@@ -208,9 +207,7 @@ export default function ActivityScheduleEditor({
                       type="button"
                       aria-pressed={interval === minutes}
                       onClick={() => onChange({ scheduleIntervalMinutes: String(minutes) })}
-                      className={`h-10 flex-1 rounded-lg border text-[13px] font-semibold transition ${
-                        interval === minutes ? 'border-ink-900 bg-ink-900 text-ink-50' : 'border-p-border bg-p-surface text-p-text-secondary'
-                      }`}
+                      className={`${adminChip(interval === minutes, 'lg')} flex-1`}
                     >
                       {formatMinutes(minutes)}
                     </button>

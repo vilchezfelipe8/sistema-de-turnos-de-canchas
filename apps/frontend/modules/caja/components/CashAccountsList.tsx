@@ -1,4 +1,5 @@
 import { Check } from 'lucide-react';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -113,7 +114,7 @@ function AccountRow({
                   onPay(account.id);
                 }}
                 onKeyDown={(event) => event.stopPropagation()}
-                className="h-9 rounded-lg bg-ink-900 px-3.5 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                className={adminButton('primary')}
               >
                 Cobrar
               </button>

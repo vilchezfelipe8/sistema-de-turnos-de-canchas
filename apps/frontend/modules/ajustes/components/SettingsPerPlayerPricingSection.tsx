@@ -6,12 +6,12 @@ import { PlayerPricingService, type ClubPricingMode, type PlayerPriceTable } fro
 import { useSettingsSaveSlot } from '../SettingsSaveContext';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
+import { adminChip } from '../../../components/admin/ui/adminChip';
 
 const cellKey = (formatId: string, categoryId: string | null) => `${formatId}::${categoryId ?? 'GENERAL'}`;
 const inputClass =
   'h-9 w-28 rounded-lg border border-p-border bg-p-surface px-2 text-right text-[13px] text-p-text outline-none focus:border-p-text-secondary';
-const optionClass = (active: boolean) =>
-  `h-9 rounded-lg border px-3 text-[12px] font-semibold transition ${active ? 'border-ink-900 bg-ink-900 !text-ink-50' : 'border-p-border text-p-text hover:bg-p-surface-2'}`;
+const optionClass = (active: boolean) => adminChip(active);
 
 // Ajustes > Precios: modo de precio del club y tabla de precio por jugador (modalidad × categoría).
 export default function SettingsPerPlayerPricingSection() {

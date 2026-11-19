@@ -9,6 +9,7 @@ import {
 } from '../../../services/PlayerPricingService';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
 import { showAdminToast } from '../../../utils/adminToast';
+import { adminChip } from '../ui/adminChip';
 
 const formatMoney = (amount: number) =>
   `$${Number(amount || 0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -48,8 +49,7 @@ const slotConditionLabel = (slot: AdminBookingSlots['slots'][number]) =>
         ? 'Socio · falta validar'
         : 'No socio';
 
-const chipClass = (active: boolean) =>
-  `h-8 rounded-lg border px-3 text-[12px] font-semibold transition ${active ? 'border-ink-900 bg-ink-900 !text-ink-50' : 'border-p-border text-p-text hover:bg-p-surface-2'}`;
+const chipClass = (active: boolean) => adminChip(active, 'sm');
 const buttonClass =
   'inline-flex h-7 items-center gap-1 rounded-lg border border-p-border px-2 text-[11px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:cursor-not-allowed disabled:opacity-50';
 

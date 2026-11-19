@@ -38,7 +38,7 @@ export default function AdminSettingsV2Page() {
     <AdminRouteShell title="Ajustes | Pique Admin" activeItem="Ajustes" fromPath="/admin/ajustes">
       <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 pb-0 lg:gap-4 lg:p-6 lg:pb-0">
         {showMobileIndex ? (
-          <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Ajustes</h1>
+          <h1 className="text-[22px] font-bold tracking-[-0.02em] text-p-text lg:hidden">Ajustes</h1>
         ) : (
           <div className="flex items-center gap-2.5 lg:hidden">
             <button
@@ -90,7 +90,7 @@ export default function AdminSettingsV2Page() {
         )}
         <div className={`min-h-0 flex-1 gap-8 lg:grid lg:grid-cols-[236px_minmax(0,1fr)] ${showMobileIndex ? 'max-lg:hidden' : ''}`}>
           <nav aria-label="Secciones de ajustes" className="hidden min-h-0 overflow-y-auto pb-6 lg:block">
-            <h1 className="mb-5 px-2 text-[22px] font-extrabold tracking-[-0.03em] text-p-text">Ajustes</h1>
+            <h1 className="mb-5 px-2 text-[22px] font-bold tracking-[-0.02em] text-p-text">Ajustes</h1>
             <div className="space-y-5">
               {SETTINGS_GROUPS.map((group) => (
                 <div key={`desk-${group.title}`}>

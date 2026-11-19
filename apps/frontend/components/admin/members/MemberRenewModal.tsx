@@ -4,6 +4,8 @@ import { AdminFeedbackBanner } from '../ui/AdminFeedback';
 import { MemberAdminService } from '../../../services/MemberAdminService';
 import { showAdminToast } from '../../../utils/adminToast';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
+import { adminButton } from '../ui/adminButton';
+import { adminChip } from '../ui/adminChip';
 
 type MemberRenewModalProps = {
   open: boolean;
@@ -39,10 +41,7 @@ const addMonths = (base: Date, months: number) => {
 const formatLong = (key: string) =>
   fromKey(key).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-const chipClass = (active: boolean) =>
-  `h-9 rounded-xl px-3.5 text-[13px] font-bold transition ${
-    active ? 'bg-ink-900 text-ink-50' : 'bg-p-surface-2 text-p-text-secondary hover:brightness-95'
-  }`;
+const chipClass = (active: boolean) => adminChip(active);
 
 /** "Renovar cuota": corre la fecha de "al día" del socio. No cobra nada. */
 export default function MemberRenewModal({
@@ -109,7 +108,7 @@ export default function MemberRenewModal({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 items-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+            className={adminButton('secondary')}
           >
             Cancelar
           </button>

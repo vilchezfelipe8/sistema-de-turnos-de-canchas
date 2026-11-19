@@ -18,6 +18,7 @@ import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
 import { useRouter } from 'next/router';
 import { lockBodyScroll } from '../../utils/bodyScrollLock';
 import { useInSettingsSavePage, useSettingsSaveSlot } from '../../modules/ajustes/SettingsSaveContext';
+import { adminButton } from './ui/adminButton';
 
 export type AdminTabClubSection =
   | 'identity'
@@ -2327,14 +2328,14 @@ export default function AdminTabClub({
             <button
               type="button"
               onClick={handleDiscardChanges}
-              className="h-8 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+              className={adminButton('secondary', 'sm')}
             >
               Descartar
             </button>
             <button
               type="button"
               onClick={() => void handleUpdateClub()}
-              className="h-8 rounded-lg bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 transition hover:bg-ink-900"
+              className={adminButton('primary', 'sm')}
             >
               Guardar cambios
             </button>
@@ -2916,7 +2917,7 @@ export default function AdminTabClub({
                       type="button"
                       onClick={addClosureDate}
                       disabled={clubForm.clubOperationalStatus === 'PERMANENTLY_CLOSED' || !closureDateInput}
-                      className="h-9 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
+                      className={adminButton('primary')}
                     >
                       Agregar cierre
                     </button>
@@ -2976,7 +2977,7 @@ export default function AdminTabClub({
                             <button
                               type="button"
                               onClick={() => openExceptionModalForActivity(selectedActivity)}
-                              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text transition hover:bg-p-surface-2"
+                              className={adminButton('secondary', 'sm')}
                             >
                               <CalendarDays size={13} className="text-p-accent" />
                               Feriados y cierres
@@ -3158,7 +3159,7 @@ export default function AdminTabClub({
                         setDiscountDrawerMode('create');
                         setDiscountDrawerOpen(true);
                       }}
-                      className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-ink-900 px-3 text-[11px] font-semibold text-ink-50 transition hover:bg-ink-900"
+                      className={adminButton('primary', 'sm')}
                     >
                       + Nuevo descuento
                     </button>
@@ -3186,7 +3187,7 @@ export default function AdminTabClub({
                           <button
                             type="button"
                             onClick={() => handleStartEditDiscountPolicy(policy)}
-                            className="h-8 shrink-0 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] text-p-text-muted transition hover:bg-p-surface-2"
+                            className={`${adminButton('secondary', 'sm')} shrink-0`}
                           >
                             Editar
                           </button>
@@ -3263,7 +3264,7 @@ export default function AdminTabClub({
                         type="button"
                         disabled={!selectedDiscountClient || !selectedPolicyIdForAssignment}
                         onClick={() => void handleAssignPolicyToClient()}
-                        className="h-9 rounded-xl bg-ink-900 px-4 text-[12px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
+                        className={adminButton('primary')}
                       >
                         Asignar
                       </button>
@@ -3290,7 +3291,7 @@ export default function AdminTabClub({
                                 <button
                                   type="button"
                                   onClick={() => void handleToggleAssignment(assignment.id, !Boolean(assignment.isActive))}
-                                  className="h-8 rounded-xl border border-p-border bg-p-surface px-3 text-[11px] text-p-text-secondary hover:bg-p-surface-2 transition"
+                                  className={adminButton('secondary', 'sm')}
                                 >
                                   {assignment.isActive ? 'Desactivar' : 'Activar'}
                                 </button>
@@ -3429,7 +3430,7 @@ export default function AdminTabClub({
                                 type="button"
                                 disabled={reviewStatusUpdatingId === review.id || review.status === 'PUBLISHED'}
                                 onClick={() => void handleUpdateReviewStatus(review.id, 'PUBLISHED')}
-                                className="h-8 rounded-xl bg-ink-900 px-3 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 transition disabled:opacity-40"
+                                className={adminButton('primary', 'sm')}
                               >
                                 Mostrar
                               </button>
@@ -3466,16 +3467,15 @@ export default function AdminTabClub({
             <button
               type="button"
               onClick={handleCancelEditDiscountPolicy}
-              className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-muted transition hover:bg-p-surface-2"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>
             <button
               type="button"
               onClick={() => discountDrawerMode === 'create' ? void handleCreateDiscountPolicy() : void handleSaveDiscountPolicy()}
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
+              className={adminButton('primary', 'lg')}
             >
-              <Check size={14} />
               {discountDrawerMode === 'create' ? 'Crear política' : 'Guardar cambios'}
             </button>
           </div>
@@ -3675,7 +3675,7 @@ export default function AdminTabClub({
                   setExceptionModalSelectedDate('');
                   setExceptionModalSelectedId(null);
                 }}
-                className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+                className={adminButton('secondary', 'lg')}
               >
                 ← Volver
               </button>
@@ -3687,7 +3687,6 @@ export default function AdminTabClub({
                   disabled={activityExceptionBusy[exceptionModalActivityId ?? -1]}
                   className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-p-error bg-p-error-bg px-4 text-[13px] font-semibold text-p-error transition hover:bg-[var(--error-fg)] hover:text-ink-50 disabled:opacity-40"
                 >
-                  <Trash2 size={14} />
                   {exceptionModalSelectedIsPendingDraft ? 'Descartar' : 'Eliminar'}
                 </button>
               )}
@@ -3695,9 +3694,8 @@ export default function AdminTabClub({
                 type="button"
                 onClick={() => void handleSaveExceptionFromModal()}
                 disabled={activityExceptionBusy[exceptionModalActivityId ?? -1]}
-                className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900 disabled:opacity-40"
+                className={adminButton('primary', 'lg')}
               >
-                <Check size={14} />
                 Guardar borrador
               </button>
             </div>
@@ -3721,7 +3719,7 @@ export default function AdminTabClub({
                 <button
                   type="button"
                   onClick={handleCreateExceptionInModal}
-                  className="h-10 rounded-xl bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-900"
+                  className={adminButton('primary', 'lg')}
                 >
                   Crear borrador
                 </button>

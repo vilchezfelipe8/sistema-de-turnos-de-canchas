@@ -1,5 +1,6 @@
 import { Check, CreditCard, Receipt } from 'lucide-react';
 import { formatMoney } from '../../../../modules/cuentas/accountUtils';
+import { adminButton } from '../../ui/adminButton';
 
 type BookingAccountSummarySectionProps = {
   totalAmount: number;
@@ -76,7 +77,7 @@ export default function BookingAccountSummarySection({
             type="button"
             onClick={onOpenPayment}
             disabled={disablePayment}
-            className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 hover:bg-ink-800 disabled:opacity-50 sm:flex-none"
+            className={`${adminButton('primary', 'lg')} flex-1 gap-1.5 sm:flex-none`}
           >
             <CreditCard size={15} />
             {isPending ? 'Cobrar' : `Cobrar ${formatMoney(remainingAmount)}`}
@@ -86,7 +87,7 @@ export default function BookingAccountSummarySection({
           type="button"
           onClick={onOpenOverview}
           disabled={disableOverview}
-          className="inline-flex h-11 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[14px] font-semibold text-p-text-secondary hover:bg-p-surface-2 disabled:opacity-50"
+          className={adminButton('secondary', 'lg')}
         >
           <Receipt size={15} />
           Ver cuenta

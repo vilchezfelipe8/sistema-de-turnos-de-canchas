@@ -4,6 +4,8 @@ import { useRouter } from 'next/router';
 import { AlertTriangle, ExternalLink, RotateCcw, X } from 'lucide-react';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import { AdminFeedbackBanner } from '../../components/admin/ui/AdminFeedback';
+import AdminPage from '../../components/admin/ui/AdminPageHeader';
+import AdminSegmentedControl from '../../components/admin/ui/AdminSegmentedControl';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
 import { showAdminToast } from '../../utils/adminToast';
@@ -25,6 +27,7 @@ import {
   facturaStateText,
   type FacturaTone,
 } from '../../modules/facturacion/fiscalTexts';
+import { adminButton } from '../../components/admin/ui/adminButton';
 
 // Facturación: las facturas que salieron, las que no y qué hacer con cada una.
 
@@ -213,14 +216,14 @@ function InvoiceRow({
                 setConfirmAnnul(false);
                 onAnnul();
               }}
-              className="inline-flex h-9 items-center rounded-lg bg-ink-900 px-3 text-[12px] font-semibold !text-ink-50 hover:bg-ink-800 disabled:opacity-50"
+              className={`${adminButton('primary')} !text-ink-50`}
             >
               Sí, anular
             </button>
             <button
               type="button"
               onClick={() => setConfirmAnnul(false)}
-              className="inline-flex h-9 items-center rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text hover:bg-p-surface-2"
+              className={adminButton('secondary')}
             >
               Cancelar
             </button>
@@ -333,21 +336,18 @@ function BillingContent({ slug }: { slug: string }) {
   const items = result?.items ?? [];
 
   return (
-    <section className="h-full min-h-0 overflow-y-auto p-4 pb-20 lg:p-6">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h1 className="text-[22px] font-bold text-p-text">Facturación</h1>
-            <p className="text-[13px] text-p-text-muted">
-              {summary && summary.monthInvoiceCount > 0
+    <AdminPage
+      title="Facturación"
+      description={summary && summary.monthInvoiceCount > 0
                 ? `Este mes: ${summary.monthInvoiceCount} ${summary.monthInvoiceCount === 1 ? 'factura' : 'facturas'} · ${formatMoney(summary.monthNetTotal)} facturado`
                 : 'Las facturas electrónicas que emite el club.'}
-            </p>
-          </div>
-          <Link href="/admin/ajustes?tab=facturacion" className="text-[13px] font-semibold text-p-text-secondary hover:underline">
-            Configurar
-          </Link>
-        </div>
+      actions={
+        <Link href="/admin/ajustes?tab=facturacion" className="text-[13px] font-semibold text-p-text-secondary hover:underline">
+              Configurar
+            </Link>
+      }
+    >
+      <div className="flex flex-col gap-4">
 
         {configLoaded && !billingOn && (
           <AdminFeedbackBanner tone="info">
@@ -414,29 +414,17 @@ function BillingContent({ slug }: { slug: string }) {
             </button>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {FILTERS.map((option) => {
+          <AdminSegmentedControl
+            variant="filter"
+            ariaLabel="Qué facturas ver"
+            className="self-start"
+            value={filter}
+            onChange={(next) => setQuery({ estado: next as ListFilter })}
+            options={FILTERS.map((option) => {
               const count = summary ? summary[option.countKey] : null;
-              const selected = filter === option.value;
-              const alert = option.value === 'PROBLEMS' && (count ?? 0) > 0;
-              return (
-                <button
-                  key={option.value || 'all'}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => setQuery({ estado: option.value })}
-                  className={`h-8 rounded-full border px-3 text-[12px] font-semibold transition ${
-                    selected ? 'border-ink-900 bg-ink-900 text-ink-50' : 'border-p-border bg-p-surface text-p-text-secondary hover:bg-p-surface-2'
-                  }`}
-                >
-                  {option.label}
-                  {count !== null && count > 0 && (
-                    <span className={`ml-1.5 tabular-nums ${alert && !selected ? 'text-[var(--error-fg)]' : ''}`}>{count}</span>
-                  )}
-                </button>
-              );
+              return { value: option.value, label: option.label, count, alert: option.value === 'PROBLEMS' && (count ?? 0) > 0 };
             })}
-          </div>
+          />
         )}
 
         {error && (
@@ -502,7 +490,7 @@ function BillingContent({ slug }: { slug: string }) {
           )}
         </div>
       </div>
-    </section>
+    </AdminPage>
   );
 }
 

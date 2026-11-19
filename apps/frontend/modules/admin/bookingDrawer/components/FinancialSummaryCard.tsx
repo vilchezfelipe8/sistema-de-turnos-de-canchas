@@ -1,4 +1,5 @@
 import type { ChargeMode, FinancialSummary } from '../types';
+import { adminButton } from '../../../../components/admin/ui/adminButton';
 
 type Props = {
   summary: FinancialSummary;
@@ -82,7 +83,7 @@ export default function FinancialSummaryCard({
           <button
             type="button"
             onClick={onCollectRemaining}
-            className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50"
+            className={adminButton('primary', 'sm')}
           >
             Agregar saldo
           </button>

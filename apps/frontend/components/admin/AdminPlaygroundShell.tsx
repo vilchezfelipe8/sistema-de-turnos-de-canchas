@@ -23,6 +23,11 @@ import { logout } from '../../services/AuthService';
 import { useUserTheme } from '../../contexts/UserThemeContext';
 import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser, setActiveClubId } from '../../utils/session';
 import { ADMIN_Z_INDEX } from '../../utils/adminZIndex';
+import { POP_EXIT_MS, usePresence } from '../../hooks/usePresence';
+import AdminModal from './ui/AdminModal';
+import { useOverlayLayer } from './ui/AdminOverlay';
+import AdminAppModal from './ui/AdminAppModal';
+import { modalPrimaryButtonCls, modalSecondaryButtonCls } from './ui/adminModalStyles';
 import { CLUB_LOCKED_SIDEBAR_ITEMS, PLAYGROUND_SIDEBAR_ITEMS } from './playgroundNavigation';
 import PiqueLogo from '../PiqueLogo';
 
@@ -141,8 +146,11 @@ export default function AdminPlaygroundShell({
   const [clubMenuOpen, setClubMenuOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const clubMenuPresence = usePresence(clubMenuOpen, POP_EXIT_MS);
+  const profileMenuPresence = usePresence(profileMenuOpen, POP_EXIT_MS);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const mobileMorePresence = usePresence(mobileMoreOpen);
   const [selectedClubId, setSelectedClubId] = useState<number>(0);
   const clubMenuRef = useRef<HTMLDivElement | null>(null);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
@@ -208,17 +216,10 @@ export default function AdminPlaygroundShell({
       }
     };
 
-    const onDocumentKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setClubMenuOpen(false);
-    };
-
     document.addEventListener('mousedown', onDocumentMouseDown);
-    document.addEventListener('keydown', onDocumentKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onDocumentMouseDown);
-      document.removeEventListener('keydown', onDocumentKeyDown);
-    };
+    return () => document.removeEventListener('mousedown', onDocumentMouseDown);
   }, [clubMenuOpen]);
+  useOverlayLayer(clubMenuOpen, () => setClubMenuOpen(false));
 
   useEffect(() => {
     if (!profileMenuOpen) return;
@@ -230,42 +231,19 @@ export default function AdminPlaygroundShell({
       }
     };
 
-    const onDocumentKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setProfileMenuOpen(false);
-    };
-
     document.addEventListener('mousedown', onDocumentMouseDown);
-    document.addEventListener('keydown', onDocumentKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onDocumentMouseDown);
-      document.removeEventListener('keydown', onDocumentKeyDown);
-    };
+    return () => document.removeEventListener('mousedown', onDocumentMouseDown);
   }, [profileMenuOpen]);
+  useOverlayLayer(profileMenuOpen, () => setProfileMenuOpen(false));
 
   useEffect(() => {
     if (!mobileMoreOpen) return;
-    const onDocumentKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setMobileMoreOpen(false);
-    };
     const closeOnRoute = () => setMobileMoreOpen(false);
-    document.addEventListener('keydown', onDocumentKeyDown);
     router.events.on('routeChangeStart', closeOnRoute);
-    return () => {
-      document.removeEventListener('keydown', onDocumentKeyDown);
-      router.events.off('routeChangeStart', closeOnRoute);
-    };
+    return () => router.events.off('routeChangeStart', closeOnRoute);
   }, [mobileMoreOpen, router.events]);
+  useOverlayLayer(mobileMoreOpen, () => setMobileMoreOpen(false));
 
-  useEffect(() => {
-    if (!helpOpen) return;
-    const onDocumentKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setHelpOpen(false);
-    };
-    document.addEventListener('keydown', onDocumentKeyDown);
-    return () => {
-      document.removeEventListener('keydown', onDocumentKeyDown);
-    };
-  }, [helpOpen]);
 
   useLayoutEffect(() => {
     const nextLeft = isSidebarCollapsed ? '66px' : '168px';
@@ -372,8 +350,8 @@ export default function AdminPlaygroundShell({
                 />
               </button>
 
-              {clubMenuOpen && (
-                <div className="absolute right-0 mt-2 w-[240px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-p-border bg-p-surface p-1 shadow-p-lg" style={{ zIndex: ADMIN_Z_INDEX.dropdown }}>
+              {clubMenuPresence.rendered && (
+                <div data-state={clubMenuPresence.state} className="p-motion-pop absolute right-0 mt-2 w-[240px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-p-border bg-p-surface p-1 shadow-p-lg" style={{ zIndex: ADMIN_Z_INDEX.dropdown }}>
                   {clubOptions.length === 0 ? (
                     <div className="px-3 py-2 text-[13px] text-p-text-muted">Sin clubes disponibles</div>
                   ) : (
@@ -423,10 +401,11 @@ export default function AdminPlaygroundShell({
               >
                 {userInitial}
               </button>
-              {profileMenuOpen && (
+              {profileMenuPresence.rendered && (
                 <div
                   role="menu"
-                  className="absolute right-0 mt-2 w-[220px] rounded-xl border border-p-border bg-p-surface p-1 shadow-p-lg"
+                  data-state={profileMenuPresence.state}
+                  className="p-motion-pop absolute right-0 mt-2 w-[220px] rounded-xl border border-p-border bg-p-surface p-1 shadow-p-lg"
                   style={{ zIndex: ADMIN_Z_INDEX.dropdown }}
                 >
                   {hasOperatorPrivileges && (
@@ -618,19 +597,22 @@ export default function AdminPlaygroundShell({
           )}
         </nav>
       </div>
-      {mobileMoreOpen && !mobileNavHidden && (
+      {mobileMorePresence.rendered && !mobileNavHidden && (
         <div className="fixed inset-0 lg:hidden" style={{ zIndex: ADMIN_Z_INDEX.dropdown }}>
           <button
             type="button"
+            tabIndex={-1}
             aria-label="Cerrar menú"
-            className="absolute inset-0 bg-ink-900/55"
+            data-state={mobileMorePresence.state}
+            className="p-motion-backdrop absolute inset-0 bg-[var(--overlay)]"
             onClick={() => setMobileMoreOpen(false)}
           />
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Más secciones"
-            className="absolute inset-x-0 bottom-[calc(66px+env(safe-area-inset-bottom))] max-h-[calc(100%-140px)] overflow-y-auto rounded-t-3xl border border-b-0 border-p-border bg-p-surface px-4 pb-4 pt-2.5 shadow-p-lg"
+            data-state={mobileMorePresence.state}
+            className="p-motion-dialog absolute inset-x-0 bottom-[calc(66px+env(safe-area-inset-bottom))] max-h-[calc(100%-140px)] overflow-y-auto rounded-t-3xl border border-b-0 border-p-border bg-p-surface px-4 pb-4 pt-2.5 shadow-p-lg"
           >
             <span className="mx-auto mb-3.5 block h-1 w-10 rounded-full bg-p-border-strong" />
             <div className="grid grid-cols-3 gap-2">
@@ -703,128 +685,60 @@ export default function AdminPlaygroundShell({
           </div>
         </div>
       )}
-      {helpOpen && (
-        <div
-          className="fixed inset-0 bg-ink-900/55 backdrop-blur-[1px] flex items-center justify-center p-4"
-          style={{ zIndex: ADMIN_Z_INDEX.modal }}
-          onClick={() => setHelpOpen(false)}
-          role="presentation"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Centro de ayuda"
-            className="w-full max-w-[680px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-p-border px-5 py-4">
-              <div>
-                <h2 className="text-[21px] font-bold tracking-[-0.01em] text-p-text">Centro de ayuda</h2>
-                <p className="mt-1 text-[12px] text-p-text-muted">Sección actual: {activeItem}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setHelpOpen(false)}
-                className="grid h-8 w-8 place-items-center rounded-full border border-p-border text-p-text-muted hover:bg-p-surface-2"
-                aria-label="Cerrar ayuda"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div className="space-y-4 px-5 py-5">
-              <section className="rounded-xl border border-p-border bg-p-surface-2 px-4 py-3">
-                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-p-accent">
-                  Qué podés hacer acá
-                </p>
-                <ul className="mt-2 space-y-2 text-[14px] text-p-text-secondary">
-                  {sectionHelpTips.map((tip) => (
-                    <li key={tip} className="flex items-start gap-2">
-                      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-p-accent" />
-                      <span>{tip}</span>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+      <AdminModal
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        title="Centro de ayuda"
+        description={`Sección actual: ${activeItem}`}
+        maxWidthClassName="sm:max-w-[640px]"
+        footer={
+          <>
+            <a href={HELP_EMAIL_URL} className={modalSecondaryButtonCls}>
+              Enviar email
+            </a>
+            <a href={HELP_WHATSAPP_URL} target="_blank" rel="noreferrer" className={modalPrimaryButtonCls}>
+              Contactar por WhatsApp
+            </a>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <section className="rounded-xl border border-p-border bg-p-surface-2 px-4 py-3">
+            <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-p-accent">
+              Qué podés hacer acá
+            </p>
+            <ul className="mt-2 space-y-2 text-[14px] text-p-text-secondary">
+              {sectionHelpTips.map((tip) => (
+                <li key={tip} className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-p-accent" />
+                  <span>{tip}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
 
-              <section className="rounded-xl border border-p-border bg-p-surface px-4 py-3">
-                <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-p-text-muted">
-                  Problemas frecuentes
-                </p>
-                <ul className="mt-2 space-y-2 text-[13px] text-p-text-secondary">
-                  <li>Si no te deja continuar, revisá fecha, cancha y horario antes de cobros o participantes.</li>
-                  <li>Si no ves una reserva, verificá filtros activos y club seleccionado.</li>
-                  <li>Ante inconsistencias, recargá la pantalla y reintentá la operación.</li>
-                </ul>
-              </section>
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-p-border px-5 py-4">
-              <a
-                href={HELP_EMAIL_URL}
-                className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary inline-flex items-center"
-              >
-                Enviar email
-              </a>
-              <a
-                href={HELP_WHATSAPP_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="h-10 rounded-xl bg-p-brand px-4 text-sm font-bold text-p-brand-on inline-flex items-center hover:bg-lima-200"
-              >
-                Contactar por WhatsApp
-              </a>
-            </div>
-          </div>
+          <section className="rounded-xl border border-p-border bg-p-surface px-4 py-3">
+            <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-p-text-muted">
+              Problemas frecuentes
+            </p>
+            <ul className="mt-2 space-y-2 text-[13px] text-p-text-secondary">
+              <li>Si no te deja continuar, revisá fecha, cancha y horario antes de cobros o participantes.</li>
+              <li>Si no ves una reserva, verificá filtros activos y club seleccionado.</li>
+              <li>Ante inconsistencias, recargá la pantalla y reintentá la operación.</li>
+            </ul>
+          </section>
         </div>
-      )}
-      {logoutConfirmOpen && (
-        <div
-          className="fixed inset-0 bg-ink-900/55 backdrop-blur-[1px] flex items-center justify-center p-4"
-          style={{ zIndex: ADMIN_Z_INDEX.modal }}
-          onClick={() => setLogoutConfirmOpen(false)}
-          role="presentation"
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirmar cierre de sesión"
-            className="w-full max-w-[420px] rounded-2xl border border-p-border bg-p-surface shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-p-border px-5 py-4">
-              <h2 className="text-[19px] font-bold tracking-[-0.01em] text-p-text">Cerrar sesión</h2>
-              <button
-                type="button"
-                onClick={() => setLogoutConfirmOpen(false)}
-                className="grid h-8 w-8 place-items-center rounded-full border border-p-border text-p-text-muted hover:bg-p-surface-2"
-                aria-label="Cerrar confirmación de cierre de sesión"
-              >
-                <X size={14} />
-              </button>
-            </div>
-            <div className="px-5 py-5">
-              <p className="text-[14px] text-p-text-secondary">
-                ¿Querés cerrar sesión ahora? Vas a volver a la pantalla de login.
-              </p>
-            </div>
-            <div className="flex items-center justify-end gap-2 border-t border-p-border px-5 py-4">
-              <button
-                type="button"
-                onClick={() => setLogoutConfirmOpen(false)}
-                className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-sm font-semibold text-p-text-secondary hover:bg-p-surface-2"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => logout({ redirectTo: '/login' })}
-                className="h-10 rounded-xl bg-p-error px-4 text-sm font-bold text-ink-50 hover:opacity-90"
-              >
-                Sí, cerrar sesión
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </AdminModal>
+      <AdminAppModal
+        show={logoutConfirmOpen}
+        onClose={() => setLogoutConfirmOpen(false)}
+        title="Cerrar sesión"
+        message="¿Querés cerrar sesión ahora? Vas a volver a la pantalla de login."
+        cancelText="Cancelar"
+        confirmText="Sí, cerrar sesión"
+        isWarning
+        onConfirm={() => logout({ redirectTo: '/login' })}
+      />
       <AdminToast />
     </div>
   );

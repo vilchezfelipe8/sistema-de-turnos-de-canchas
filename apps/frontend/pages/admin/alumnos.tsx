@@ -30,8 +30,9 @@ import {
 import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import { adminButton } from '../../components/admin/ui/adminButton';
+import { adminChip } from '../../components/admin/ui/adminChip';
 
-const drawerSectionCardClass = 'rounded-[22px] border border-p-border bg-p-surface-2 p-4 md:p-5';
 const academyMetricCardClass = 'rounded-[22px] border-p-border bg-p-surface px-5 py-4 shadow-p-card';
 const academyPanelClass = 'overflow-hidden rounded-[24px] border-p-border bg-p-surface shadow-p-card';
 const academyPanelHeaderClass = 'border-b border-p-border px-4 py-4 lg:px-5';
@@ -486,7 +487,7 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
               value={studentFilter}
               onChange={(value) => setStudentFilter(value as StudentFilter)}
               ariaLabel="Qué alumnos ver"
-              density="compact"
+              variant="filter"
               className="w-fit"
             />
             <div className="relative w-full sm:w-[260px] sm:flex-none">
@@ -580,9 +581,8 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
               type="button"
               onClick={openPackModal}
               disabled={!overview}
-              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-ink-900 px-3 text-sm font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-60"
+              className={adminButton('primary', 'lg')}
             >
-              <Plus size={14} />
               Cargar pack de clases
             </button>
           </div>
@@ -725,11 +725,7 @@ export function AdminAcademyStudentsPageContent({ user, embedded = false }: { us
                       type="button"
                       aria-pressed={active}
                       onClick={() => setStudentPackForm((prev) => ({ ...prev, totalCredits: String(size) }))}
-                      className={`inline-flex h-9 items-center rounded-full border px-3.5 text-[13px] font-semibold transition ${
-                        active
-                          ? 'border-ink-900 bg-ink-900 text-ink-50'
-                          : 'border-p-border bg-p-surface text-p-text-secondary hover:border-p-border-strong hover:text-p-text'
-                      }`}
+                      className={adminChip(active)}
                     >
                       {size}
                     </button>

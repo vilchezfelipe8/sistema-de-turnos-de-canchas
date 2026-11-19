@@ -9,6 +9,7 @@ import {
   type MemberListItem
 } from '../../../services/MemberAdminService';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
+import AdminSegmentedControl from '../ui/AdminSegmentedControl';
 
 type MembersRosterPanelProps = {
   clubSlug: string;
@@ -175,24 +176,17 @@ export default function MembersRosterPanel({ clubSlug, onSelectClient, canManage
         )}
       </div>
 
-      <div className="-mx-1 flex gap-1 overflow-x-auto px-1">
-        {FILTERS.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            aria-pressed={filter === option.value}
-            onClick={() => {
-              setFilter(option.value);
-              setPage(1);
-            }}
-            className={`h-8 shrink-0 rounded-lg px-3 text-[13px] font-semibold transition ${
-              filter === option.value ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
-            }`}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
+      <AdminSegmentedControl
+        variant="filter"
+        ariaLabel="Filtrar socios"
+        className="self-start"
+        value={filter}
+        onChange={(value) => {
+          setFilter(value as typeof filter);
+          setPage(1);
+        }}
+        options={FILTERS.map((option) => ({ value: option.value, label: option.label }))}
+      />
 
       <div className="overflow-hidden rounded-xl border border-p-border">
         <table className="w-full text-left text-[13px]">

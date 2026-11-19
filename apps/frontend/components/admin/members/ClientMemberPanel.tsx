@@ -14,6 +14,7 @@ import {
 } from '../../../services/MemberAdminService';
 import { showAdminToast } from '../../../utils/adminToast';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
+import AdminMenu, { AdminMenuItem } from '../ui/AdminMenu';
 
 type ClientMemberPanelProps = {
   clubSlug: string;
@@ -342,28 +343,21 @@ export default function ClientMemberPanel({ clubSlug, clientId, clientHasDni, cl
                 >
                   <MoreHorizontal size={16} />
                 </button>
-                {menuOpen ? (
-                  <>
-                    <button type="button" aria-hidden tabIndex={-1} className="fixed inset-0 z-30 cursor-default" onClick={() => setMenuOpen(false)} />
-                    <div className="absolute right-0 top-10 z-40 w-60 rounded-xl border border-p-border bg-p-surface p-1 shadow-xl">
-                      {menuItems.map((item) => (
-                        <button
-                          key={item.key}
-                          type="button"
-                          disabled={submitting || item.disabled}
-                          title={item.title}
-                          onClick={() => {
-                            setMenuOpen(false);
-                            item.onClick();
-                          }}
-                          className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2 disabled:opacity-50"
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
+                <AdminMenu open={menuOpen} onClose={() => setMenuOpen(false)} ariaLabel="Opciones del socio">
+                  {menuItems.map((item) => (
+                    <AdminMenuItem
+                      key={item.key}
+                      disabled={submitting || item.disabled}
+                      title={item.title}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        item.onClick();
+                      }}
+                    >
+                      {item.label}
+                    </AdminMenuItem>
+                  ))}
+                </AdminMenu>
               </>
             ) : null}
           </div>

@@ -6,6 +6,7 @@ import { fetchWithAuth } from '../../../utils/apiClient';
 import { getApiUrl } from '../../../utils/apiUrl';
 import { throwApiErrorFromResponse } from '../../../utils/apiError';
 import { extractErrorMessage, reportUiError } from '../../../utils/uiError';
+import { adminButton } from '../ui/adminButton';
 
 export type ClubMessagingStatus = {
   clubPhone: string | null;
@@ -138,7 +139,7 @@ export default function ClubMessagesPanel() {
             href={PIQUE_HELP_URL}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-9 flex-none items-center justify-center rounded-lg bg-ink-900 px-3 text-[13px] font-semibold !text-ink-50 hover:bg-ink-800"
+            className={`${adminButton('primary')} flex-none !text-ink-50`}
           >
             Pedírselo a Pique
           </a>

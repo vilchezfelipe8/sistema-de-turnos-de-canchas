@@ -1,4 +1,5 @@
 import { AlertTriangle, ArrowDownUp, Landmark, Lock, ShoppingBag } from 'lucide-react';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -155,7 +156,7 @@ export default function CashShiftPanel({
           <button
             type="button"
             onClick={onToggleShift}
-            className="h-8 flex-none rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+            className={`${adminButton('primary', 'sm')} flex-none`}
           >
             Cerrar ahora
           </button>

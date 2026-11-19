@@ -30,7 +30,7 @@ import ClientSubscriptionsPanel from '../../components/admin/subscriptions/Clien
 import ClientMessagesSection from '../../components/admin/messages/ClientMessagesSection';
 import MemberBadge from '../../components/admin/members/MemberBadge';
 import MembersRosterPanel from '../../components/admin/members/MembersRosterPanel';
-import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminInlineError, AdminSegmentedControl } from '../../components/admin/ui';
+import { AdminDrawer, AdminDrawerSection, AdminFeedbackBanner, AdminFilterToolbar, AdminInlineError, AdminPage, AdminSegmentedControl } from '../../components/admin/ui';
 import NotFound from '../../components/NotFound';
 import AdminNoAccessScreen from '../../components/admin/AdminNoAccessScreen';
 import RouteTransitionScreen from '../../components/RouteTransitionScreen';
@@ -44,6 +44,7 @@ import { getApiErrorMeta, getApiFieldErrors, normalizeApiError } from '../../uti
 import { showAdminToast } from '../../utils/adminToast';
 import { getActiveClubSlug, hasAdminAccess, hasOperatorAccess, normalizeSessionUser } from '../../utils/session';
 import { extractErrorMessage, reportUiError } from '../../utils/uiError';
+import AdminMenu, { AdminMenuItem } from '../../components/admin/ui/AdminMenu';
 import AccountDrawer, {
   type AccountDrawerContext,
   type AccountDrawerInitialView,
@@ -56,6 +57,7 @@ import {
   PHONE_COUNTRY_OPTIONS,
   splitCanonicalPhone,
 } from '../../utils/phone';
+import { adminButton } from '../../components/admin/ui/adminButton';
 
 type ClientsView = 'directory' | 'debt' | 'history' | 'members' | 'incidents';
 
@@ -213,7 +215,6 @@ type ClientIdentityOverview = {
 
 
 const EPSILON = 0.009;
-const drawerSectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
 const drawerListClass = 'divide-y divide-p-border rounded-xl border border-p-border bg-p-surface px-3 text-[13px]';
 
 const normalizeClientFormError = (error: unknown) => {
@@ -1155,15 +1156,6 @@ export default function AdminClientesPlayground2Page() {
   }, [deletingClient, resetClientDuplicateModal, submittingClient]);
 
 
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      closeActionSidebar();
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [sidebarOpen, closeActionSidebar]);
 
 
   useEffect(() => {
@@ -1331,20 +1323,20 @@ export default function AdminClientesPlayground2Page() {
       </Head>
 
       <AdminPlaygroundShell activeItem="Clientes" user={user} contentMuted={sidebarOpen}>
-        <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 lg:gap-4 lg:p-6">
-              <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Clientes</h1>
-              <AdminSegmentedControl
-                ariaLabel="Vistas de clientes"
-                value={activeView}
-                onChange={(nextView) => setActiveView(nextView as ClientsView)}
-                options={[
-                  { value: 'directory', label: 'Clientes' },
-                  { value: 'members', label: 'Socios' },
-                ]}
-                className="w-fit"
-              />
-
-              {activeView === 'directory' && reviewCount > 0 && (
+        <AdminPage
+          title="Clientes"
+          description="Quién juega en el club, cuánto debe y cómo contactarlo."
+          layout="fill"
+          tabs={{
+            ariaLabel: 'Vistas de clientes',
+            value: activeView === 'incidents' ? 'directory' : activeView,
+            onChange: (nextView) => setActiveView(nextView as ClientsView),
+            options: [
+              { value: 'directory', label: 'Clientes' },
+              { value: 'members', label: 'Socios' },
+            ],
+          }}
+          notice={activeView === 'directory' && reviewCount > 0 ? (
                 <button
                   type="button"
                   onClick={() => setActiveView('incidents')}
@@ -1355,7 +1347,8 @@ export default function AdminClientesPlayground2Page() {
                   </span>{' '}
                   (posibles repetidos o cuentas de la app sin unir). Revisar →
                 </button>
-              )}
+              ) : null}
+        >
 
               <div className="min-h-0 flex-1 overflow-hidden">
                 {activeView === 'directory' && (
@@ -1378,7 +1371,7 @@ export default function AdminClientesPlayground2Page() {
                           <button
                             type="button"
                             onClick={openCreateClient}
-                            className="inline-flex h-9 flex-none items-center gap-1.5 rounded-xl bg-ink-900 px-3 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                            className={`${adminButton('primary')} flex-none`}
                           >
                             <Plus size={15} strokeWidth={2.5} />
                             Nuevo cliente
@@ -1394,26 +1387,18 @@ export default function AdminClientesPlayground2Page() {
                             className="h-10 w-full rounded-xl border border-p-border bg-p-surface pl-9 pr-3 text-[13px] text-p-text outline-none focus:border-p-border-strong"
                           />
                         </div>
-                        <div className="-mx-1 flex items-center gap-1 overflow-x-auto px-1">
-                          {([
+                        <AdminSegmentedControl
+                          variant="filter"
+                          ariaLabel="Filtrar"
+                          value={clientsListFilter}
+                          onChange={(value) => setClientsListFilter(value as 'ALL' | 'DEBT' | 'MEMBERS' | 'AWAY')}
+                          options={([
                             { id: 'ALL', label: 'Todos' },
                             { id: 'DEBT', label: clientsWithOpenDebt.length > 0 ? `Deben (${clientsWithOpenDebt.length})` : 'Deben' },
                             { id: 'MEMBERS', label: 'Socios' },
                             { id: 'AWAY', label: 'No vienen' },
-                          ] as Array<{ id: 'ALL' | 'DEBT' | 'MEMBERS' | 'AWAY'; label: string }>).map((option) => (
-                            <button
-                              key={`clients-filter-${option.id}`}
-                              type="button"
-                              aria-pressed={clientsListFilter === option.id}
-                              onClick={() => setClientsListFilter(option.id)}
-                              className={`h-8 shrink-0 rounded-lg px-3 text-[13px] font-semibold transition ${
-                                clientsListFilter === option.id ? 'bg-ink-900 text-ink-50' : 'text-p-text-secondary hover:bg-p-surface-2'
-                              }`}
-                            >
-                              {option.label}
-                            </button>
-                          ))}
-                        </div>
+                          ] as Array<{ id: 'ALL' | 'DEBT' | 'MEMBERS' | 'AWAY'; label: string }>).map((option) => ({ value: option.id, label: option.label }))}
+                        />
                       </div>
                           <div className="min-h-0 flex-1 overflow-auto border-t border-p-border">
                         {clientsListFilter === 'AWAY' && !loading && listedClients.length > 0 && (
@@ -1526,7 +1511,7 @@ export default function AdminClientesPlayground2Page() {
                                 <button
                                   type="button"
                                   onClick={() => openEditClient(selectedClient)}
-                                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[13px] font-semibold text-p-text hover:bg-p-surface-2"
+                                  className={adminButton('secondary')}
                                 >
                                   <Pencil size={13} />
                                   Editar
@@ -1540,46 +1525,35 @@ export default function AdminClientesPlayground2Page() {
                                 >
                                   <MoreHorizontal size={16} />
                                 </button>
-                                {clientMenuOpen && (
-                                  <>
-                                    <button type="button" aria-hidden tabIndex={-1} className="fixed inset-0 z-30 cursor-default" onClick={() => setClientMenuOpen(false)} />
-                                    <div className="absolute right-0 top-11 z-40 w-60 rounded-xl border border-p-border bg-p-surface p-1 shadow-xl">
-                                      <button
-                                        type="button"
+                                <AdminMenu open={clientMenuOpen} onClose={() => setClientMenuOpen(false)} ariaLabel="Más opciones del cliente">
+                                      <AdminMenuItem
                                         onClick={() => {
                                           setClientMenuOpen(false);
                                           openMergeModal();
                                         }}
-                                        className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2"
                                       >
                                         Unir con otro cliente repetido
-                                      </button>
+                                      </AdminMenuItem>
                                       {selectedClient.linkedUser ? (
-                                        <button
-                                          type="button"
+                                        <AdminMenuItem
                                           onClick={() => {
                                             setClientMenuOpen(false);
                                             setUnlinkConfirmOpen(true);
                                           }}
-                                          className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2"
                                         >
                                           Desvincular de su cuenta de la app
-                                        </button>
+                                        </AdminMenuItem>
                                       ) : (
-                                        <button
-                                          type="button"
+                                        <AdminMenuItem
                                           onClick={() => {
                                             setClientMenuOpen(false);
                                             openLinkModal();
                                           }}
-                                          className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-p-text hover:bg-p-surface-2"
                                         >
                                           Vincular con una cuenta de la app
-                                        </button>
+                                        </AdminMenuItem>
                                       )}
-                                    </div>
-                                  </>
-                                )}
+                                </AdminMenu>
                               </div>
                             </div>
                               {(() => {
@@ -1649,7 +1623,7 @@ export default function AdminClientesPlayground2Page() {
                                     <button
                                       type="button"
                                       onClick={() => openAccountDrawer(String(clientPendingAccounts[0].id), 'payment')}
-                                      className="h-11 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 hover:bg-ink-800"
+                                      className={adminButton('primary', 'lg')}
                                     >
                                       Cobrar {formatMoney(Number(clientPendingAccounts[0].amount || 0))}
                                     </button>
@@ -1678,7 +1652,7 @@ export default function AdminClientesPlayground2Page() {
                                           <button
                                             type="button"
                                             onClick={() => openAccountDrawer(String(account.id), 'payment')}
-                                            className="h-8 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-800"
+                                            className={adminButton('primary', 'sm')}
                                           >
                                             Cobrar
                                           </button>
@@ -1940,7 +1914,7 @@ export default function AdminClientesPlayground2Page() {
                   </div>
                 )}
               </div>
-        </div>
+        </AdminPage>
       </AdminPlaygroundShell>
 
       <AdminDrawer
@@ -1988,7 +1962,7 @@ export default function AdminClientesPlayground2Page() {
             <button
               type="button"
               onClick={closeActionSidebar}
-              className="inline-flex h-10 items-center rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+              className={adminButton('secondary', 'lg')}
             >
               Cancelar
             </button>
@@ -1999,7 +1973,7 @@ export default function AdminClientesPlayground2Page() {
                   type="button"
                   onClick={() => void submitClient()}
                   disabled={submittingClient}
-                  className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className={adminButton('primary', 'lg')}
                 >
                   {submittingClient ? 'Guardando...' : sidebarView === 'client_edit' ? 'Guardar cambios' : 'Crear cliente'}
                 </button>
@@ -2011,7 +1985,7 @@ export default function AdminClientesPlayground2Page() {
                 <button
                   type="button"
                   onClick={openMergeModal}
-                  className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                  className={adminButton('secondary', 'lg')}
                 >
                   Fusionar
                 </button>
@@ -2019,7 +1993,7 @@ export default function AdminClientesPlayground2Page() {
                   <button
                     type="button"
                     onClick={() => setUnlinkConfirmOpen(true)}
-                    className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                    className={adminButton('secondary', 'lg')}
                   >
                     Desvincular usuario
                   </button>
@@ -2027,7 +2001,7 @@ export default function AdminClientesPlayground2Page() {
                   <button
                     type="button"
                     onClick={openLinkModal}
-                    className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                    className={adminButton('secondary', 'lg')}
                   >
                     Vincular usuario
                   </button>
@@ -2035,10 +2009,9 @@ export default function AdminClientesPlayground2Page() {
                 <button
                   type="button"
                   onClick={() => openEditClient(selectedClient)}
-                  className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 hover:bg-ink-900"
+                  className={adminButton('primary', 'lg')}
                 >
                   <span className="inline-flex items-center gap-1.5">
-                    <Pencil size={14} />
                     Editar cliente
                   </span>
                 </button>
@@ -2056,7 +2029,6 @@ export default function AdminClientesPlayground2Page() {
                 disabled={deletingClient}
               >
                 <span className="inline-flex items-center gap-1.5">
-                  <Trash2 size={14} />
                   {deletingClient ? 'Eliminando...' : 'Si, eliminar'}
                 </span>
               </button>
@@ -2176,14 +2148,14 @@ export default function AdminClientesPlayground2Page() {
 
         {sidebarView === 'client_profile' && (
           !selectedClient ? (
-            <AdminDrawerSection className={drawerSectionCardClass}>
+            <AdminDrawerSection>
               <div className="rounded-xl border border-p-border bg-p-surface p-8 text-center text-[13px] text-p-text-muted">
                 Selecciona un cliente.
               </div>
             </AdminDrawerSection>
           ) : (
             <>
-              <AdminDrawerSection title="Datos del cliente" className={drawerSectionCardClass}>
+              <AdminDrawerSection title="Datos del cliente">
                 <div className={drawerListClass}>
                   <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 py-2.5">
                     <span className="text-p-text-muted">Cliente</span>
@@ -2204,7 +2176,7 @@ export default function AdminClientesPlayground2Page() {
                 </div>
               </AdminDrawerSection>
 
-              <AdminDrawerSection title="Estado comercial" className={drawerSectionCardClass}>
+              <AdminDrawerSection title="Estado comercial">
                 <div className={drawerListClass}>
                   <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 py-2.5">
                     <span className="text-p-text-muted">Reservas</span>
@@ -2221,7 +2193,7 @@ export default function AdminClientesPlayground2Page() {
                 </div>
               </AdminDrawerSection>
 
-              <AdminDrawerSection title="Vinculación con usuario" className={drawerSectionCardClass}>
+              <AdminDrawerSection title="Vinculación con usuario">
                 <div className="space-y-4">
                   <div className="rounded-xl border border-p-border bg-p-surface p-3 text-[13px]">
                     {selectedClient.linkedUser ? (
@@ -2306,7 +2278,7 @@ export default function AdminClientesPlayground2Page() {
                                         void linkClientToSpecificUser(candidate.userId);
                                       }}
                                       disabled={identityQuickLinkBusy}
-                                      className="inline-flex h-7 items-center gap-1 rounded-lg bg-ink-900 px-2.5 text-[11px] font-semibold text-ink-50 hover:bg-ink-900 disabled:cursor-not-allowed disabled:opacity-60"
+                                      className={`${adminButton('primary', 'sm')} gap-1`}
                                     >
                                       <Link2 size={11} />
                                       {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular este usuario'}
@@ -2366,7 +2338,7 @@ export default function AdminClientesPlayground2Page() {
                                 setActiveView('incidents');
                                 setSidebarView('none');
                               }}
-                              className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                              className={`${adminButton('secondary', 'sm')} gap-1`}
                             >
                               <Search size={12} />
                               Ver caso abierto
@@ -2379,7 +2351,7 @@ export default function AdminClientesPlayground2Page() {
                               setIdentityIncidentNote('');
                               setIdentityIncidentModalOpen(true);
                             }}
-                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                            className={`${adminButton('secondary', 'sm')} gap-1`}
                           >
                             <Save size={12} />
                             {identityOverview.incidentId ? 'Actualizar revisión' : 'Marcar para revisión'}
@@ -2391,7 +2363,7 @@ export default function AdminClientesPlayground2Page() {
                                 void applySuggestedIdentityLink();
                               }}
                               disabled={identityQuickLinkBusy}
-                              className="inline-flex h-8 items-center gap-1 rounded-lg bg-ink-900 px-3 text-[12px] font-semibold text-ink-50 hover:bg-ink-900"
+                              className={`${adminButton('primary', 'sm')} gap-1`}
                             >
                               <Link2 size={12} />
                               {identityQuickLinkBusy ? 'Vinculando...' : 'Vincular usuario sugerido'}
@@ -2402,7 +2374,7 @@ export default function AdminClientesPlayground2Page() {
                             <button
                               type="button"
                               onClick={openLinkModal}
-                              className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                              className={`${adminButton('secondary', 'sm')} gap-1`}
                             >
                               <UserPlus size={12} />
                               Buscar usuario manualmente
@@ -2413,7 +2385,7 @@ export default function AdminClientesPlayground2Page() {
                             <button
                               type="button"
                               onClick={openMergeModal}
-                              className="inline-flex h-8 items-center gap-1 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-semibold text-p-text-secondary hover:bg-p-surface-2"
+                              className={`${adminButton('secondary', 'sm')} gap-1`}
                             >
                               <RotateCcw size={12} />
                               Fusionar cliente
@@ -2475,7 +2447,7 @@ export default function AdminClientesPlayground2Page() {
         )}
 
         {sidebarView === 'client_delete' && (
-          <AdminDrawerSection title="Confirmacion" className={drawerSectionCardClass}>
+          <AdminDrawerSection title="Confirmacion">
             <AdminFeedbackBanner tone="error">
               Vas a eliminar a {selectedClient ? getClientName(selectedClient) : 'este cliente'}. Esta accion no se puede deshacer.
             </AdminFeedbackBanner>

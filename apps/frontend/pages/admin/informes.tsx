@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
 import AdminTabStatistics from '../../components/admin/AdminTabStatistics';
-import { AdminSegmentedControl } from '../../components/admin/ui';
+import { AdminPage } from '../../components/admin/ui';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 
 type ReportsTab = 'resumen' | 'plata' | 'reservas' | 'mostrador';
@@ -44,16 +44,16 @@ export default function AdminReportsPage() {
         const userSlug = getActiveClubSlug(normalizeSessionUser(user as any));
 
         return (
-          <div className="flex h-full min-h-0 flex-col gap-3 p-3.5 pb-0 lg:gap-4 lg:p-6 lg:pb-0">
-            <h1 className="text-[22px] font-extrabold tracking-[-0.03em] text-p-text lg:hidden">Informes</h1>
-            <AdminSegmentedControl
-              options={REPORT_TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
-              value={activeTab}
-              onChange={(value) => handleChangeTab(value as ReportsTab)}
-              ariaLabel="Subnavegacion de informes"
-              className="w-fit"
-            />
-            <section className="min-h-0 flex-1 overflow-y-auto pb-6 lg:pb-8">
+          <AdminPage
+            title="Informes"
+            description="Cómo le va al club: plata, reservas y mostrador."
+            tabs={{
+              options: REPORT_TABS.map((tab) => ({ value: tab.value, label: tab.label })),
+              value: activeTab,
+              onChange: (value) => handleChangeTab(value as ReportsTab),
+              ariaLabel: 'Secciones de informes',
+            }}
+          >
               {activeTab === 'resumen' && (
                 userSlug ? (
                   <AdminTabStatistics slugProp={userSlug} focus="resumen" />
@@ -73,8 +73,7 @@ export default function AdminReportsPage() {
                   No se encontró el club activo para cargar los informes.
                 </div>
               )}
-            </section>
-          </div>
+          </AdminPage>
         );
       }}
     </AdminRouteShell>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { Check } from 'lucide-react';
 import AdminRouteShell from '../../components/admin/AdminRouteShell';
-import { AdminSegmentedControl } from '../../components/admin/ui';
+import { AdminPage } from '../../components/admin/ui';
 import { ClubAdminService } from '../../services/ClubAdminService';
 import { getActiveClubSlug, normalizeSessionUser } from '../../utils/session';
 import { AdminClassesPageContent } from './clases';
@@ -165,27 +165,29 @@ export default function AdminAcademyPage() {
   return (
     <AdminRouteShell title="Academia | Pique Admin" activeItem="Academia" fromPath="/admin/academia">
       {(user) => (
-        <div className="flex h-full min-h-0 flex-col gap-3 p-4 pb-0 lg:p-6 lg:pb-0">
-          <AdminSegmentedControl
-            options={ACADEMY_TABS}
-            value={activeTab}
-            onChange={(value) => handleChangeTab(value as AcademyTab)}
-            ariaLabel="Subnavegacion de Academia"
-            className="w-fit"
-            density="compact"
-          />
-          <AcademyGettingStarted
-            clubSlug={getActiveClubSlug(normalizeSessionUser(user as any)) || ''}
-            refreshKey={activeTab}
-            currentTab={activeTab}
-            onGoTo={handleChangeTab}
-          />
-          <section className="min-h-0 flex-1 pb-6 lg:pb-8">
-            {activeTab === 'clases' && <AdminClassesPageContent user={user} embedded />}
-            {activeTab === 'alumnos' && <AdminAcademyStudentsPageContent user={user} embedded />}
-            {activeTab === 'profesores' && <AdminTeachersPageContent user={user} embedded />}
-          </section>
-        </div>
+        <AdminPage
+          title="Academia"
+          description="Clases, alumnos y profesores del club."
+          layout="fill"
+          tabs={{
+            options: ACADEMY_TABS,
+            value: activeTab,
+            onChange: (value) => handleChangeTab(value as AcademyTab),
+            ariaLabel: 'Secciones de la academia',
+          }}
+          notice={
+            <AcademyGettingStarted
+              clubSlug={getActiveClubSlug(normalizeSessionUser(user as any)) || ''}
+              refreshKey={activeTab}
+              currentTab={activeTab}
+              onGoTo={handleChangeTab}
+            />
+          }
+        >
+          {activeTab === 'clases' && <AdminClassesPageContent user={user} embedded />}
+          {activeTab === 'alumnos' && <AdminAcademyStudentsPageContent user={user} embedded />}
+          {activeTab === 'profesores' && <AdminTeachersPageContent user={user} embedded />}
+        </AdminPage>
       )}
     </AdminRouteShell>
   );

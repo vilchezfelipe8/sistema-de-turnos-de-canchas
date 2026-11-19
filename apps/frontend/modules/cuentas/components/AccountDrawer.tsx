@@ -51,6 +51,7 @@ import {
   type PaymentQuickPreset,
   type PaymentResultData,
 } from '../accountUtils';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -135,7 +136,6 @@ const createDefaultItemForm = () => ({
   type: 'PRODUCT' as 'BOOKING' | 'PRODUCT' | 'SERVICE' | 'ADJUSTMENT',
 });
 
-const sectionCardClass = 'rounded-2xl border border-p-border bg-p-surface-2 p-4';
 const sectionListClass = 'divide-y divide-p-border overflow-hidden rounded-xl border border-p-border bg-p-surface';
 const SUCCESS_ANIMATION_VARIANT: 'soft' | 'bold' = 'bold';
 
@@ -1136,7 +1136,7 @@ export default function AccountDrawer({
             <button
               type="button"
               onClick={openPaymentFlow}
-              className="h-11 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 transition hover:bg-ink-800"
+              className={adminButton('primary', 'lg')}
             >
               Cobrar {formatMoney(detail.remaining)}
             </button>
@@ -1144,7 +1144,7 @@ export default function AccountDrawer({
             <button
               type="button"
               onClick={() => { setActionError(''); setView('close_confirm'); }}
-              className="h-11 rounded-xl border border-p-border bg-p-surface px-5 text-[14px] font-semibold text-p-text transition hover:bg-p-surface-2"
+              className={adminButton('secondary', 'lg')}
             >
               Cerrar cuenta
             </button>
@@ -1155,22 +1155,20 @@ export default function AccountDrawer({
 
     if (view === 'invoice_form') {
       return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={closeInvoicePanel}
             disabled={submitting}
-            className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
+            className={adminButton('secondary', 'lg')}
           >
-            <ArrowLeft size={14} />
             Cancelar
           </button>
-          <div className="flex-1" />
           <button
             type="submit"
             form="invoice-form"
             disabled={submitting}
-            className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
+            className={adminButton('primary', 'lg')}
           >
             {submitting ? 'Enviando…' : `Facturar ${formatMoney(Number(detail?.total || 0))}`}
           </button>
@@ -1185,25 +1183,22 @@ export default function AccountDrawer({
       const hasReceipt = selectedInvoice?.pdfUrl != null &&
         (selectedInvoice.status === 'APPROVED' || selectedInvoice.status === 'APPROVED_WITH_OBSERVATIONS');
       return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={closeInvoicePanel}
             disabled={submitting}
-            className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
+            className={adminButton('secondary', 'lg')}
           >
-            <ArrowLeft size={14} />
             Volver
           </button>
-          <div className="flex-1" />
           {hasReceipt && (
             <a
               href={selectedInvoice!.pdfUrl!}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+              className={adminButton('secondary', 'lg')}
             >
-              <Eye size={14} />
               Ver comprobante
             </a>
           )}
@@ -1212,7 +1207,7 @@ export default function AccountDrawer({
               type="button"
               onClick={() => void handleRetryInvoice()}
               disabled={submitting}
-              className="flex h-10 items-center gap-1.5 rounded-xl bg-p-error px-4 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
+              className={adminButton('danger', 'lg')}
             >
               {submitting ? 'Reintentando...' : 'Reintentar'}
             </button>
@@ -1222,7 +1217,7 @@ export default function AccountDrawer({
               type="button"
               onClick={openInvoiceForm}
               disabled={submitting}
-              className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
+              className={adminButton('primary', 'lg')}
             >
               Emitir otra
             </button>
@@ -1233,22 +1228,20 @@ export default function AccountDrawer({
 
     if (view === 'add_item') {
       return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={cancelCurrentStep}
             disabled={submitting}
-            className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
+            className={adminButton('secondary', 'lg')}
           >
-            {entryViewRef.current === 'overview' && <ArrowLeft size={14} />}
             Cancelar
           </button>
-          <div className="flex-1" />
           <button
             type="submit"
             form="add-item-form"
             disabled={submitting}
-            className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
+            className={adminButton('primary', 'lg')}
           >
             {submitting ? 'Agregando...' : 'Agregar concepto'}
           </button>
@@ -1258,22 +1251,20 @@ export default function AccountDrawer({
 
     if (view === 'payment_form') {
       return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={cancelCurrentStep}
             disabled={submitting}
-            className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
+            className={adminButton('secondary', 'lg')}
           >
-            {entryViewRef.current === 'overview' && <ArrowLeft size={14} />}
             Cancelar
           </button>
-          <div className="flex-1" />
           <button
             type="button"
             disabled={!amountIsValid || submitting}
             onClick={() => (canChargeDirectly ? void submitPayment({ quick: true }) : setView('payment_preconfirm'))}
-            className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
+            className={adminButton('primary', 'lg')}
           >
             {submitting
               ? 'Registrando...'
@@ -1287,22 +1278,20 @@ export default function AccountDrawer({
 
     if (view === 'payment_preconfirm') {
       return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => setView('payment_form')}
             disabled={submitting}
-            className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
+            className={adminButton('secondary', 'lg')}
           >
-            <ArrowLeft size={14} />
             Volver
           </button>
-          <div className="flex-1" />
           <button
             type="button"
             disabled={submitting}
             onClick={() => void submitPayment()}
-            className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800 disabled:opacity-40"
+            className={adminButton('primary', 'lg')}
           >
             {submitting ? 'Registrando...' : 'Confirmar cobro'}
           </button>
@@ -1312,23 +1301,21 @@ export default function AccountDrawer({
 
     if (view === 'payment_result') {
       return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {payResult?.variant === 'error' && (
             <button
               type="button"
               onClick={() => setView('payment_form')}
-              className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+              className={adminButton('secondary', 'lg')}
             >
-              <ArrowLeft size={14} />
               Reintentar
             </button>
           )}
-          <div className="flex-1" />
           {payResult?.variant === 'success' && entryViewRef.current === 'payment' && (
             <button
               type="button"
               onClick={() => void goToOverview()}
-              className="h-10 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+              className={adminButton('secondary', 'lg')}
             >
               Ver cuenta
             </button>
@@ -1342,7 +1329,7 @@ export default function AccountDrawer({
               }
               void goToOverview();
             }}
-            className="h-10 rounded-xl bg-ink-900 px-5 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
+            className={adminButton('primary', 'lg')}
           >
             {payResult?.variant === 'success'
               ? entryViewRef.current === 'payment'
@@ -1356,17 +1343,15 @@ export default function AccountDrawer({
 
     if (view === 'close_confirm') {
       return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={cancelCurrentStep}
             disabled={submitting}
-            className="flex h-10 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-4 text-[13px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-40"
+            className={adminButton('secondary', 'lg')}
           >
-            {entryViewRef.current === 'overview' && <ArrowLeft size={14} />}
             Cancelar
           </button>
-          <div className="flex-1" />
           <button
             type="button"
             disabled={submitting}
@@ -1475,7 +1460,7 @@ export default function AccountDrawer({
 
 
           {(invoicesLoading || invoices.length > 0) && (
-          <AdminDrawerSection title="Facturas" className={sectionCardClass}>
+          <AdminDrawerSection title="Facturas">
             {invoicesLoading ? (
               <div className="flex items-center gap-2 px-4 py-4 text-[13px] text-p-text-muted">
                 <div className="h-4 w-4 animate-spin rounded-full border-2 border-p-border border-p-accent-t" />
@@ -1514,7 +1499,7 @@ export default function AccountDrawer({
                       <button
                         type="button"
                         onClick={() => openInvoiceDetail(invoice)}
-                        className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-muted transition hover:bg-p-surface-2"
+                        className={adminButton('secondary')}
                       >
                         <Eye size={13} />
                         Ver
@@ -1611,7 +1596,7 @@ export default function AccountDrawer({
                       type="button"
                       onClick={() => void handleVoidPosAccount()}
                       disabled={submitting}
-                      className="flex h-8 items-center gap-1.5 rounded-lg bg-p-error px-3 text-[12px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+                      className={adminButton('danger', 'sm')}
                     >
                       {submitting ? 'Anulando...' : 'Sí, anular'}
                     </button>
@@ -1619,7 +1604,7 @@ export default function AccountDrawer({
                       type="button"
                       onClick={() => setVoidConfirmOpen(false)}
                       disabled={submitting}
-                      className="flex h-8 items-center gap-1.5 rounded-lg border border-p-border bg-p-surface px-3 text-[12px] font-medium text-p-text-muted transition hover:bg-p-surface-2 disabled:opacity-50"
+                      className={adminButton('secondary', 'sm')}
                     >
                       Cancelar
                     </button>
@@ -1636,7 +1621,7 @@ export default function AccountDrawer({
     if (view === 'add_item') {
       return (
         <form id="add-item-form" onSubmit={submitAddItem}>
-          <AdminDrawerSection title="Concepto" className={sectionCardClass}>
+          <AdminDrawerSection title="Concepto">
             <div className="space-y-3">
               {actionError && (
                 <p className="text-[13px] text-[var(--error-fg)]">{actionError}</p>
@@ -1737,7 +1722,7 @@ export default function AccountDrawer({
             void handleEmitInvoice();
           }}
         >
-          <AdminDrawerSection title="¿A quién le facturás?" className={sectionCardClass}>
+          <AdminDrawerSection title="¿A quién le facturás?">
             <div className="space-y-3">
               {actionError && (
                 <div className="flex items-start gap-2 rounded-xl border border-p-error bg-p-error-bg px-4 py-3">
@@ -1910,7 +1895,7 @@ export default function AccountDrawer({
       const statusLabel = invState?.label ?? '';
       const statusColor = invState ? FACTURA_TONE_CLASS[invState.tone] : '';
       return (
-        <AdminDrawerSection className={sectionCardClass}>
+        <AdminDrawerSection>
           {invoice ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
@@ -2011,7 +1996,7 @@ export default function AccountDrawer({
     if (view === 'payment_preconfirm') {
       return (
         <>
-          <AdminDrawerSection title="Resumen del cobro" className={sectionCardClass}>
+          <AdminDrawerSection title="Resumen del cobro">
             <div className={sectionListClass}>
               {methodDiscountActive && methodDiscountAmount > 0 ? (
                 <>
@@ -2041,7 +2026,7 @@ export default function AccountDrawer({
           </AdminDrawerSection>
 
           {previewRows.length > 0 && (
-            <AdminDrawerSection title="Conceptos cubiertos" className={sectionCardClass}>
+            <AdminDrawerSection title="Conceptos cubiertos">
               <div className={sectionListClass}>
                 {previewRows.map((row) => (
                   <div key={row.id} className="flex items-center justify-between px-4 py-3">
@@ -2111,7 +2096,7 @@ export default function AccountDrawer({
           </div>
 
           {isSuccess && (
-            <AdminDrawerSection title="Detalle" className={sectionCardClass}>
+            <AdminDrawerSection title="Detalle">
               <div className={sectionListClass}>
                 <DataRow label="Cobrado" value={formatMoney(payResult.appliedAmount)} />
                 <DataRow label="Método" value={payResult.methodLabel} />
@@ -2121,7 +2106,7 @@ export default function AccountDrawer({
           )}
 
           {isSuccess && payResult.appliedItems.length > 0 && (
-            <AdminDrawerSection title="Conceptos" className={sectionCardClass}>
+            <AdminDrawerSection title="Conceptos">
               <div className={sectionListClass}>
                 {payResult.appliedItems.map((item) => (
                   <div key={item.id} className="flex items-center justify-between px-4 py-3">
@@ -2157,7 +2142,7 @@ export default function AccountDrawer({
             </div>
           )}
 
-          <AdminDrawerSection title="Estado actual" className={sectionCardClass}>
+          <AdminDrawerSection title="Estado actual">
             <div className={sectionListClass}>
               <DataRow label="Total" value={formatMoney(detail.total)} />
               <DataRow label="Pagado" value={formatMoney(detail.paid)} />

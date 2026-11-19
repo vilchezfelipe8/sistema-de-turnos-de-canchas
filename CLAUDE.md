@@ -52,6 +52,30 @@ Current active routes: Calendario, Clientes, Caja, Tienda, Informes, Ajustes.
 
 ---
 
+## Shared Admin UI — use these, never hand-roll a copy
+
+All in `apps/frontend/components/admin/ui/` (re-exported from `index.ts`). Consistency is a hard requirement: if two screens need the same thing, they use the same component.
+
+| Need | Use |
+|------|-----|
+| Page title + description + section tabs | `AdminPage` (default export of `AdminPageHeader.tsx`), `layout="page"` or `"fill"` |
+| Section tabs (lime active) | `AdminSegmentedControl variant="tabs"` |
+| List filters / period toggles (black active) | `AdminSegmentedControl variant="filter"` |
+| Día/Semana/Mes + prev/next | `AdminPeriodPicker` |
+| Any button | `adminButton(variant, size)` — primary / secondary / danger / accent / ghost × sm / md / lg |
+| Option chips (duration, days, modality…) | `adminChip(active, size)` with `aria-pressed` |
+| Simple modal (title + body + footer) | `AdminModal` |
+| Confirm / warning dialog | `AdminAppModal` |
+| Custom modal body | `AdminOverlay` + `modalPanelCls`/`modalPanelScrollCls` and `modal*Cls` from `adminModalStyles.ts` |
+| Side panel (incl. agenda booking drawer) | `AdminDrawer` |
+| "⋯" / "Más acciones" menus | `AdminMenu` + `AdminMenuItem` + `AdminMenuDivider` |
+| Toasts | `showAdminToast()` |
+
+### Motion
+Tokens and classes live at the end of `styles/pique.css`: `p-motion-backdrop`, `p-motion-dialog` (bottom sheet <640px), `p-motion-drawer`, `p-motion-pop`, all driven by `data-state="open|closed"`. Mount/unmount with `usePresence(open, exitMs)` from `hooks/usePresence.ts` so exits animate. Entry ease-out `cubic-bezier(.32,.72,0,1)`, exit ease-in, exits shorter than entries, reduced motion respected. Escape closes only the top layer (`useOverlayLayer`). Never write `fixed inset-0` overlays or keyframes by hand in a page.
+
+---
+
 ## Payment Modal Pattern
 
 All payment registration modals follow the same 3-step flow:

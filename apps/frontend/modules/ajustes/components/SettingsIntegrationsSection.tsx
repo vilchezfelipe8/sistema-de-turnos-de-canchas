@@ -8,6 +8,7 @@ import { ClubAdminService, type AdminClubPaymentIntegration } from '../../../ser
 import { showAdminToast } from '../../../utils/adminToast';
 import { extractErrorMessage } from '../../../utils/uiError';
 import { getActiveClubSlug, hasAdminAccess } from '../../../utils/session';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 const integrationStatusLabel = (status: AdminClubPaymentIntegration['status']) => {
   if (status === 'CONNECTED') return 'Conectado';
@@ -167,7 +168,7 @@ export default function SettingsIntegrationsSection() {
             {!connected && (
               <a
                 href={clubSlug ? ClubAdminService.getMercadoPagoConnectUrl(clubSlug) : '#'}
-                className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-ink-900 px-3.5 text-[12px] font-semibold !text-ink-50 transition hover:bg-ink-800"
+                className={`${adminButton('primary')} !text-ink-50`}
                 aria-disabled={!clubSlug}
               >
                 <PlugZap size={14} />

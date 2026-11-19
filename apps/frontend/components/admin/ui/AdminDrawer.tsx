@@ -1,6 +1,10 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode, type Ref } from 'react';
 import { X } from 'lucide-react';
 import { ADMIN_Z_INDEX } from '../../../utils/adminZIndex';
+import { lockBodyScroll } from '../../../utils/bodyScrollLock';
+import { useLastWhileOpen, usePresence } from '../../../hooks/usePresence';
+import { useOverlayLayer } from './AdminOverlay';
+import { modalCloseButtonCls } from './adminModalStyles';
 
 // ---------------------------------------------------------------------------
 // Terminología del proyecto
@@ -64,6 +68,17 @@ type AdminDrawerProps = {
 
   /** z-index CSS. Default centralizado para quedar sobre el shell admin. */
   zIndex?: number;
+
+  /** Controles extra debajo del título (filtros, selectores). */
+  headerExtra?: ReactNode;
+  /** Capa sobre todo el panel (p. ej. "Confirmando pago..."). */
+  overlay?: ReactNode;
+  /** Clases del contenedor interno del cuerpo (default: separación vertical estándar). */
+  bodyClassName?: string;
+  bodyRef?: Ref<HTMLDivElement>;
+  footerRef?: Ref<HTMLElement>;
+  /** Escape cierra el drawer (default true). */
+  closeOnEscape?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -111,7 +126,7 @@ export function AdminDrawerSection({
         .join(' ')}
     >
       {title && (
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-p-text-muted">
+        <p className="text-[13px] font-semibold text-p-text">
           {title}
         </p>
       )}
@@ -165,38 +180,54 @@ export default function AdminDrawer({
   children,
   footer,
   zIndex = ADMIN_Z_INDEX.drawer,
+  headerExtra,
+  overlay,
+  bodyClassName = 'space-y-5',
+  bodyRef,
+  footerRef,
+  closeOnEscape = true,
 }: AdminDrawerProps) {
-  // Escape key handler
+  const { rendered, state } = usePresence(open);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useOverlayLayer(open, () => onCloseRef.current(), closeOnEscape);
+
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open, onClose]);
+    return lockBodyScroll();
+  }, [open]);
 
-  if (!open) return null;
+  // Durante la salida se sigue viendo lo último que se mostró.
+  const view = useLastWhileOpen(open, { title, subtitle, statusChip, statusChipClassName, tabs, activeTabId, children, footer, headerExtra, overlay });
+
+  if (!rendered) return null;
 
   return (
     <div
       className="fixed inset-0"
       style={{ zIndex }}
       role="presentation"
+      aria-hidden={state === 'closed' || undefined}
     >
       {/* ── Backdrop ── */}
       <button
         type="button"
+        tabIndex={-1}
         aria-label="Cerrar panel"
-        className="fixed inset-0 bg-[var(--overlay)] md:top-16"
-        onClick={onClose}
+        data-state={state}
+        className="p-motion-backdrop fixed inset-0 bg-[var(--overlay)] md:top-16"
+        onClick={() => {
+          if (open) onClose();
+        }}
       />
 
       {/* ── Panel ── */}
       <aside
         role="dialog"
         aria-modal="true"
+        data-state={state}
         className={[
+          'p-motion-drawer',
           // Mobile: hoja inferior que ocupa casi todo el alto
           'fixed inset-x-0 bottom-0 flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-3xl border-t',
           // Desktop: slide-in desde la derecha
@@ -206,52 +237,54 @@ export default function AdminDrawer({
         ].join(' ')}
       >
         <div className="relative flex min-h-0 flex-1 flex-col md:h-full">
+          {view.overlay}
 
           {/* ── Header ── */}
           <header className="shrink-0 border-b border-p-border bg-p-surface px-4 pb-3.5 pt-2.5 md:px-6 md:py-5">
             <span aria-hidden="true" className="mx-auto mb-2.5 block h-1 w-10 rounded-full bg-p-border-strong md:hidden" />
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <h2 className="text-[18px] font-semibold leading-snug tracking-tight text-p-text md:text-[22px]">
-                  {title}
+                <h2 className="text-[18px] font-semibold leading-snug tracking-[-0.01em] text-p-text md:text-[20px]">
+                  {view.title}
                 </h2>
-                {subtitle && (
-                  <p className="mt-2 text-[13px] leading-snug text-p-text-muted">
-                    {subtitle}
-                  </p>
+                {view.subtitle && (
+                  <div className="mt-1.5 text-[13px] leading-snug text-p-text-muted">
+                    {view.subtitle}
+                  </div>
                 )}
-                {statusChip && (
+                {view.statusChip && (
                   <span
-                    className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusChipClassName}`}
+                    className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${view.statusChipClassName}`}
                   >
-                    {statusChip}
+                    {view.statusChip}
                   </span>
                 )}
+                {view.headerExtra}
               </div>
 
               <button
                 type="button"
                 onClick={onClose}
                 aria-label="Cerrar"
-                className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-p-border text-p-text-muted transition hover:bg-p-surface-2"
+                className={modalCloseButtonCls}
               >
-                <X size={16} />
+                <X size={14} />
               </button>
             </div>
           </header>
 
           {/* ── Tabs opcionales ── */}
-          {tabs.length > 0 && (
+          {view.tabs.length > 0 && (
             <div className="shrink-0 border-b border-p-border bg-p-surface px-4 md:px-6">
               <nav className="flex items-center gap-5 overflow-x-auto md:gap-6">
-                {tabs.map((tab) => (
+                {view.tabs.map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => onTabChange?.(tab.id)}
                     className={[
                       'h-12 whitespace-nowrap border-b-2 text-[13px] font-semibold transition',
-                      activeTabId === tab.id
+                      view.activeTabId === tab.id
                         ? 'border-p-accent text-p-accent'
                         : 'border-transparent text-p-text-muted hover:text-p-text',
                     ].join(' ')}
@@ -264,16 +297,16 @@ export default function AdminDrawer({
           )}
 
           {/* ── Body (scrolleable) ── */}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-p-surface px-4 py-4 md:px-6 md:py-6">
-            <div className="space-y-5">
-              {children}
+          <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-p-surface px-4 py-4 md:px-6 md:py-6">
+            <div className={bodyClassName}>
+              {view.children}
             </div>
           </div>
 
           {/* ── Footer fijo ── */}
-          {footer && (
-            <footer className="shrink-0 border-t border-p-border bg-p-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 md:py-4">
-              {footer}
+          {view.footer && (
+            <footer ref={footerRef} className="shrink-0 border-t border-p-border bg-p-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6 md:py-4">
+              {view.footer}
             </footer>
           )}
         </div>

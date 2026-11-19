@@ -1057,3 +1057,62 @@ html[data-theme="dark"] { color-scheme: dark; }
   .p-footer-inner      { padding: 16px 20px 20px; }
   .p-footer-links      { width: 100%; }
 }
+
+/* ── Movimiento del admin (sistema único) ──
+   Mismas curvas y tiempos para modales, hojas, drawers, toasts y menús.
+   Entrada con ease-out; salida más corta y con ease-in. */
+:root {
+  --ease-out: cubic-bezier(.32, .72, 0, 1);
+  --ease-in: cubic-bezier(.55, 0, 1, .45);
+  --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+  --dur-press: 150ms;
+  --dur-pop-in: 180ms;
+  --dur-pop-out: 130ms;
+  --dur-overlay-in: 260ms;
+  --dur-overlay-out: 190ms;
+}
+
+@keyframes p-backdrop-in  { from { opacity: 0 } }
+@keyframes p-backdrop-out { to { opacity: 0 } }
+@keyframes p-dialog-in    { from { opacity: 0; transform: translateY(8px) scale(.97) } }
+@keyframes p-dialog-out   { to { opacity: 0; transform: scale(.97) } }
+@keyframes p-sheet-in     { from { transform: translateY(100%) } }
+@keyframes p-sheet-out    { to { transform: translateY(100%) } }
+@keyframes p-drawer-in    { from { transform: translateX(100%) } }
+@keyframes p-drawer-out   { to { transform: translateX(100%) } }
+@keyframes p-pop-in       { from { opacity: 0; transform: translateY(-4px) scale(.97) } }
+@keyframes p-pop-out      { to { opacity: 0; transform: scale(.97) } }
+
+.p-motion-backdrop { animation: p-backdrop-in var(--dur-overlay-in) var(--ease-out) both; }
+.p-motion-backdrop[data-state='closed'] { animation: p-backdrop-out var(--dur-overlay-out) var(--ease-in) both; pointer-events: none; }
+
+/* Modal: centrado en desktop, hoja desde abajo en el celular */
+.p-motion-dialog { animation: p-dialog-in var(--dur-overlay-in) var(--ease-out) both; }
+.p-motion-dialog[data-state='closed'] { animation: p-dialog-out var(--dur-overlay-out) var(--ease-in) both; pointer-events: none; }
+@media (max-width: 639px) {
+  .p-motion-dialog { animation-name: p-sheet-in; }
+  .p-motion-dialog[data-state='closed'] { animation-name: p-sheet-out; }
+}
+
+/* Drawer: desde la derecha en desktop, hoja desde abajo en el celular */
+.p-motion-drawer { animation: p-sheet-in var(--dur-overlay-in) var(--ease-out) both; }
+.p-motion-drawer[data-state='closed'] { animation: p-sheet-out var(--dur-overlay-out) var(--ease-in) both; pointer-events: none; }
+@media (min-width: 768px) {
+  .p-motion-drawer { animation-name: p-drawer-in; }
+  .p-motion-drawer[data-state='closed'] { animation-name: p-drawer-out; }
+}
+
+/* Menús, popovers y toasts */
+.p-motion-pop { animation: p-pop-in var(--dur-pop-in) var(--ease-out) both; transform-origin: top right; }
+.p-motion-pop[data-state='closed'] { animation: p-pop-out var(--dur-pop-out) var(--ease-in) both; pointer-events: none; }
+
+/* Panel que entra y sale con transición (queda montado) */
+.p-motion-slide { transition: transform var(--dur-overlay-in) var(--ease-out); }
+.p-motion-slide[data-state='closed'] { transition-duration: var(--dur-overlay-out); transition-timing-function: var(--ease-in); }
+.p-motion-fade { transition: opacity var(--dur-overlay-in) var(--ease-out); }
+.p-motion-fade[data-state='closed'] { opacity: 0; pointer-events: none; transition-duration: var(--dur-overlay-out); transition-timing-function: var(--ease-in); }
+
+@media (prefers-reduced-motion: reduce) {
+  .p-motion-backdrop, .p-motion-dialog, .p-motion-drawer, .p-motion-pop { animation: none !important; }
+  .p-motion-slide, .p-motion-fade { transition: none !important; }
+}

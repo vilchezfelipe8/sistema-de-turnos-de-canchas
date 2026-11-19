@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react';
 import type { CashAccountItem } from './CashAccountsList';
+import { adminButton } from '../../../components/admin/ui/adminButton';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -162,7 +163,7 @@ export default function CashAccountDetailPanel({
               <button
                 type="button"
                 onClick={onPay}
-                className="h-11 rounded-xl bg-ink-900 px-5 text-[14px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                className={adminButton('primary', 'lg')}
               >
                 Cobrar {formatMoney(remaining)}
               </button>

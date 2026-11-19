@@ -7,6 +7,7 @@ import { bookingColor, isSettledPastBooking } from './utils/agendaDisplayUtils';
 import AgendaColorLegend from './AgendaColorLegend';
 import type { AgendaRuleSlot } from './utils/agendaBookingRules';
 import AgendaDaySummary, { computeAgendaDaySummary } from './AgendaDaySummary';
+import { adminButton } from '../ui/adminButton';
 
 /** Turnos que el club acepta en una cancha: inicios, duraciones y slots reservables. */
 export type AgendaMobileCourtRules = {
@@ -320,7 +321,7 @@ export default function AgendaMobileGrid({
             <button
               type="button"
               onClick={onFindFreeSlot}
-              className="ml-auto inline-flex h-9 items-center gap-1 rounded-xl border border-p-border bg-p-surface px-2.5 text-[12px] font-extrabold text-p-text-secondary"
+              className={`${adminButton('secondary')} ml-auto gap-1`}
               aria-label="¿Hay lugar?"
             >
               <Search size={14} />
@@ -743,7 +744,7 @@ export default function AgendaMobileGrid({
                       setPreviewBookingId(null);
                       onOpenBooking(booking);
                     }}
-                    className="h-12 w-full rounded-xl bg-p-brand text-[14px] font-extrabold text-p-brand-on"
+                    className={`${adminButton('accent', 'lg')} w-full`}
                   >
                     {isClass ? 'Ver clase en Academia' : isBlocked ? 'Ver bloqueo' : 'Ver reserva completa'}
                   </button>

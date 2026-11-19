@@ -1,3 +1,4 @@
+import { adminButton } from '../../../components/admin/ui/adminButton';
 // ---------------------------------------------------------------------------
 // Types (espeja los tipos de pagos-playground.tsx — sin importarlos)
 // ---------------------------------------------------------------------------
@@ -131,7 +132,7 @@ export default function CashCloseFlow({
                 <button
                   type="button"
                   onClick={onCloseShift}
-                  className="h-9 rounded-lg bg-ink-900 px-4 text-[13px] font-semibold text-ink-50 transition hover:bg-ink-800"
+                  className={adminButton('primary')}
                 >
                   Cerrar caja
                 </button>
@@ -205,7 +206,7 @@ export default function CashCloseFlow({
                 <button
                   type="button"
                   onClick={onViewReport}
-                  className="h-9 rounded-lg border border-p-border bg-p-surface px-4 text-[13px] font-semibold text-p-text-secondary transition hover:bg-p-surface-2"
+                  className={adminButton('secondary')}
                 >
                   Ver detalle del arqueo
                 </button>
