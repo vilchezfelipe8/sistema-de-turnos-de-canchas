@@ -29,6 +29,7 @@ import BusyLabel from '../../components/ui/BusyLabel';
 import Skeleton, { SkeletonText } from '../../components/ui/Skeleton';
 import Modal from '../../components/ui/Modal';
 import ClubCoursesPanel from '../../components/club/ClubCoursesPanel';
+import ClubTurnsPanel from '../../components/club/ClubTurnsPanel';
 
 type ClubPageProps = { appSlug: string | null; appName: string | null };
 
@@ -201,6 +202,30 @@ const PAGE_CSS = `
   .cl-course-spots.is-few { color:var(--warning-fg, var(--text-secondary)); }
   .cl-course-spots.is-plan { color:var(--accent-fg); }
   .cl-course-dates { margin:4px 0 0; font-size:12px; font-weight:700; color:var(--accent-fg); }
+  /* Turnero */
+  .cl-turn-chips { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; margin-bottom:12px; scrollbar-width:none; }
+  .cl-turn-chips::-webkit-scrollbar { display:none; }
+  .cl-turn-days { margin:14px 0 4px; }
+  .cl-turn-chip { flex-shrink:0; min-height:36px; padding:0 14px; border-radius:999px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary); font-family:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+  .cl-turn-chip.is-on { background:var(--positive-bg); border-color:var(--accent-border); color:var(--accent-fg); }
+  .cl-turn-sub { margin:0 0 2px; font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--text-muted); }
+  .cl-turn-mine { margin-top:12px; padding:10px 14px; border-radius:14px; background:var(--surface-2); border:1px solid var(--border-subtle); }
+  .cl-turn-mine-row { margin-top:4px; min-height:28px; }
+  .cl-turn-blocked { margin:10px 0 0; padding:10px 14px; border-radius:12px; background:var(--surface-2); border:1px solid var(--border); font-size:13px; font-weight:600; color:var(--text-secondary); line-height:1.5; }
+  .cl-turn-blocked a { color:var(--accent-fg); font-weight:800; }
+  .cl-turn-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:8px; margin-top:12px; }
+  .cl-turn-slot { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; min-height:52px; padding:6px 4px; border-radius:12px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); font-family:inherit; cursor:pointer; transition:border-color .15s; }
+  .cl-turn-slot:hover:not(:disabled) { border-color:var(--accent-border); }
+  .cl-turn-slot:disabled { cursor:default; }
+  .cl-turn-slot.is-full { opacity:.5; }
+  .cl-turn-code { margin-top:10px; text-align:center; }
+  .cl-turn-qr { width:200px; max-width:100%; margin:8px auto 0; padding:10px; background:#fff; border-radius:14px; }
+  .cl-turn-qr svg { display:block; width:100%; height:auto; }
+  .cl-turn-grid.is-locked .cl-turn-slot:not(.is-mine) { opacity:.5; }
+  .cl-turn-slot.is-mine { background:var(--positive-bg); border-color:var(--accent-border); color:var(--accent-fg); }
+  .cl-turn-time { font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .cl-turn-left { font-size:11px; font-weight:600; color:var(--text-muted); }
+  .cl-turn-slot.is-mine .cl-turn-left { color:var(--accent-fg); }
   .cl-feedback { padding:10px 16px; border-radius:12px; background:var(--positive-bg); border:1px solid var(--accent-border-subtle); font-size:12px; font-weight:700; color:var(--accent-fg); margin-top:12px; }
   /* Contenido del modal de reseña (el modal en sí: pique.css .p-modal-*) */
   .cl-review-stars { display:flex; gap:8px; }
@@ -727,6 +752,14 @@ export default function ClubPage({ appSlug, appName }: ClubPageProps) {
                 )}
               </div>
             </section>
+
+            {/* Turnero (ej. Musculación): reservar la franja con lugar */}
+            <ClubTurnsPanel
+              slug={slug}
+              loggedIn={Boolean(user?.id)}
+              loginHref={`/login?from=${encodeURIComponent(router.asPath || `/club/${slug}`)}`}
+              onNotice={showAppNotice}
+            />
 
             {/* Cursos que el club publica en la app: anotarse o pedir lugar */}
             <ClubCoursesPanel

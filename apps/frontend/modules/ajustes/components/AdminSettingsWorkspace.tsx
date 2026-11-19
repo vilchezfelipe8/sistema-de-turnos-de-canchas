@@ -2,6 +2,7 @@ import AdminComingSoonPanel from '../../../components/admin/AdminComingSoonPanel
 import AdminTabCourts from '../../../components/admin/AdminTabCourts';
 import SettingsClubMembersSection from './SettingsClubMembersSection';
 import SettingsSubscriptionPlansSection from './SettingsSubscriptionPlansSection';
+import SettingsTurnSchedulesSection from './SettingsTurnSchedulesSection';
 import SettingsActivityFormatsSection from './SettingsActivityFormatsSection';
 import SettingsPerPlayerPricingSection from './SettingsPerPlayerPricingSection';
 import SettingsPaymentMethodDiscountSection from './SettingsPaymentMethodDiscountSection';
@@ -32,6 +33,7 @@ export type SettingsWorkspaceTab =
   | 'usuarios'
   | 'socios'
   | 'planes'
+  | 'turnero'
   | 'caja'
   | 'notificaciones'
   | 'excepciones'
@@ -75,6 +77,7 @@ export default function AdminSettingsWorkspace({ tab }: AdminSettingsWorkspacePr
   if (tab === 'usuarios') return <SettingsMembersSection />;
   if (tab === 'socios') return <SettingsClubMembersSection />;
   if (tab === 'planes') return <SettingsSubscriptionPlansSection />;
+  if (tab === 'turnero') return <SettingsTurnSchedulesSection />;
   if (tab === 'caja') return <SettingsCashSection />;
   if (tab === 'excepciones') return <SettingsExceptionsSection />;
   if (tab === 'auditoria') return <SettingsAuditSection />;

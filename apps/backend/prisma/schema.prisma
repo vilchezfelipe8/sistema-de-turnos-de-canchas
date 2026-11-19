@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_DATABASE_URL")
 }
 
@@ -49,11 +49,11 @@ enum ClubPricingMode {
 
 // Cómo se validó el precio socio de un lugar (D9). Solo SELF, ACCEPTED y STAFF_VALIDATED dan precio socio.
 enum MemberPriceValidation {
-  NOT_MEMBER      // no socio o lugar vacío
-  SELF            // es el titular autenticado
-  ACCEPTED        // aceptó la invitación desde su cuenta
+  NOT_MEMBER // no socio o lugar vacío
+  SELF // es el titular autenticado
+  ACCEPTED // aceptó la invitación desde su cuenta
   STAFF_VALIDATED // validado en el mostrador
-  PENDING         // socio agregado por otro, todavía no confirmó → precio no socio
+  PENDING // socio agregado por otro, todavía no confirmó → precio no socio
 }
 
 enum MembershipRole {
@@ -166,7 +166,6 @@ enum OnlinePaymentAttemptStatus {
   EXPIRED
   ERROR
 }
-
 
 enum FiscalCondition {
   RESPONSABLE_INSCRIPTO
@@ -296,13 +295,13 @@ enum CashShiftStatus {
 
 // Motivo de cada movimiento de stock de un producto (historial de inventario).
 enum StockMovementType {
-  INITIAL        // stock con el que se creó el producto
-  PURCHASE       // ingreso de mercadería (proveedor / remito)
-  SALE           // venta o consumo
-  SALE_REVERSAL  // anulación de venta o consumo eliminado
-  ADJUSTMENT     // ajuste por conteo físico
-  WASTE          // merma, rotura, vencimiento
-  MANUAL_EDIT    // cambio de stock editando el producto
+  INITIAL // stock con el que se creó el producto
+  PURCHASE // ingreso de mercadería (proveedor / remito)
+  SALE // venta o consumo
+  SALE_REVERSAL // anulación de venta o consumo eliminado
+  ADJUSTMENT // ajuste por conteo físico
+  WASTE // merma, rotura, vencimiento
+  MANUAL_EDIT // cambio de stock editando el producto
 }
 
 enum CashMovementPosType {
@@ -536,119 +535,120 @@ enum ClassCreditUsageReason {
 //
 
 model User {
-  id            Int            @id @default(autoincrement())
+  id              Int               @id @default(autoincrement())
   // Opcional: los socios importados desde el padrón pueden no tener email.
-  email         String?        @unique
-  password      String
-  firstName     String
-  lastName      String
-  phoneNumber   String
-  emailVerifiedAt DateTime?    @db.Timestamptz(3)
-  lastLoginAt    DateTime?     @db.Timestamptz(3)
-  role          Role           @default(MEMBER)
+  email           String?           @unique
+  password        String
+  firstName       String
+  lastName        String
+  phoneNumber     String
+  emailVerifiedAt DateTime?         @db.Timestamptz(3)
+  lastLoginAt     DateTime?         @db.Timestamptz(3)
+  role            Role              @default(MEMBER)
   // Normalizado (solo dígitos, ver utils/dni.ts). Credencial de login alternativa al email.
-  dni       String?            @unique
-  accountStatus UserAccountStatus @default(ACTIVE)
+  dni             String?           @unique
+  accountStatus   UserAccountStatus @default(ACTIVE)
   // Club que pre-creó la cuenta (padrón de socios). Solo auditoría.
   createdByClubId Int?
 
-  bookings      Booking[]
-  bookingHistoryEntries BookingHistoryEntry[] @relation("BookingHistoryActor")
-  bookingParticipants BookingParticipant[]
-  bookingParticipantInvitationsSent BookingParticipant[] @relation("BookingParticipantInvitedBy")
-  paymentIntegrationsConnected ClubPaymentIntegration[] @relation("ClubPaymentIntegrationConnectedBy")
-  paymentProviderOAuthStates PaymentProviderOAuthState[]
-  onlinePaymentAttempts OnlinePaymentAttempt[]
-  clients       Client[]
-  fixedBookings FixedBooking[]
-  memberships   Membership[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
-  cashShiftsOpened CashShift[] @relation("CashShiftOpenedBy")
-  cashShiftsClosed CashShift[] @relation("CashShiftClosedBy")
-  ledgerEntries LedgerEntry[]
-  ledgerTransactionsCreated LedgerTransaction[]
-  cashMovementsCreated CashMovement[]
-  refundsCreated Refund[]
-  refundsApproved Refund[] @relation("RefundApprovedBy")
-  refundsExecuted Refund[] @relation("RefundExecutedBy")
-  refundsCancelled Refund[] @relation("RefundCancelledBy")
-  clientDiscountAssignmentsCreated ClientDiscountAssignment[]
-  accountItemDiscountsApplied AccountItemDiscount[]
-  clubReviews ClubReview[]
-  clubFavorites ClubFavorite[]
-  duplicateIncidents ClientDuplicateIncident[] @relation("DuplicateIncidentUser")
-  duplicateIncidentsResolved ClientDuplicateIncident[] @relation("DuplicateIncidentResolvedBy")
-  sessions      AuthSession[]
-  oauthIdentities UserOAuthIdentity[]
-  teacherProfiles Teacher[]
-  academyClassSessionsCreated ClassSession[] @relation("ClassSessionCreatedByUser")
-  academyStudentEnrollments ClassEnrollment[] @relation("ClassEnrollmentStudentUser")
-  academyClassEnrollmentsCreated ClassEnrollment[] @relation("ClassEnrollmentCreatedByUser")
-  academyOwnedClassPasses ClassPass[] @relation("ClassPassOwnerUser")
-  academyBeneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryUser")
-  academyClassPassesCreated ClassPass[] @relation("ClassPassCreatedByUser")
-  academyClassCreditUsagesCreated ClassCreditUsage[] @relation("ClassCreditUsageCreatedByUser")
-  verificationCodes UserVerificationCode[]
-  pushSubscriptions PushSubscription[]
-  notificationPreference UserNotificationPreference?
-  bookingReminderLogs BookingReminderLog[]
-  fiscalIncidentsAssigned FiscalIncident[]
+  bookings                          Booking[]
+  bookingHistoryEntries             BookingHistoryEntry[]       @relation("BookingHistoryActor")
+  bookingParticipants               BookingParticipant[]
+  bookingParticipantInvitationsSent BookingParticipant[]        @relation("BookingParticipantInvitedBy")
+  paymentIntegrationsConnected      ClubPaymentIntegration[]    @relation("ClubPaymentIntegrationConnectedBy")
+  paymentProviderOAuthStates        PaymentProviderOAuthState[]
+  onlinePaymentAttempts             OnlinePaymentAttempt[]
+  clients                           Client[]
+  fixedBookings                     FixedBooking[]
+  memberships                       Membership[]
+  notifications                     Notification[]
+  auditLogs                         AuditLog[]
+  cashShiftsOpened                  CashShift[]                 @relation("CashShiftOpenedBy")
+  cashShiftsClosed                  CashShift[]                 @relation("CashShiftClosedBy")
+  ledgerEntries                     LedgerEntry[]
+  ledgerTransactionsCreated         LedgerTransaction[]
+  cashMovementsCreated              CashMovement[]
+  refundsCreated                    Refund[]
+  refundsApproved                   Refund[]                    @relation("RefundApprovedBy")
+  refundsExecuted                   Refund[]                    @relation("RefundExecutedBy")
+  refundsCancelled                  Refund[]                    @relation("RefundCancelledBy")
+  clientDiscountAssignmentsCreated  ClientDiscountAssignment[]
+  accountItemDiscountsApplied       AccountItemDiscount[]
+  clubReviews                       ClubReview[]
+  clubFavorites                     ClubFavorite[]
+  duplicateIncidents                ClientDuplicateIncident[]   @relation("DuplicateIncidentUser")
+  duplicateIncidentsResolved        ClientDuplicateIncident[]   @relation("DuplicateIncidentResolvedBy")
+  sessions                          AuthSession[]
+  oauthIdentities                   UserOAuthIdentity[]
+  teacherProfiles                   Teacher[]
+  academyClassSessionsCreated       ClassSession[]              @relation("ClassSessionCreatedByUser")
+  academyStudentEnrollments         ClassEnrollment[]           @relation("ClassEnrollmentStudentUser")
+  academyClassEnrollmentsCreated    ClassEnrollment[]           @relation("ClassEnrollmentCreatedByUser")
+  academyOwnedClassPasses           ClassPass[]                 @relation("ClassPassOwnerUser")
+  academyBeneficiaryClassPasses     ClassPass[]                 @relation("ClassPassBeneficiaryUser")
+  academyClassPassesCreated         ClassPass[]                 @relation("ClassPassCreatedByUser")
+  academyClassCreditUsagesCreated   ClassCreditUsage[]          @relation("ClassCreditUsageCreatedByUser")
+  verificationCodes                 UserVerificationCode[]
+  pushSubscriptions                 PushSubscription[]
+  activityTurns                     ActivityTurn[]              @relation("ActivityTurnUser")
+  notificationPreference            UserNotificationPreference?
+  bookingReminderLogs               BookingReminderLog[]
+  fiscalIncidentsAssigned           FiscalIncident[]
 }
 
 model UserVerificationCode {
-  id             String                  @id @default(cuid())
-  userId         Int
-  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  purpose        UserVerificationPurpose
-  channel        UserVerificationChannel
-  codeHash       String
-  attempts       Int                     @default(0)
-  expiresAt      DateTime                @db.Timestamptz(3)
-  consumedAt     DateTime?               @db.Timestamptz(3)
+  id              String                  @id @default(cuid())
+  userId          Int
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose         UserVerificationPurpose
+  channel         UserVerificationChannel
+  codeHash        String
+  attempts        Int                     @default(0)
+  expiresAt       DateTime                @db.Timestamptz(3)
+  consumedAt      DateTime?               @db.Timestamptz(3)
   // Si lo generó un operador del club en el mostrador
-  issuedByUserId Int?
+  issuedByUserId  Int?
   issuedForClubId Int?
-  createdAt      DateTime                @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime                @default(now()) @db.Timestamptz(3)
 
   @@index([userId, purpose, consumedAt])
   @@index([expiresAt])
 }
 
 model MagicLoginToken {
-  id        String    @id @default(cuid())
-  email     String
-  tokenHash String    @unique
-  expiresAt DateTime  @db.Timestamptz(3)
+  id         String    @id @default(cuid())
+  email      String
+  tokenHash  String    @unique
+  expiresAt  DateTime  @db.Timestamptz(3)
   consumedAt DateTime? @db.Timestamptz(3)
-  createdAt DateTime  @default(now()) @db.Timestamptz(3)
-  ip        String?
-  userAgent String?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  ip         String?
+  userAgent  String?
 
   @@index([email])
   @@index([expiresAt])
 }
 
 model AuthSession {
-  id                String            @id @default(cuid())
-  userId            Int
-  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  refreshTokenHash  String            @unique
-  familyId          String
-  parentSessionId   String?
-  status            AuthSessionStatus @default(ACTIVE)
+  refreshTokenHash String            @unique
+  familyId         String
+  parentSessionId  String?
+  status           AuthSessionStatus @default(ACTIVE)
 
-  ip                String?
-  userAgent         String?
-  deviceLabel       String?
+  ip          String?
+  userAgent   String?
+  deviceLabel String?
 
-  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
-  lastSeenAt        DateTime          @default(now()) @db.Timestamptz(3)
-  rotatedAt         DateTime?         @db.Timestamptz(3)
-  revokedAt         DateTime?         @db.Timestamptz(3)
-  expiresAt         DateTime          @db.Timestamptz(3)
-  absoluteExpiresAt DateTime          @db.Timestamptz(3)
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt        DateTime  @default(now()) @db.Timestamptz(3)
+  rotatedAt         DateTime? @db.Timestamptz(3)
+  revokedAt         DateTime? @db.Timestamptz(3)
+  expiresAt         DateTime  @db.Timestamptz(3)
+  absoluteExpiresAt DateTime  @db.Timestamptz(3)
 
   @@index([userId, status])
   @@index([familyId])
@@ -674,84 +674,91 @@ model UserOAuthIdentity {
 }
 
 model Club {
-  id            Int       @id @default(autoincrement())
-  slug          String    @unique
-  name          String
-  addressLine   String
-  city          String
-  province      String
-  country       String
+  id          Int    @id @default(autoincrement())
+  slug        String @unique
+  name        String
+  addressLine String
+  city        String
+  province    String
+  country     String
 
-  locationId    Int?
-  location      Location? @relation(fields: [locationId], references: [id])
+  locationId Int?
+  location   Location? @relation(fields: [locationId], references: [id])
 
-  contactInfo   String
-  phone         String?
-  logoUrl       String?
-  clubImageUrl  String?
-  instagramUrl  String?
-  facebookUrl   String?
-  websiteUrl    String?
-  description   String?
+  contactInfo  String
+  phone        String?
+  logoUrl      String?
+  clubImageUrl String?
+  instagramUrl String?
+  facebookUrl  String?
+  websiteUrl   String?
+  description  String?
 
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+  // false = no aparece en la lista pública de clubes (club en prueba o que no toma reservas por la app).
+  isListed Boolean @default(true)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   // Configuración técnica/operativa movida a ClubSettings
-  settings      ClubSettings? 
+  settings ClubSettings?
 
   // Relaciones
-  courts        Court[]
-  activities    ActivityType[]
-  clients       Client[]
-  bookings      Booking[]
-  products      Product[]
-  stockMovements StockMovement[]
-  servicesCatalog ClubServiceCatalog[]
-  cashMovements CashMovement[]
-  memberships   Membership[]
-  fixedBookings FixedBooking[]
-  accounts      Account[]
-  notifications Notification[]
-  courtPriceRules CourtPriceRule[]
-  auditLogs     AuditLog[]
-  events        Event[]
-  outboxMessages OutboxMessage[]
-  whatsappSenders WhatsappSender[]
-  whatsappDeliveries WhatsappDelivery[]
-  cashRegisters CashRegister[]
-  cashShifts    CashShift[]
-  ledgerEntries LedgerEntry[]
-  ledgerTransactions LedgerTransaction[]
-  refunds       Refund[]
-  discountPolicies DiscountPolicy[]
-  clientDiscountAssignments ClientDiscountAssignment[]
-  accountItemDiscounts AccountItemDiscount[]
-  reviews       ClubReview[]
-  favorites     ClubFavorite[]
-  duplicateIncidents ClientDuplicateIncident[]
-  paymentIntegrations ClubPaymentIntegration[]
+  courts                     Court[]
+  activities                 ActivityType[]
+  clients                    Client[]
+  bookings                   Booking[]
+  products                   Product[]
+  stockMovements             StockMovement[]
+  servicesCatalog            ClubServiceCatalog[]
+  cashMovements              CashMovement[]
+  memberships                Membership[]
+  fixedBookings              FixedBooking[]
+  accounts                   Account[]
+  notifications              Notification[]
+  courtPriceRules            CourtPriceRule[]
+  auditLogs                  AuditLog[]
+  events                     Event[]
+  outboxMessages             OutboxMessage[]
+  whatsappSenders            WhatsappSender[]
+  whatsappDeliveries         WhatsappDelivery[]
+  cashRegisters              CashRegister[]
+  cashShifts                 CashShift[]
+  ledgerEntries              LedgerEntry[]
+  ledgerTransactions         LedgerTransaction[]
+  refunds                    Refund[]
+  discountPolicies           DiscountPolicy[]
+  clientDiscountAssignments  ClientDiscountAssignment[]
+  accountItemDiscounts       AccountItemDiscount[]
+  reviews                    ClubReview[]
+  favorites                  ClubFavorite[]
+  duplicateIncidents         ClientDuplicateIncident[]
+  paymentIntegrations        ClubPaymentIntegration[]
   paymentProviderOAuthStates PaymentProviderOAuthState[]
-  onlinePaymentAttempts OnlinePaymentAttempt[]
-  configuracionFiscal ConfiguracionFiscal?
-  puntosDeVentaFiscales PuntoDeVentaFiscal[]
-  facturasFiscales Factura[]
-  fiscalIncidents FiscalIncident[]
-  bookingHistoryEntries BookingHistoryEntry[]
-  teachers      Teacher[]
-  clientRelationships ClientRelationship[]
-  classSessions ClassSession[]
-  classEnrollments ClassEnrollment[]
-  classPasses ClassPass[]
-  classSeries ClassSeries[]
-  classSeriesMembers ClassSeriesMember[]
-  classCreditUsages ClassCreditUsage[]
-  memberCategories MemberCategory[]
-  clubMembers ClubMember[]
-  subscriptionPlans SubscriptionPlan[]
-  subscriptions Subscription[]
-  subscriptionInstallments SubscriptionInstallment[]
-  courtBlocks   CourtBlock[]
+  onlinePaymentAttempts      OnlinePaymentAttempt[]
+  configuracionFiscal        ConfiguracionFiscal?
+  puntosDeVentaFiscales      PuntoDeVentaFiscal[]
+  facturasFiscales           Factura[]
+  fiscalIncidents            FiscalIncident[]
+  bookingHistoryEntries      BookingHistoryEntry[]
+  teachers                   Teacher[]
+  clientRelationships        ClientRelationship[]
+  classSessions              ClassSession[]
+  classEnrollments           ClassEnrollment[]
+  classPasses                ClassPass[]
+  classSeries                ClassSeries[]
+  classSeriesMembers         ClassSeriesMember[]
+  classCreditUsages          ClassCreditUsage[]
+  memberCategories           MemberCategory[]
+  clubMembers                ClubMember[]
+  subscriptionPlans          SubscriptionPlan[]
+  subscriptions              Subscription[]
+  activityTurnSchedules      ActivityTurnSchedule[]
+  activityTurns              ActivityTurn[]
+  accessLogs                 AccessLog[]
+  fingerprints               ClientFingerprint[]
+  subscriptionInstallments   SubscriptionInstallment[]
+  courtBlocks                CourtBlock[]
 }
 
 model ClubFavorite {
@@ -760,8 +767,8 @@ model ClubFavorite {
   userId    Int
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  club      Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([clubId, userId])
   @@index([userId, createdAt])
@@ -801,39 +808,39 @@ model ClubPaymentIntegration {
   updatedAt       DateTime                 @updatedAt @db.Timestamptz(3)
 
   onlinePaymentAttempts OnlinePaymentAttempt[]
-  oauthStates          PaymentProviderOAuthState[]
+  oauthStates           PaymentProviderOAuthState[]
 
   @@unique([clubId, provider])
   @@index([provider, status])
 }
 
 model PaymentProviderOAuthState {
-  id            String          @id @default(cuid())
+  id            String                  @id @default(cuid())
   clubId        Int
-  club          Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club          Club                    @relation(fields: [clubId], references: [id], onDelete: Cascade)
   provider      PaymentProvider
   userId        Int
-  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
   integrationId String?
   integration   ClubPaymentIntegration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
-  nonce         String          @unique
-  expiresAt     DateTime        @db.Timestamptz(3)
-  consumedAt    DateTime?       @db.Timestamptz(3)
-  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  nonce         String                  @unique
+  expiresAt     DateTime                @db.Timestamptz(3)
+  consumedAt    DateTime?               @db.Timestamptz(3)
+  createdAt     DateTime                @default(now()) @db.Timestamptz(3)
 
   @@index([clubId, provider, expiresAt])
 }
 
 model Location {
-  id        Int      @id @default(autoincrement())
-  city      String
-  province  String
-  country   String
+  id       Int    @id @default(autoincrement())
+  city     String
+  province String
+  country  String
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  clubs     Club[]
+  clubs Club[]
 
   @@unique([city, province, country])
 }
@@ -856,7 +863,7 @@ model Court {
   fixedBookings FixedBooking[]
   priceRules    CourtPriceRule[]
   classSessions ClassSession[]
-  classSeries ClassSeries[]
+  classSeries   ClassSeries[]
   courtBlocks   CourtBlock[]
 
   @@index([clubId])
@@ -881,20 +888,20 @@ model CourtBlock {
 }
 
 model CourtPriceRule {
-  id           Int      @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
-  courtId      Int
-  court        Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  courtId Int
+  court   Court @relation(fields: [courtId], references: [id], onDelete: Cascade)
 
-  clubId       Int
-  club         Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   dayOfWeek    Int
   startMinutes Int
   endMinutes   Int
   price        Decimal @db.Decimal(10, 2)
 
-  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([courtId])
   @@index([clubId])
@@ -902,53 +909,56 @@ model CourtPriceRule {
 }
 
 model ActivityType {
-  id                     Int            @id @default(autoincrement())
+  id                     Int    @id @default(autoincrement())
   name                   String
   description            String
   defaultDurationMinutes Int
 
-  clubId                 Int
-  club                   Club           @relation(fields: [clubId], references: [id])
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id])
 
-  scheduleMode           ScheduleMode   @default(FIXED)
-  scheduleOpenTime       String?
-  scheduleCloseTime      String?
+  scheduleMode            ScheduleMode                @default(FIXED)
+  scheduleOpenTime        String?
+  scheduleCloseTime       String?
   scheduleIntervalMinutes Int?
-  scheduleWindows        Json?
-  scheduleDurations      Json?
-  scheduleFixedSlots     Json?
-  scheduleExceptions     ActivityScheduleException[]
+  scheduleWindows         Json?
+  scheduleDurations       Json?
+  scheduleFixedSlots      Json?
+  scheduleExceptions      ActivityScheduleException[]
 
-  courts                 Court[]
-  bookings               Booking[]
-  fixedBookings          FixedBooking[]
-  discountTargets        DiscountPolicyTarget[]
-  classSessions          ClassSession[]
-  classSeries            ClassSeries[]
-  classPasses            ClassPass[]
-  formats                ActivityFormat[]
+  courts                   Court[]
+  bookings                 Booking[]
+  fixedBookings            FixedBooking[]
+  discountTargets          DiscountPolicyTarget[]
+  classSessions            ClassSession[]
+  classSeries              ClassSeries[]
+  classPasses              ClassPass[]
+  formats                  ActivityFormat[]
   subscriptionEntitlements SubscriptionPlanEntitlement[]
+  turnSchedule             ActivityTurnSchedule?
+  turns                    ActivityTurn[]
+  accessLogs               AccessLog[]
 
   @@index([clubId])
 }
 
 // Modalidad de juego de una actividad (ej. Tenis Single 2 jugadores / Dobles 4).
 model ActivityFormat {
-  id             String       @id @default(cuid())
-  clubId         Int
-  activityTypeId Int
-  activityType   ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
-  name           String
-  playerCount    Int
+  id               String       @id @default(cuid())
+  clubId           Int
+  activityTypeId   Int
+  activityType     ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  name             String
+  playerCount      Int
   // Duración fija del turno en esta modalidad (ej. Single 60, Dobles 120). null = la de la actividad.
-  durationMinutes Int?
+  durationMinutes  Int?
   // Si el turno completo no entra (ej. hueco de 1 h antes de otro turno), permite reservarlo de 60 min
   // con el mismo precio por jugador. Lo activa cada club por modalidad.
-  allowShortInGaps Boolean @default(false)
-  sortOrder      Int          @default(0)
-  isActive       Boolean      @default(true)
-  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime     @updatedAt @db.Timestamptz(3)
+  allowShortInGaps Boolean      @default(false)
+  sortOrder        Int          @default(0)
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime     @updatedAt @db.Timestamptz(3)
 
   priceRules    PlayerPriceRule[]
   bookings      Booking[]
@@ -975,13 +985,13 @@ model PlayerPriceRule {
 }
 
 model ActivityScheduleException {
-  id                      Int          @id @default(autoincrement())
-  activityTypeId          Int
-  activityType            ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
-  localDate               DateTime     @db.Date
+  id             Int          @id @default(autoincrement())
+  activityTypeId Int
+  activityType   ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  localDate      DateTime     @db.Date
 
   // Si está cerrado, esta excepción bloquea todo el día para la actividad.
-  isClosed                Boolean      @default(false)
+  isClosed Boolean @default(false)
 
   // Configuración opcional para reemplazar agenda base de la actividad en ese día.
   scheduleMode            ScheduleMode?
@@ -992,56 +1002,59 @@ model ActivityScheduleException {
   scheduleDurations       Json?
   scheduleFixedSlots      Json?
 
-  createdAt               DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime     @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([activityTypeId, localDate])
   @@index([localDate])
 }
 
 model Client {
-  id        String   @id @default(cuid())
-  clubId    Int
-  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  userId    Int?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  userId Int?
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  name      String
-  dni       String?
-  phone     String?
-  email     String?
+  name        String
+  dni         String?
+  phone       String?
+  email       String?
   isProfessor Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bookings  Booking[]
-  bookingParticipants BookingParticipant[]
-  fixedBookings FixedBooking[]
-  discountAssignments ClientDiscountAssignment[]
-  accountItemDiscounts AccountItemDiscount[]
-  duplicateIncidentsPrimary ClientDuplicateIncident[] @relation("DuplicateIncidentPrimaryClient")
-  duplicateIncidentsResolvedTarget ClientDuplicateIncident[] @relation("DuplicateIncidentResolvedClient")
-  accounts      Account[]
-  teacherProfiles Teacher[]
-  outgoingClientRelationships ClientRelationship[] @relation("ClientRelationshipFromClient")
-  incomingClientRelationships ClientRelationship[] @relation("ClientRelationshipToClient")
-  studentClassEnrollments ClassEnrollment[] @relation("ClassEnrollmentStudentClient")
-  classSeriesMemberships ClassSeriesMember[] @relation("ClassSeriesMemberStudentClient")
-  classSeriesPaidMemberships ClassSeriesMember[] @relation("ClassSeriesMemberBillingClient")
-  billingResponsibleClassEnrollments ClassEnrollment[] @relation("ClassEnrollmentBillingResponsibleClient")
-  ownedClassPasses ClassPass[] @relation("ClassPassOwnerClient")
-  beneficiaryClassPasses ClassPass[] @relation("ClassPassBeneficiaryClient")
-  clubMember    ClubMember?
-  subscriptions Subscription[] @relation("SubscriptionClient")
-  paidSubscriptions Subscription[] @relation("SubscriptionPayerClient")
+  bookings                           Booking[]
+  bookingParticipants                BookingParticipant[]
+  fixedBookings                      FixedBooking[]
+  discountAssignments                ClientDiscountAssignment[]
+  accountItemDiscounts               AccountItemDiscount[]
+  duplicateIncidentsPrimary          ClientDuplicateIncident[]  @relation("DuplicateIncidentPrimaryClient")
+  duplicateIncidentsResolvedTarget   ClientDuplicateIncident[]  @relation("DuplicateIncidentResolvedClient")
+  accounts                           Account[]
+  teacherProfiles                    Teacher[]
+  outgoingClientRelationships        ClientRelationship[]       @relation("ClientRelationshipFromClient")
+  incomingClientRelationships        ClientRelationship[]       @relation("ClientRelationshipToClient")
+  studentClassEnrollments            ClassEnrollment[]          @relation("ClassEnrollmentStudentClient")
+  classSeriesMemberships             ClassSeriesMember[]        @relation("ClassSeriesMemberStudentClient")
+  classSeriesPaidMemberships         ClassSeriesMember[]        @relation("ClassSeriesMemberBillingClient")
+  billingResponsibleClassEnrollments ClassEnrollment[]          @relation("ClassEnrollmentBillingResponsibleClient")
+  ownedClassPasses                   ClassPass[]                @relation("ClassPassOwnerClient")
+  beneficiaryClassPasses             ClassPass[]                @relation("ClassPassBeneficiaryClient")
+  clubMember                         ClubMember?
+  subscriptions                      Subscription[]             @relation("SubscriptionClient")
+  paidSubscriptions                  Subscription[]             @relation("SubscriptionPayerClient")
+  activityTurns                      ActivityTurn[]             @relation("ActivityTurnClient")
+  accessLogs                         AccessLog[]
+  fingerprints                       ClientFingerprint[]
 
+  @@unique([clubId, userId])
   @@index([clubId])
   @@index([userId])
   @@index([clubId, email])
   @@index([clubId, phone])
   @@index([clubId, dni])
-  @@unique([clubId, userId])
 }
 
 // Padrón de socios. "No socio" = el cliente no tiene ClubMember o no está ACTIVE y vigente.
@@ -1057,8 +1070,8 @@ model MemberCategory {
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
-  members ClubMember[]
-  playerPriceRules PlayerPriceRule[]
+  members           ClubMember[]
+  playerPriceRules  PlayerPriceRule[]
   subscriptionPlans SubscriptionPlan[]
 
   @@unique([clubId, code])
@@ -1066,25 +1079,25 @@ model MemberCategory {
 }
 
 model ClubMember {
-  id           String           @id @default(cuid())
-  clubId       Int
-  club         Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  clientId     String           @unique
-  client       Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  categoryId   String
-  category     MemberCategory   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  memberNumber String?
-  status       ClubMemberStatus @default(ACTIVE)
-  joinedAt     DateTime         @db.Date
+  id              String           @id @default(cuid())
+  clubId          Int
+  club            Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clientId        String           @unique
+  client          Client           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  categoryId      String
+  category        MemberCategory   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  memberNumber    String?
+  status          ClubMemberStatus @default(ACTIVE)
+  joinedAt        DateTime         @db.Date
   // "Al día hasta". Carga manual mientras la cuota social no se cobre con Pique.
-  validUntil   DateTime?        @db.Date
-  leftAt       DateTime?        @db.Date
-  statusReason String?
-  notes        String?
+  validUntil      DateTime?        @db.Date
+  leftAt          DateTime?        @db.Date
+  statusReason    String?
+  notes           String?
   createdByUserId Int?
   updatedByUserId Int?
-  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime         @updatedAt @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
 
   history ClubMemberHistory[]
 
@@ -1119,17 +1132,17 @@ enum ClientDuplicateIncidentStatus {
 }
 
 model ClientDuplicateIncident {
-  id        String   @id @default(cuid())
-  clubId    Int
-  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
-  userId    Int?
-  user      User?    @relation("DuplicateIncidentUser", fields: [userId], references: [id], onDelete: SetNull)
+  userId Int?
+  user   User? @relation("DuplicateIncidentUser", fields: [userId], references: [id], onDelete: SetNull)
 
-  status    ClientDuplicateIncidentStatus @default(OPEN)
+  status     ClientDuplicateIncidentStatus @default(OPEN)
   reasonType String
   sourceType String
-  dedupeKey String?
+  dedupeKey  String?
 
   primaryClientId String?
   primaryClient   Client? @relation("DuplicateIncidentPrimaryClient", fields: [primaryClientId], references: [id], onDelete: SetNull)
@@ -1137,13 +1150,13 @@ model ClientDuplicateIncident {
   candidateClientIds Json
   payload            Json?
 
-  resolutionType     String?
-  resolutionNotes    String?
-  resolvedClientId   String?
-  resolvedClient     Client? @relation("DuplicateIncidentResolvedClient", fields: [resolvedClientId], references: [id], onDelete: SetNull)
-  resolvedByUserId   Int?
-  resolvedByUser     User?   @relation("DuplicateIncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
-  resolvedAt         DateTime? @db.Timestamptz(3)
+  resolutionType   String?
+  resolutionNotes  String?
+  resolvedClientId String?
+  resolvedClient   Client?   @relation("DuplicateIncidentResolvedClient", fields: [resolvedClientId], references: [id], onDelete: SetNull)
+  resolvedByUserId Int?
+  resolvedByUser   User?     @relation("DuplicateIncidentResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  resolvedAt       DateTime? @db.Timestamptz(3)
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
@@ -1153,21 +1166,21 @@ model ClientDuplicateIncident {
 }
 
 model Teacher {
-  id        String   @id @default(cuid())
-  clubId    Int
-  club      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  clientId  String?
-  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  userId    Int?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id       String  @id @default(cuid())
+  clubId   Int
+  club     Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  userId   Int?
+  user     User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
-  displayName String
-  email       String?
-  phone       String?
-  isInternal  Boolean @default(false)
-  isActive    Boolean @default(true)
+  displayName     String
+  email           String?
+  phone           String?
+  isInternal      Boolean @default(false)
+  isActive        Boolean @default(true)
   specialtiesJson Json?
-  notes       String?
+  notes           String?
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
@@ -1176,44 +1189,44 @@ model Teacher {
   classPasses   ClassPass[]
   classSeries   ClassSeries[]
 
+  @@unique([clubId, clientId])
+  @@unique([clubId, userId])
   @@index([clubId, isActive, displayName])
   @@index([clientId])
   @@index([userId])
-  @@unique([clubId, clientId])
-  @@unique([clubId, userId])
 }
 
 model ClientRelationship {
-  id        String @id @default(cuid())
-  clubId    Int
-  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   fromClientId String
   fromClient   Client @relation("ClientRelationshipFromClient", fields: [fromClientId], references: [id], onDelete: Cascade)
   toClientId   String
   toClient     Client @relation("ClientRelationshipToClient", fields: [toClientId], references: [id], onDelete: Cascade)
 
-  relationshipType ClientRelationshipType
-  canPayFor            Boolean @default(false)
-  canManageEnrollments Boolean @default(false)
-  canViewSchedule      Boolean @default(false)
-  canCancelClass       Boolean @default(false)
-  canViewPayments      Boolean @default(false)
+  relationshipType     ClientRelationshipType
+  canPayFor            Boolean                @default(false)
+  canManageEnrollments Boolean                @default(false)
+  canViewSchedule      Boolean                @default(false)
+  canCancelClass       Boolean                @default(false)
+  canViewPayments      Boolean                @default(false)
   notes                String?
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
+  @@unique([clubId, fromClientId, toClientId, relationshipType])
   @@index([clubId, fromClientId])
   @@index([clubId, toClientId])
   @@index([clubId, relationshipType])
-  @@unique([clubId, fromClientId, toClientId, relationshipType])
 }
 
 model ClassSession {
-  id        String @id @default(cuid())
-  clubId    Int
-  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   teacherId String
   teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Restrict)
@@ -1227,16 +1240,16 @@ model ClassSession {
   courtId Int?
   court   Court? @relation(fields: [courtId], references: [id], onDelete: SetNull)
 
-  startsAt        DateTime @db.Timestamptz(3)
-  endsAt          DateTime @db.Timestamptz(3)
-  durationMinutes Int
-  capacity        Int
-  pricePerStudent Decimal? @db.Decimal(10, 2)
-  status          ClassSessionStatus @default(SCHEDULED)
-  level           String?
-  description     String?
-  requiresApproval Boolean @default(false)
-  requiresPaymentToEnroll Boolean @default(false)
+  startsAt                DateTime           @db.Timestamptz(3)
+  endsAt                  DateTime           @db.Timestamptz(3)
+  durationMinutes         Int
+  capacity                Int
+  pricePerStudent         Decimal?           @db.Decimal(10, 2)
+  status                  ClassSessionStatus @default(SCHEDULED)
+  level                   String?
+  description             String?
+  requiresApproval        Boolean            @default(false)
+  requiresPaymentToEnroll Boolean            @default(false)
 
   createdByUserId Int
   createdByUser   User @relation("ClassSessionCreatedByUser", fields: [createdByUserId], references: [id], onDelete: Restrict)
@@ -1252,7 +1265,6 @@ model ClassSession {
   enrollments ClassEnrollment[]
 
   @@index([seriesId, startsAt])
-
   @@index([clubId, startsAt])
   @@index([clubId, status])
   @@index([clubId, teacherId, startsAt])
@@ -1261,9 +1273,9 @@ model ClassSession {
 }
 
 model ClassEnrollment {
-  id        String @id @default(cuid())
-  clubId    Int
-  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   classSessionId String
   classSession   ClassSession @relation(fields: [classSessionId], references: [id], onDelete: Cascade)
@@ -1281,10 +1293,10 @@ model ClassEnrollment {
   snapshotEmail String?
   snapshotPhone String?
 
-  priceAtEnrollment Decimal @default(0) @db.Decimal(10, 2)
-  paidAmount        Decimal @default(0) @db.Decimal(10, 2)
-  enrollmentStatus  ClassEnrollmentStatus @default(ENROLLED)
-  attendanceStatus  ClassAttendanceStatus @default(PENDING)
+  priceAtEnrollment Decimal                      @default(0) @db.Decimal(10, 2)
+  paidAmount        Decimal                      @default(0) @db.Decimal(10, 2)
+  enrollmentStatus  ClassEnrollmentStatus        @default(ENROLLED)
+  attendanceStatus  ClassAttendanceStatus        @default(PENDING)
   paymentStatus     ClassEnrollmentPaymentStatus @default(UNPAID)
 
   cancelledAt DateTime? @db.Timestamptz(3)
@@ -1318,7 +1330,7 @@ enum ClassSeriesStatus {
 }
 
 enum ClassSeriesMemberStatus {
-  PENDING  // pidió lugar desde la app y espera que el club lo acepte
+  PENDING // pidió lugar desde la app y espera que el club lo acepte
   ACTIVE
   REJECTED
   AWAITING_PAYMENT // se anotó desde la app y tiene el lugar guardado mientras paga
@@ -1327,9 +1339,9 @@ enum ClassSeriesMemberStatus {
 // Curso: clase que se repite en días fijos. Genera las ClassSession de las próximas semanas
 // y anota a sus alumnos en cada una. Las fechas y la hora son del huso del club.
 model ClassSeries {
-  id        String @id @default(cuid())
-  clubId    Int
-  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   teacherId String
   teacher   Teacher @relation(fields: [teacherId], references: [id], onDelete: Restrict)
@@ -1341,30 +1353,30 @@ model ClassSeries {
   court   Court? @relation(fields: [courtId], references: [id], onDelete: SetNull)
 
   classType       ClassSessionType
-  weekdays        Int[]   // 0 = domingo … 6 = sábado
-  startTime       String  // "HH:MM"
+  weekdays        Int[] // 0 = domingo … 6 = sábado
+  startTime       String // "HH:MM"
   durationMinutes Int
   capacity        Int
-  pricePerStudent Decimal? @db.Decimal(10, 2)
+  pricePerStudent Decimal?         @db.Decimal(10, 2)
   // Nombre que ve el jugador (ej. "Escuelita de menores"). Sin nombre se muestra la actividad.
   name            String?
   level           String?
   description     String?
 
-  startsOn       DateTime  @db.Date
-  endsOn         DateTime? @db.Date
-  generatedUntil DateTime? @db.Date
-  status         ClassSeriesStatus @default(ACTIVE)
+  startsOn         DateTime               @db.Date
+  endsOn           DateTime?              @db.Date
+  generatedUntil   DateTime?              @db.Date
+  status           ClassSeriesStatus      @default(ACTIVE)
   // PUBLIC: se ve en la app del club y los jugadores se anotan solos.
   visibility       ClassSessionVisibility @default(PRIVATE)
   // Los que se anotan desde la app quedan esperando hasta que el club los acepte.
-  requiresApproval Boolean @default(false)
+  requiresApproval Boolean                @default(false)
   // Cobrar por Mercado Pago al anotarse desde la app (la cuota del mes).
-  requiresPayment  Boolean @default(false)
+  requiresPayment  Boolean                @default(false)
 
   createdByUserId Int
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
 
   sessions ClassSession[]
   members  ClassSeriesMember[]
@@ -1375,9 +1387,9 @@ model ClassSeries {
 
 // Alumno anotado al curso: queda en todas las clases desde joinedAt hasta leftAt.
 model ClassSeriesMember {
-  id       String @id @default(cuid())
+  id       String      @id @default(cuid())
   clubId   Int
-  club     Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club     Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
   seriesId String
   series   ClassSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
 
@@ -1387,16 +1399,16 @@ model ClassSeriesMember {
   billingResponsibleClientId String?
   billingResponsibleClient   Client? @relation("ClassSeriesMemberBillingClient", fields: [billingResponsibleClientId], references: [id], onDelete: SetNull)
 
-  status   ClassSeriesMemberStatus @default(ACTIVE)
+  status            ClassSeriesMemberStatus @default(ACTIVE)
   // Usuario que se anotó solo desde la app (null = lo anotó el club).
   requestedByUserId Int?
-  joinedAt DateTime  @default(now()) @db.Timestamptz(3)
-  leftAt   DateTime? @db.Timestamptz(3)
-  notes    String?
+  joinedAt          DateTime                @default(now()) @db.Timestamptz(3)
+  leftAt            DateTime?               @db.Timestamptz(3)
+  notes             String?
 
   createdByUserId Int
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
 
   enrollments ClassEnrollment[]
   monthPasses ClassPass[]
@@ -1406,9 +1418,9 @@ model ClassSeriesMember {
 }
 
 model ClassPass {
-  id        String @id @default(cuid())
-  clubId    Int
-  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   ownerClientId String
   ownerClient   Client @relation("ClassPassOwnerClient", fields: [ownerClientId], references: [id], onDelete: Restrict)
@@ -1423,9 +1435,9 @@ model ClassPass {
   beneficiaryUser   User? @relation("ClassPassBeneficiaryUser", fields: [beneficiaryUserId], references: [id], onDelete: SetNull)
 
   packageName      String
-  priceAtPurchase  Decimal? @db.Decimal(10, 2)
+  priceAtPurchase  Decimal?  @db.Decimal(10, 2)
   totalCredits     Int
-  usedCredits      Int @default(0)
+  usedCredits      Int       @default(0)
   remainingCredits Int
   expiresAt        DateTime? @db.Timestamptz(3)
   // Desde cuándo vale (packs de un mes o de un período de plan). null = desde que se compró.
@@ -1439,9 +1451,9 @@ model ClassPass {
   teacherId String?
   teacher   Teacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
 
-  transferable Boolean @default(false)
+  transferable Boolean         @default(false)
   status       ClassPassStatus @default(ACTIVE)
-  purchasedAt  DateTime @default(now()) @db.Timestamptz(3)
+  purchasedAt  DateTime        @default(now()) @db.Timestamptz(3)
   notes        String?
 
   createdByUserId Int
@@ -1472,9 +1484,9 @@ model ClassPass {
 }
 
 model ClassCreditUsage {
-  id        String @id @default(cuid())
-  clubId    Int
-  club      Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   classPassId String
   classPass   ClassPass @relation(fields: [classPassId], references: [id], onDelete: Cascade)
@@ -1483,7 +1495,7 @@ model ClassCreditUsage {
   classEnrollment   ClassEnrollment @relation(fields: [classEnrollmentId], references: [id], onDelete: Restrict)
 
   creditsUsed Int
-  usedAt      DateTime @default(now()) @db.Timestamptz(3)
+  usedAt      DateTime               @default(now()) @db.Timestamptz(3)
   reason      ClassCreditUsageReason
   notes       String?
 
@@ -1500,25 +1512,25 @@ model ClassCreditUsage {
 }
 
 model Booking {
-  id              Int           @id @default(autoincrement())
-  displayCode     String?       @unique
+  id          Int     @id @default(autoincrement())
+  displayCode String? @unique
 
-  startDateTime   DateTime      @db.Timestamptz(3)
-  endDateTime     DateTime      @db.Timestamptz(3)
+  startDateTime DateTime @db.Timestamptz(3)
+  endDateTime   DateTime @db.Timestamptz(3)
 
-  cancelledBy     Int?
-  cancelledAt     DateTime?     @db.Timestamptz(3)
+  cancelledBy             Int?
+  cancelledAt             DateTime? @db.Timestamptz(3)
   autoCancelWarningSentAt DateTime? @db.Timestamptz(3)
   autoCancelledAt         DateTime? @db.Timestamptz(3)
   autoCancelReason        String?
   // Reserva desde la app con seña online obligatoria: hasta cuándo puede pagarla antes de liberarse.
   onlineDepositDueAt      DateTime? @db.Timestamptz(3)
 
-  listPrice       Decimal @default(0) @db.Decimal(10, 2)
-  price           Decimal @db.Decimal(10, 2)
-  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  listPrice Decimal  @default(0) @db.Decimal(10, 2)
+  price     Decimal  @db.Decimal(10, 2)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  status          BookingStatus @default(PENDING)
+  status BookingStatus @default(PENDING)
 
   clientId String
   client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
@@ -1539,19 +1551,19 @@ model Booking {
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id])
 
   // Precio por jugador (ClubPricingMode.PER_PLAYER). null = reserva con precio por cancha.
-  activityFormatId    String?
-  activityFormat      ActivityFormat? @relation(fields: [activityFormatId], references: [id])
-  playerCount         Int?
+  activityFormatId      String?
+  activityFormat        ActivityFormat?        @relation(fields: [activityFormatId], references: [id])
+  playerCount           Int?
   // Σ (precio no socio − precio aplicado) de los lugares
-  memberBenefitAmount Decimal @default(0) @db.Decimal(10, 2)
-  playerSlots         BookingPlayerSlot[]
-  billingConfig  BookingBillingConfig?
-  participants   BookingParticipant[]
-  reminderLogs   BookingReminderLog[]
-  historyEntries BookingHistoryEntry[]
+  memberBenefitAmount   Decimal                @default(0) @db.Decimal(10, 2)
+  playerSlots           BookingPlayerSlot[]
+  billingConfig         BookingBillingConfig?
+  participants          BookingParticipant[]
+  reminderLogs          BookingReminderLog[]
+  historyEntries        BookingHistoryEntry[]
   onlinePaymentAttempts OnlinePaymentAttempt[]
-  facturasFiscales Factura[]
-  reviews        ClubReview[]
+  facturasFiscales      Factura[]
+  reviews               ClubReview[]
 
   @@index([courtId, startDateTime], map: "booking_court_day")
   @@index([courtId, endDateTime])
@@ -1600,9 +1612,9 @@ model BookingParticipant {
 }
 
 model BookingBillingConfig {
-  id                   String    @id @default(cuid())
-  bookingId            Int       @unique
-  booking              Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  id                   String     @id @default(cuid())
+  bookingId            Int        @unique
+  booking              Booking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   clubId               Int
   chargeMode           ChargeMode
   chargeResponsibleRef String?
@@ -1610,29 +1622,29 @@ model BookingBillingConfig {
   metadataJson         Json?
   createdByUserId      Int?
   updatedByUserId      Int?
-  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+  createdAt            DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime   @updatedAt @db.Timestamptz(3)
 
   @@index([clubId])
 }
 
 model ClubReview {
-  id        String           @id @default(cuid())
-  clubId    Int
-  club      Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   bookingId Int
-  booking   Booking          @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
-  userId    Int
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  rating    Int
-  comment   String?
-  status    ClubReviewStatus @default(PUBLISHED)
+  rating  Int
+  comment String?
+  status  ClubReviewStatus @default(PUBLISHED)
 
-  createdAt DateTime         @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime         @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([clubId, userId])
   @@index([clubId, status, createdAt])
@@ -1643,20 +1655,20 @@ model FixedBooking {
   id        Int      @id @default(autoincrement())
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  dayOfWeek Int
+  dayOfWeek        Int
   startTimeMinutes Int
   endTimeMinutes   Int
-  startDate DateTime @db.Timestamptz(3)
+  startDate        DateTime @db.Timestamptz(3)
 
-  status     FixedBookingStatus @default(ACTIVE)
-  clientId   String
-  client     Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  status   FixedBookingStatus @default(ACTIVE)
+  clientId String
+  client   Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
 
-  userId     Int?
-  user       User? @relation(fields: [userId], references: [id])
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
 
-  courtId    Int
-  court      Court @relation(fields: [courtId], references: [id])
+  courtId Int
+  court   Court @relation(fields: [courtId], references: [id])
 
   activityId Int
   activity   ActivityType @relation(fields: [activityId], references: [id])
@@ -1675,60 +1687,60 @@ model FixedBooking {
 }
 
 model Account {
-  id           String       @id @default(cuid())
-  displayCode  String?      @unique
-  clubId       Int
-  club         Club          @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  id          String  @id @default(cuid())
+  displayCode String? @unique
+  clubId      Int
+  club        Club    @relation(fields: [clubId], references: [id], onDelete: Restrict)
 
-  sourceType   AccountSource
-  sourceId     String
+  sourceType     AccountSource
+  sourceId       String
   idempotencyKey String?
-  status        AccountStatus @default(OPEN)
-  totalAmount   Decimal       @default(0) @db.Decimal(10, 2)
-  paidAmount    Decimal       @default(0) @db.Decimal(10, 2)
+  status         AccountStatus @default(OPEN)
+  totalAmount    Decimal       @default(0) @db.Decimal(10, 2)
+  paidAmount     Decimal       @default(0) @db.Decimal(10, 2)
 
   // Cliente asociado (opcional — principalmente para ventas POS/BAR)
-  clientId      String?
-  client        Client?       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
-  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
-  closedAt      DateTime?     @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  closedAt  DateTime? @db.Timestamptz(3)
 
-  items         AccountItem[]
-  payments      Payment[]
+  items                 AccountItem[]
+  payments              Payment[]
   onlinePaymentAttempts OnlinePaymentAttempt[]
-  facturasFiscales Factura[]
-  paymentAllocations PaymentAllocation[]
-  refunds       Refund[]
-  ledgerEntries LedgerEntry[]
+  facturasFiscales      Factura[]
+  paymentAllocations    PaymentAllocation[]
+  refunds               Refund[]
+  ledgerEntries         LedgerEntry[]
   bookingHistoryEntries BookingHistoryEntry[]
 
+  @@unique([clubId, sourceType, sourceId])
   @@index([clubId])
   @@index([sourceType, sourceId])
   @@index([status, createdAt])
-  @@unique([clubId, sourceType, sourceId])
   @@index([idempotencyKey])
   @@index([clientId])
 }
 
 model AccountItem {
-  id          String    @id @default(cuid())
-  accountId   String
-  account     Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  type        AccountItemType
+  id        String          @id @default(cuid())
+  accountId String
+  account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type      AccountItemType
 
-  productId   Int?
-  product     Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId Int?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
   description String
   quantity    Int
-  unitPrice   Decimal   @db.Decimal(10, 2)
-  total       Decimal   @db.Decimal(10, 2)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  total       Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
 
-  ledgerEntries LedgerEntry[]
+  ledgerEntries      LedgerEntry[]
   paymentAllocations PaymentAllocation[]
-  discounts AccountItemDiscount[]
+  discounts          AccountItemDiscount[]
 
   // A quién corresponde el ítem (parte de cancha de un jugador en precio por jugador).
   clientId   String?
@@ -1767,9 +1779,9 @@ model BookingPlayerSlot {
 }
 
 model DiscountPolicy {
-  id          String             @id @default(cuid())
-  clubId      Int
-  club        Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   name        String
   description String?
@@ -1783,11 +1795,11 @@ model DiscountPolicy {
   startsAt    DateTime?          @db.Timestamptz(3)
   endsAt      DateTime?          @db.Timestamptz(3)
 
-  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  targets     DiscountPolicyTarget[]
-  assignments ClientDiscountAssignment[]
+  targets              DiscountPolicyTarget[]
+  assignments          ClientDiscountAssignment[]
   appliedItemDiscounts AccountItemDiscount[]
 
   @@index([clubId, isActive, priority])
@@ -1795,19 +1807,19 @@ model DiscountPolicy {
 }
 
 model DiscountPolicyTarget {
-  id            String         @id @default(cuid())
-  policyId      String
-  policy        DiscountPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  id       String         @id @default(cuid())
+  policyId String
+  policy   DiscountPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
 
   activityTypeId Int?
   activityType   ActivityType? @relation(fields: [activityTypeId], references: [id], onDelete: SetNull)
 
-  productId     Int?
-  product       Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId       Int?
+  product         Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
   productCategory String?
-  serviceCode   String?
+  serviceCode     String?
 
-  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([policyId])
   @@index([activityTypeId])
@@ -1815,93 +1827,94 @@ model DiscountPolicyTarget {
 }
 
 model ClientDiscountAssignment {
-  id              String         @id @default(cuid())
-  clubId          Int
-  club            Club           @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
-  clientId        String
-  client          Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
-  policyId        String
-  policy          DiscountPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  policyId String
+  policy   DiscountPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
 
-  notes           String?
-  isActive        Boolean        @default(true)
-  startsAt        DateTime?      @db.Timestamptz(3)
-  endsAt          DateTime?      @db.Timestamptz(3)
+  notes    String?
+  isActive Boolean   @default(true)
+  startsAt DateTime? @db.Timestamptz(3)
+  endsAt   DateTime? @db.Timestamptz(3)
 
   createdByUserId Int?
-  createdByUser   User?          @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser   User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([clubId, clientId, isActive])
   @@index([policyId, isActive])
 }
 
 model AccountItemDiscount {
-  id              String             @id @default(cuid())
-  clubId          Int
-  club            Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
-  accountItemId   String
-  accountItem     AccountItem        @relation(fields: [accountItemId], references: [id], onDelete: Cascade)
+  accountItemId String
+  accountItem   AccountItem @relation(fields: [accountItemId], references: [id], onDelete: Cascade)
 
-  clientId        String?
-  client          Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
-  policyId        String
-  policy          DiscountPolicy     @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  policyId String
+  policy   DiscountPolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
 
-  scope           DiscountScope
-  amountType      DiscountAmountType
-  amountValue     Decimal            @db.Decimal(10, 2)
+  scope       DiscountScope
+  amountType  DiscountAmountType
+  amountValue Decimal            @db.Decimal(10, 2)
 
-  baseAmount      Decimal            @db.Decimal(10, 2)
-  discountAmount  Decimal            @db.Decimal(10, 2)
-  finalAmount     Decimal            @db.Decimal(10, 2)
+  baseAmount     Decimal @db.Decimal(10, 2)
+  discountAmount Decimal @db.Decimal(10, 2)
+  finalAmount    Decimal @db.Decimal(10, 2)
 
   appliedByUserId Int?
-  appliedByUser   User?              @relation(fields: [appliedByUserId], references: [id], onDelete: SetNull)
-  createdAt       DateTime           @default(now()) @db.Timestamptz(3)
+  appliedByUser   User?    @relation(fields: [appliedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
 
+  @@unique([accountItemId, policyId])
   @@index([clubId, createdAt])
   @@index([accountItemId])
   @@index([clientId])
   @@index([policyId])
-  @@unique([accountItemId, policyId])
 }
 
 model Payment {
-  id        String   @id @default(cuid())
-  displayCode String? @unique
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
-  amount    Decimal  @db.Decimal(10, 2)
-  method    PaymentMethod
-  channel   PaymentChannel @default(AUTO)
-  collectorAccountLabel String?
-  externalReference String?
-  payerParticipantRef String? @db.VarChar(191)
-  payerParticipantName String? @db.VarChar(120)
-  coveredParticipantRef String? @db.VarChar(191)
-  coveredParticipantName String? @db.VarChar(120)
-  source    PaymentSource @default(POS)
-  idempotencyKey String?
+  id                     String         @id @default(cuid())
+  displayCode            String?        @unique
+  createdAt              DateTime       @default(now()) @db.Timestamptz(3)
+  amount                 Decimal        @db.Decimal(10, 2)
+  method                 PaymentMethod
+  channel                PaymentChannel @default(AUTO)
+  collectorAccountLabel  String?
+  externalReference      String?
+  payerParticipantRef    String?        @db.VarChar(191)
+  payerParticipantName   String?        @db.VarChar(120)
+  coveredParticipantRef  String?        @db.VarChar(191)
+  coveredParticipantName String?        @db.VarChar(120)
+  source                 PaymentSource  @default(POS)
+  idempotencyKey         String?
 
   accountId String
-  account   Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
   cashShiftId String?
   cashShift   CashShift? @relation(fields: [cashShiftId], references: [id], onDelete: SetNull)
 
-  cashMovement CashMovement?
+  cashMovement          CashMovement?
   onlinePaymentAttempts OnlinePaymentAttempt[] @relation("OnlinePaymentAttemptPayment")
-  allocations  PaymentAllocation[]
-  refunds      Refund[]
-  ledgerEntries LedgerEntry[]
+  allocations           PaymentAllocation[]
+  refunds               Refund[]
+  ledgerEntries         LedgerEntry[]
   bookingHistoryEntries BookingHistoryEntry[]
 
+  @@unique([accountId, idempotencyKey])
   @@index([accountId])
   @@index([channel])
   @@index([externalReference])
@@ -1910,27 +1923,26 @@ model Payment {
   @@index([source])
   @@index([cashShiftId])
   @@index([idempotencyKey])
-  @@unique([accountId, idempotencyKey])
 }
 
 model PaymentAllocation {
-  id           String    @id @default(cuid())
-  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
-  amount       Decimal   @db.Decimal(10, 2)
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  amount    Decimal  @db.Decimal(10, 2)
 
-  accountId    String
-  account      Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
-  paymentId    String
-  payment      Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
 
   accountItemId String
   accountItem   AccountItem @relation(fields: [accountItemId], references: [id], onDelete: Restrict)
 
+  @@unique([paymentId, accountItemId])
   @@index([accountId, createdAt])
   @@index([accountItemId, createdAt])
   @@index([paymentId, createdAt])
-  @@unique([paymentId, accountItemId])
 }
 
 model OnlinePaymentAttempt {
@@ -1975,48 +1987,47 @@ model OnlinePaymentAttempt {
   @@index([classSeriesMemberId])
 }
 
-
 model ConfiguracionFiscal {
-  id                      String          @id @default(cuid())
-  clubId                  Int             @unique
-  club                    Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int    @unique
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
-  facturacionHabilitada   Boolean         @default(false)
-  proveedorFiscal         FiscalProvider  @default(NONE)
-  modoFacturacion         FiscalMode      @default(DESHABILITADA)
-  paisFiscal              String          @default("AR")
+  facturacionHabilitada Boolean        @default(false)
+  proveedorFiscal       FiscalProvider @default(NONE)
+  modoFacturacion       FiscalMode     @default(DESHABILITADA)
+  paisFiscal            String         @default("AR")
 
-  razonSocial             String?
-  cuit                    String?
-  condicionIva            FiscalCondition?
-  ingresosBrutos          String?
-  inicioActividadesAt     DateTime?       @db.Timestamptz(3)
+  razonSocial         String?
+  cuit                String?
+  condicionIva        FiscalCondition?
+  ingresosBrutos      String?
+  inicioActividadesAt DateTime?        @db.Timestamptz(3)
 
-  usaHomologacion         Boolean         @default(true)
-  activo                  Boolean         @default(true)
+  usaHomologacion Boolean @default(true)
+  activo          Boolean @default(true)
 
-  certificadoPem          String?
-  clavePrivadaPem         String?
-  clavePrivadaPassphrase  String?
-  certificadoSerial       String?
-  certificadoSubject      String?
-  vencimientoCertificado  DateTime?       @db.Timestamptz(3)
+  certificadoPem         String?
+  clavePrivadaPem        String?
+  clavePrivadaPassphrase String?
+  certificadoSerial      String?
+  certificadoSubject     String?
+  vencimientoCertificado DateTime? @db.Timestamptz(3)
 
-  onboardingStatus        String?
-  ultimoHealthcheckAt     DateTime?       @db.Timestamptz(3)
-  ultimoHealthcheckOk     Boolean?
-  observaciones           String?
+  onboardingStatus    String?
+  ultimoHealthcheckAt DateTime? @db.Timestamptz(3)
+  ultimoHealthcheckOk Boolean?
+  observaciones       String?
 
   defaultPuntoDeVentaFiscalId String?
-  defaultPuntoDeVentaFiscal PuntoDeVentaFiscal? @relation("FiscalDefaultPdv", fields: [defaultPuntoDeVentaFiscalId], references: [id], onDelete: SetNull)
+  defaultPuntoDeVentaFiscal   PuntoDeVentaFiscal? @relation("FiscalDefaultPdv", fields: [defaultPuntoDeVentaFiscalId], references: [id], onDelete: SetNull)
 
-  createdAt               DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime        @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  puntosDeVentaFiscales   PuntoDeVentaFiscal[]
-  facturas                Factura[]
-  authTickets             FiscalAuthTicket[]
-  incidents               FiscalIncident[]
+  puntosDeVentaFiscales PuntoDeVentaFiscal[]
+  facturas              Factura[]
+  authTickets           FiscalAuthTicket[]
+  incidents             FiscalIncident[]
 
   @@index([activo])
   @@index([proveedorFiscal, modoFacturacion])
@@ -2025,23 +2036,23 @@ model ConfiguracionFiscal {
 }
 
 model PuntoDeVentaFiscal {
-  id                     String          @id @default(cuid())
-  clubId                 Int
-  club                   Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
-  configuracionFiscalId  String
-  configuracionFiscal    ConfiguracionFiscal @relation(fields: [configuracionFiscalId], references: [id], onDelete: Cascade)
+  configuracionFiscalId String
+  configuracionFiscal   ConfiguracionFiscal @relation(fields: [configuracionFiscalId], references: [id], onDelete: Cascade)
 
-  nombre                 String?
-  puntoDeVenta           Int
-  activo                 Boolean         @default(true)
+  nombre       String?
+  puntoDeVenta Int
+  activo       Boolean @default(true)
 
-  createdAt              DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt              DateTime        @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  cashRegisters          CashRegister[]
-  facturas               Factura[]
-  defaultForConfigs      ConfiguracionFiscal[] @relation("FiscalDefaultPdv")
+  cashRegisters     CashRegister[]
+  facturas          Factura[]
+  defaultForConfigs ConfiguracionFiscal[] @relation("FiscalDefaultPdv")
 
   @@index([clubId])
   @@index([configuracionFiscalId])
@@ -2050,86 +2061,86 @@ model PuntoDeVentaFiscal {
 }
 
 model Factura {
-  id                      String              @id @default(cuid())
-  clubId                  Int
-  club                    Club                @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Restrict)
 
-  configuracionFiscalId   String
-  configuracionFiscal     ConfiguracionFiscal @relation(fields: [configuracionFiscalId], references: [id], onDelete: Restrict)
+  configuracionFiscalId String
+  configuracionFiscal   ConfiguracionFiscal @relation(fields: [configuracionFiscalId], references: [id], onDelete: Restrict)
 
-  puntoDeVentaFiscalId    String?
-  puntoDeVentaFiscal      PuntoDeVentaFiscal? @relation(fields: [puntoDeVentaFiscalId], references: [id], onDelete: SetNull)
+  puntoDeVentaFiscalId String?
+  puntoDeVentaFiscal   PuntoDeVentaFiscal? @relation(fields: [puntoDeVentaFiscalId], references: [id], onDelete: SetNull)
 
-  kind                    FiscalVoucherKind
-  status                  FiscalVoucherStatus @default(PENDING)
-  originType              FiscalOriginType
-  originId                String
-  idempotencyKey          String
+  kind           FiscalVoucherKind
+  status         FiscalVoucherStatus @default(PENDING)
+  originType     FiscalOriginType
+  originId       String
+  idempotencyKey String
 
-  bookingId               Int?
-  booking                 Booking?            @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  bookingId Int?
+  booking   Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
 
-  accountId               String?
-  account                 Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  accountId String?
+  account   Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
-  voucherClass            FiscalVoucherClass?
-  voucherVariant          FiscalVoucherVariant @default(STANDARD)
-  comprobanteTipo         Int?
-  comprobanteDescripcion  String?
-  puntoDeVenta            Int?
-  numeroComprobante       Int?
+  voucherClass           FiscalVoucherClass?
+  voucherVariant         FiscalVoucherVariant @default(STANDARD)
+  comprobanteTipo        Int?
+  comprobanteDescripcion String?
+  puntoDeVenta           Int?
+  numeroComprobante      Int?
 
-  concepto                Int?
-  fechaEmision            DateTime            @db.Timestamptz(3)
-  fechaServicioDesde      DateTime?           @db.Timestamptz(3)
-  fechaServicioHasta      DateTime?           @db.Timestamptz(3)
-  fechaVencimientoPago    DateTime?           @db.Timestamptz(3)
+  concepto             Int?
+  fechaEmision         DateTime  @db.Timestamptz(3)
+  fechaServicioDesde   DateTime? @db.Timestamptz(3)
+  fechaServicioHasta   DateTime? @db.Timestamptz(3)
+  fechaVencimientoPago DateTime? @db.Timestamptz(3)
 
-  receptorDocTipo         Int?
-  receptorDocNumero       String?
-  receptorNombre          String?
-  receptorDomicilio       String?
-  receptorCondicionIva    FiscalCondition?
+  receptorDocTipo            Int?
+  receptorDocNumero          String?
+  receptorNombre             String?
+  receptorDomicilio          String?
+  receptorCondicionIva       FiscalCondition?
   receptorCondicionIvaArcaId Int?
 
-  monedaCodigo            String              @default("PES")
-  monedaCotizacion        Decimal             @default(1) @db.Decimal(12, 6)
+  monedaCodigo     String  @default("PES")
+  monedaCotizacion Decimal @default(1) @db.Decimal(12, 6)
 
-  importeNeto             Decimal             @default(0) @db.Decimal(12, 2)
-  importeIva              Decimal             @default(0) @db.Decimal(12, 2)
-  importeExento           Decimal             @default(0) @db.Decimal(12, 2)
-  importeTributos         Decimal             @default(0) @db.Decimal(12, 2)
-  importeTotal            Decimal             @default(0) @db.Decimal(12, 2)
+  importeNeto     Decimal @default(0) @db.Decimal(12, 2)
+  importeIva      Decimal @default(0) @db.Decimal(12, 2)
+  importeExento   Decimal @default(0) @db.Decimal(12, 2)
+  importeTributos Decimal @default(0) @db.Decimal(12, 2)
+  importeTotal    Decimal @default(0) @db.Decimal(12, 2)
 
-  cae                     String?
-  caeVencimiento          DateTime?           @db.Timestamptz(3)
-  resultadoArca           String?
+  cae            String?
+  caeVencimiento DateTime? @db.Timestamptz(3)
+  resultadoArca  String?
 
-  qrPayloadBase64         String?
-  qrUrl                   String?
-  pdfUrl                  String?
-  internalReceiptUrl      String?
+  qrPayloadBase64    String?
+  qrUrl              String?
+  pdfUrl             String?
+  internalReceiptUrl String?
 
-  requestPayload          Json?
-  responsePayload         Json?
-  normalizedResult        Json?
+  requestPayload            Json?
+  responsePayload           Json?
+  normalizedResult          Json?
   fiscalCalculationSnapshot Json?
-  observacionesArca       Json?
-  erroresArca             Json?
-  mensajeError            String?
-  suggestedAction         String?
-  intentoActual           Int                 @default(0)
-  ultimoIntentoAt         DateTime?           @db.Timestamptz(3)
+  observacionesArca         Json?
+  erroresArca               Json?
+  mensajeError              String?
+  suggestedAction           String?
+  intentoActual             Int       @default(0)
+  ultimoIntentoAt           DateTime? @db.Timestamptz(3)
 
-  comprobanteAsociadoId   String?
-  comprobanteAsociado     Factura?            @relation("FacturaAsociada", fields: [comprobanteAsociadoId], references: [id], onDelete: SetNull)
-  notasCreditoAsociadas   Factura[]           @relation("FacturaAsociada")
+  comprobanteAsociadoId String?
+  comprobanteAsociado   Factura?  @relation("FacturaAsociada", fields: [comprobanteAsociadoId], references: [id], onDelete: SetNull)
+  notasCreditoAsociadas Factura[] @relation("FacturaAsociada")
 
-  createdAt               DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime            @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  items                   FiscalVoucherItem[]
-  incidents               FiscalIncident[]
+  items     FiscalVoucherItem[]
+  incidents FiscalIncident[]
 
   @@unique([clubId, idempotencyKey])
   @@index([clubId, status, createdAt])
@@ -2140,101 +2151,101 @@ model Factura {
 }
 
 model FiscalVoucherItem {
-  id                      String          @id @default(cuid())
-  facturaId               String
-  factura                 Factura         @relation(fields: [facturaId], references: [id], onDelete: Cascade)
+  id        String  @id @default(cuid())
+  facturaId String
+  factura   Factura @relation(fields: [facturaId], references: [id], onDelete: Cascade)
 
-  originType              FiscalOriginType?
-  originId                String?
-  itemType                FiscalItemType
-  code                    String?
-  description             String
-  quantity                Decimal         @db.Decimal(12, 3)
-  unitPrice               Decimal         @db.Decimal(12, 2)
-  discountAmount          Decimal         @default(0) @db.Decimal(12, 2)
-  taxableBase             Decimal         @default(0) @db.Decimal(12, 2)
-  vatRate                 Decimal         @default(0) @db.Decimal(5, 2)
-  vatAmount               Decimal         @default(0) @db.Decimal(12, 2)
-  totalAmount             Decimal         @default(0) @db.Decimal(12, 2)
+  originType     FiscalOriginType?
+  originId       String?
+  itemType       FiscalItemType
+  code           String?
+  description    String
+  quantity       Decimal           @db.Decimal(12, 3)
+  unitPrice      Decimal           @db.Decimal(12, 2)
+  discountAmount Decimal           @default(0) @db.Decimal(12, 2)
+  taxableBase    Decimal           @default(0) @db.Decimal(12, 2)
+  vatRate        Decimal           @default(0) @db.Decimal(5, 2)
+  vatAmount      Decimal           @default(0) @db.Decimal(12, 2)
+  totalAmount    Decimal           @default(0) @db.Decimal(12, 2)
 
-  snapshot                Json?
+  snapshot Json?
 
-  createdAt               DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime        @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([facturaId])
 }
 
 model FiscalAuthTicket {
-  id                      String          @id @default(cuid())
-  clubId                  Int
-  configuracionFiscalId   String?
-  service                 String
-  token                   String
-  sign                    String
-  generationTime          DateTime        @db.Timestamptz(3)
-  expirationTime          DateTime        @db.Timestamptz(3)
-  createdAt               DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime        @updatedAt @db.Timestamptz(3)
+  id                    String   @id @default(cuid())
+  clubId                Int
+  configuracionFiscalId String?
+  service               String
+  token                 String
+  sign                  String
+  generationTime        DateTime @db.Timestamptz(3)
+  expirationTime        DateTime @db.Timestamptz(3)
+  createdAt             DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime @updatedAt @db.Timestamptz(3)
 
-  configuracionFiscal     ConfiguracionFiscal? @relation(fields: [configuracionFiscalId], references: [id], onDelete: SetNull)
+  configuracionFiscal ConfiguracionFiscal? @relation(fields: [configuracionFiscalId], references: [id], onDelete: SetNull)
 
   @@unique([clubId, service])
   @@index([expirationTime])
 }
 
 model FiscalIncident {
-  id                      String               @id @default(cuid())
-  clubId                  Int
-  club                    Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  configuracionFiscalId   String?
-  facturaId               String?
-  status                  FiscalIncidentStatus @default(OPEN)
-  type                    String
-  title                   String
-  detail                  String?
-  priority                String?
-  assignedToUserId        Int?
-  resolvedAt              DateTime?            @db.Timestamptz(3)
+  id                    String               @id @default(cuid())
+  clubId                Int
+  club                  Club                 @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  configuracionFiscalId String?
+  facturaId             String?
+  status                FiscalIncidentStatus @default(OPEN)
+  type                  String
+  title                 String
+  detail                String?
+  priority              String?
+  assignedToUserId      Int?
+  resolvedAt            DateTime?            @db.Timestamptz(3)
 
-  configuracionFiscal     ConfiguracionFiscal? @relation(fields: [configuracionFiscalId], references: [id], onDelete: SetNull)
-  factura                 Factura?             @relation(fields: [facturaId], references: [id], onDelete: SetNull)
-  assignedToUser          User?                @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  configuracionFiscal ConfiguracionFiscal? @relation(fields: [configuracionFiscalId], references: [id], onDelete: SetNull)
+  factura             Factura?             @relation(fields: [facturaId], references: [id], onDelete: SetNull)
+  assignedToUser      User?                @relation(fields: [assignedToUserId], references: [id], onDelete: SetNull)
 
-  createdAt               DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt               DateTime             @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@index([clubId, status, createdAt])
   @@index([facturaId])
 }
 
 model LedgerTransaction {
-  id              String            @id @default(cuid())
-  clubId          Int
-  club            Club              @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  id     String @id @default(cuid())
+  clubId Int
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Restrict)
 
-  type            LedgerEntryType
-  referenceType   LedgerReferenceType
-  referenceId     String
+  type          LedgerEntryType
+  referenceType LedgerReferenceType
+  referenceId   String
 
   createdByUserId Int?
-  createdByUser   User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser   User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  entries         LedgerEntry[]
+  entries LedgerEntry[]
 
   @@index([clubId, createdAt])
   @@index([referenceType, referenceId])
 }
 
 model Notification {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
   title     String
   message   String
   channel   String?
-  isRead    Boolean  @default(false)
+  isRead    Boolean   @default(false)
   status    String?
   sentAt    DateTime? @db.Timestamptz(3)
 
@@ -2250,18 +2261,18 @@ model Notification {
 }
 
 model AuditLog {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  clubId    Int
-  club      Club     @relation(fields: [clubId], references: [id])
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id])
 
-  userId    Int?
-  user      User?    @relation(fields: [userId], references: [id])
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id])
 
-  entity    String
-  entityId  String
-  action    String
-  payload   Json?
+  entity   String
+  entityId String
+  action   String
+  payload  Json?
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
@@ -2270,13 +2281,13 @@ model AuditLog {
 }
 
 model BookingHistoryEntry {
-  id                   String   @id @default(cuid())
+  id                   String              @id @default(cuid())
   clubId               Int
-  club                 Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club                 Club                @relation(fields: [clubId], references: [id], onDelete: Cascade)
   bookingId            Int
-  booking              Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  booking              Booking             @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   actorUserId          Int?
-  actorUser            User?    @relation("BookingHistoryActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorUser            User?               @relation("BookingHistoryActor", fields: [actorUserId], references: [id], onDelete: SetNull)
   actorLabel           String?
   action               String
   category             String
@@ -2288,14 +2299,14 @@ model BookingHistoryEntry {
   bookingParticipantId String?
   bookingParticipant   BookingParticipant? @relation(fields: [bookingParticipantId], references: [id], onDelete: SetNull)
   paymentId            String?
-  payment              Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  payment              Payment?            @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   accountId            String?
-  account              Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  sourceEventId        String?  @unique
-  idempotencyKey       String?  @unique
+  account              Account?            @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  sourceEventId        String?             @unique
+  idempotencyKey       String?             @unique
   metadata             Json?
-  occurredAt           DateTime @default(now()) @db.Timestamptz(3)
-  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  occurredAt           DateTime            @default(now()) @db.Timestamptz(3)
+  createdAt            DateTime            @default(now()) @db.Timestamptz(3)
 
   @@index([clubId, bookingId, occurredAt])
   @@index([bookingId, occurredAt])
@@ -2308,10 +2319,10 @@ model BookingHistoryEntry {
 }
 
 model Event {
-  id        String   @id @default(cuid())
+  id String @id @default(cuid())
 
-  clubId    Int
-  club      Club     @relation(fields: [clubId], references: [id])
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id])
 
   type      String
   payload   Json
@@ -2323,23 +2334,23 @@ model Event {
 }
 
 model OutboxMessage {
-  id            String       @id @default(cuid())
-  clubId        Int
-  club          Club         @relation(fields: [clubId], references: [id], onDelete: Restrict)
-  type          String
-  aggregateType String?
-  aggregateId   String?
-  payload       Json
-  dedupeKey     String?      @unique
-  status        OutboxStatus @default(PENDING)
-  attempts      Int          @default(0)
-  availableAt   DateTime     @default(now()) @db.Timestamptz(3)
-  claimedAt     DateTime?    @db.Timestamptz(3)
-  claimedBy     String?
-  processedAt   DateTime?    @db.Timestamptz(3)
-  lastError     String?
-  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  id               String            @id @default(cuid())
+  clubId           Int
+  club             Club              @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  type             String
+  aggregateType    String?
+  aggregateId      String?
+  payload          Json
+  dedupeKey        String?           @unique
+  status           OutboxStatus      @default(PENDING)
+  attempts         Int               @default(0)
+  availableAt      DateTime          @default(now()) @db.Timestamptz(3)
+  claimedAt        DateTime?         @db.Timestamptz(3)
+  claimedBy        String?
+  processedAt      DateTime?         @db.Timestamptz(3)
+  lastError        String?
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
   whatsappDelivery WhatsappDelivery?
 
   @@index([clubId, createdAt])
@@ -2372,18 +2383,18 @@ model WhatsappSender {
 }
 
 model WhatsappTemplateMapping {
-  id            String                   @id @default(cuid())
+  id            String                    @id @default(cuid())
   senderId      String
-  sender        WhatsappSender           @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  sender        WhatsappSender            @relation(fields: [senderId], references: [id], onDelete: Restrict)
   eventType     NotificationEventType
   recipientRole NotificationRecipientRole
   templateName  String
   languageCode  String
-  category      WhatsappTemplateCategory @default(UTILITY)
-  status        WhatsappTemplateStatus   @default(PENDING_APPROVAL)
-  version       Int                      @default(1)
-  createdAt     DateTime                 @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime                 @updatedAt @db.Timestamptz(3)
+  category      WhatsappTemplateCategory  @default(UTILITY)
+  status        WhatsappTemplateStatus    @default(PENDING_APPROVAL)
+  version       Int                       @default(1)
+  createdAt     DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime                  @updatedAt @db.Timestamptz(3)
 
   deliveries WhatsappDelivery[]
 
@@ -2392,28 +2403,28 @@ model WhatsappTemplateMapping {
 }
 
 model WhatsappDelivery {
-  id                     String                   @id @default(cuid())
+  id                     String                    @id @default(cuid())
   clubId                 Int
-  club                   Club                     @relation(fields: [clubId], references: [id], onDelete: Restrict)
-  outboxMessageId        String                   @unique
-  outboxMessage          OutboxMessage            @relation(fields: [outboxMessageId], references: [id], onDelete: Cascade)
+  club                   Club                      @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  outboxMessageId        String                    @unique
+  outboxMessage          OutboxMessage             @relation(fields: [outboxMessageId], references: [id], onDelete: Cascade)
   senderId               String?
-  sender                 WhatsappSender?          @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  sender                 WhatsappSender?           @relation(fields: [senderId], references: [id], onDelete: SetNull)
   templateMappingId      String?
-  templateMapping        WhatsappTemplateMapping? @relation(fields: [templateMappingId], references: [id], onDelete: SetNull)
+  templateMapping        WhatsappTemplateMapping?  @relation(fields: [templateMappingId], references: [id], onDelete: SetNull)
   recipientRole          NotificationRecipientRole
   recipientPhone         String
   eventType              NotificationEventType
   provider               WhatsappProvider
-  providerMessageId      String?                  @unique
+  providerMessageId      String?                   @unique
   providerConversationId String?
-  status                 WhatsappDeliveryStatus   @default(QUEUED)
+  status                 WhatsappDeliveryStatus    @default(QUEUED)
   errorCode              String?
   errorMessage           String?
   rawRequest             Json?
   rawResponse            Json?
-  createdAt              DateTime                 @default(now()) @db.Timestamptz(3)
-  updatedAt              DateTime                 @updatedAt @db.Timestamptz(3)
+  createdAt              DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime                  @updatedAt @db.Timestamptz(3)
 
   webhookEvents WhatsappWebhookEvent[]
 
@@ -2423,18 +2434,18 @@ model WhatsappDelivery {
 }
 
 model WhatsappWebhookEvent {
-  id              String                  @id @default(cuid())
-  senderId        String?
-  sender          WhatsappSender?         @relation(fields: [senderId], references: [id], onDelete: SetNull)
-  deliveryId      String?
-  delivery        WhatsappDelivery?       @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  id                String                  @id @default(cuid())
+  senderId          String?
+  sender            WhatsappSender?         @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  deliveryId        String?
+  delivery          WhatsappDelivery?       @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
   providerMessageId String?
-  providerEventId String?                 @unique
-  eventType       String
-  status          WhatsappDeliveryStatus?
-  rawPayload      Json
-  processedAt     DateTime?               @db.Timestamptz(3)
-  createdAt       DateTime                @default(now()) @db.Timestamptz(3)
+  providerEventId   String?                 @unique
+  eventType         String
+  status            WhatsappDeliveryStatus?
+  rawPayload        Json
+  processedAt       DateTime?               @db.Timestamptz(3)
+  createdAt         DateTime                @default(now()) @db.Timestamptz(3)
 
   @@index([providerMessageId])
   @@index([providerEventId])
@@ -2442,15 +2453,15 @@ model WhatsappWebhookEvent {
 }
 
 model AccountSummaryProjection {
-  accountId    String        @id
-  clubId       Int
-  sourceType   AccountSource
-  sourceId     String
-  status       AccountStatus
-  totalAmount  Decimal       @db.Decimal(10, 2)
-  paidAmount   Decimal       @db.Decimal(10, 2)
-  remaining    Decimal       @db.Decimal(10, 2)
-  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
+  accountId   String        @id
+  clubId      Int
+  sourceType  AccountSource
+  sourceId    String
+  status      AccountStatus
+  totalAmount Decimal       @db.Decimal(10, 2)
+  paidAmount  Decimal       @db.Decimal(10, 2)
+  remaining   Decimal       @db.Decimal(10, 2)
+  updatedAt   DateTime      @updatedAt @db.Timestamptz(3)
 
   @@index([clubId, status])
   @@index([clubId, updatedAt])
@@ -2476,75 +2487,75 @@ model CashShiftSummaryProjection {
 }
 
 model DailyCashSummaryProjection {
-  clubId     Int
-  day        DateTime @db.Date
-  cashIn     Decimal  @default(0) @db.Decimal(10, 2)
-  cashOut    Decimal  @default(0) @db.Decimal(10, 2)
-  netCash    Decimal  @default(0) @db.Decimal(10, 2)
-  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+  clubId    Int
+  day       DateTime @db.Date
+  cashIn    Decimal  @default(0) @db.Decimal(10, 2)
+  cashOut   Decimal  @default(0) @db.Decimal(10, 2)
+  netCash   Decimal  @default(0) @db.Decimal(10, 2)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@id([clubId, day])
   @@index([day])
 }
 
 model ClubSettings {
-  id                        Int      @id @default(autoincrement())
-  clubId                    Int      @unique
-  club                      Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  id     Int  @id @default(autoincrement())
+  clubId Int  @unique
+  club   Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   // Zona horaria IANA
-  timeZone                  String   @default("America/Argentina/Buenos_Aires")
-  
+  timeZone String @default("America/Argentina/Buenos_Aires")
+
   // Días de apertura: [0, 1, 2, 3, 4, 5, 6]
-  openingDays               Json?    
+  openingDays Json?
 
   // Fechas de cierre excepcionales (YYYY-MM-DD) en horario local del club
-  closureDates              Json?
+  closureDates Json?
 
   // Estado operativo global del club
-  clubOperationalStatus     ClubOperationalStatus @default(OPEN)
+  clubOperationalStatus ClubOperationalStatus @default(OPEN)
 
   // Cierre temporal continuo (útil para semanas o meses)
   temporaryClosureStartDate DateTime? @db.Date
   temporaryClosureEndDate   DateTime? @db.Date
 
   // Configuración de Luces
-  lightsEnabled             Boolean  @default(false)
-  lightsExtraAmount         Decimal? @db.Decimal(10, 2)
-  lightsFromHour            String?  // Ej: "19:00"
+  lightsEnabled     Boolean  @default(false)
+  lightsExtraAmount Decimal? @db.Decimal(10, 2)
+  lightsFromHour    String? // Ej: "19:00"
 
   // Configuración de Profesores (regla operativa de agenda)
   professorDurationOverrideEnabled Boolean @default(true)
-  professorDurationOverrideMinutes Int @default(60)
+  professorDurationOverrideMinutes Int     @default(60)
 
   // Configuración avanzada (Agregado para centralizar)
   fixedBookingSettingsByActivity Json?
 
   // Módulo de socios (padrón, categorías, precio socio)
-  membersEnabled            Boolean  @default(false)
+  membersEnabled        Boolean         @default(false)
   // false = el club cobra solo en el mostrador (sin checkout online)
-  onlineCheckoutEnabled     Boolean  @default(true)
+  onlineCheckoutEnabled Boolean         @default(true)
   // Precio del turno por cancha (histórico) o por jugador según su categoría
-  pricingMode               ClubPricingMode @default(PER_COURT)
+  pricingMode           ClubPricingMode @default(PER_COURT)
   // Ventanas de reserva desde la app: hora de apertura para socios y no socios, días hacia adelante y cierre.
   // null o enabled=false = sin restricción (comportamiento histórico).
-  bookingReleasePolicy      Json?
+  bookingReleasePolicy  Json?
 
   // Política de confirmación de reservas
-  bookingConfirmationMode       BookingConfirmationMode @default(MANUAL)
-  bookingDepositPercent         Decimal?                @db.Decimal(5, 2)
-  allowManualConfirmationOverride Boolean               @default(true)
-  bookingSimpleAdvanceDaysUser  Int                     @default(30)
-  bookingSimpleAdvanceDaysAdmin Int                     @default(30)
-  allowAdminSkipSimpleAdvanceLimit Boolean              @default(false)
+  bookingConfirmationMode          BookingConfirmationMode @default(MANUAL)
+  bookingDepositPercent            Decimal?                @db.Decimal(5, 2)
+  allowManualConfirmationOverride  Boolean                 @default(true)
+  bookingSimpleAdvanceDaysUser     Int                     @default(30)
+  bookingSimpleAdvanceDaysAdmin    Int                     @default(30)
+  allowAdminSkipSimpleAdvanceLimit Boolean                 @default(false)
 
   // Política de auto-cancelación de reservas pendientes
-  autoCancelPendingBookingsEnabled      Boolean @default(false)
+  autoCancelPendingBookingsEnabled       Boolean @default(false)
   autoCancelPendingBookingsMinutesBefore Int?
-  autoCancelPendingBookingsOnlyIfUnpaid Boolean @default(true)
-  autoCancelPendingWarningEnabled       Boolean @default(false)
-  autoCancelPendingWarningMinutesBefore Int?
-  enforceCashShiftCloseWithOpenAccounts Boolean @default(false)
+  autoCancelPendingBookingsOnlyIfUnpaid  Boolean @default(true)
+  autoCancelPendingWarningEnabled        Boolean @default(false)
+  autoCancelPendingWarningMinutesBefore  Int?
+  enforceCashShiftCloseWithOpenAccounts  Boolean @default(false)
 
   // Descuento por medio de pago en el mostrador, en % sobre el precio de lista.
   // Ej: { "CASH": 20 } = efectivo 20% menos. null = sin descuento.
@@ -2555,8 +2566,8 @@ model ClubSettings {
   onlineDepositRequired    Boolean @default(false)
   onlineDepositHoldMinutes Int     @default(15)
 
-  createdAt                 DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt                 DateTime @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 }
 
 model Product {
@@ -2575,11 +2586,11 @@ model Product {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  components  ProductComponent[] @relation("ComboParent")
-  usedInCombos ProductComponent[] @relation("ComboComponent")
-  accountItems AccountItem[]
+  components      ProductComponent[]     @relation("ComboParent")
+  usedInCombos    ProductComponent[]     @relation("ComboComponent")
+  accountItems    AccountItem[]
   discountTargets DiscountPolicyTarget[]
-  stockMovements StockMovement[]
+  stockMovements  StockMovement[]
 
   @@index([clubId])
   @@map("Product")
@@ -2588,29 +2599,29 @@ model Product {
 // Historial de stock: cada cambio de Product.stock deja una fila (delta firmado + saldo).
 // Los ingresos y ajustes cargados juntos comparten groupId (un remito, un conteo).
 model StockMovement {
-  id        String            @id @default(cuid())
+  id        String  @id @default(cuid())
   clubId    Int
-  club      Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club      Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
   productId Int
-  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   type        StockMovementType
-  quantity    Int               // delta firmado: + entra, - sale
+  quantity    Int // delta firmado: + entra, - sale
   stockBefore Int
   stockAfter  Int
 
   groupId        String?
   supplier       String?
-  documentNumber String?       // nro de remito / factura del proveedor
-  unitCost       Decimal?      @db.Decimal(10, 2)
+  documentNumber String? // nro de remito / factura del proveedor
+  unitCost       Decimal? @db.Decimal(10, 2)
   reason         String?
 
   accountId     String?
   accountItemId String?
 
   createdByUserId Int?
-  occurredAt      DateTime     @default(now()) @db.Timestamptz(3)
-  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+  occurredAt      DateTime @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([clubId, occurredAt])
   @@index([clubId, productId, occurredAt])
@@ -2619,18 +2630,18 @@ model StockMovement {
 }
 
 model ClubServiceCatalog {
-  id          Int      @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   code        String
   name        String
   description String?
-  price       Decimal  @db.Decimal(10, 2)
-  isActive    Boolean  @default(true)
+  price       Decimal @db.Decimal(10, 2)
+  isActive    Boolean @default(true)
 
-  clubId      Int
-  club        Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@unique([clubId, code])
   @@index([clubId, isActive])
@@ -2644,10 +2655,10 @@ model ProductComponent {
   id Int @id @default(autoincrement())
 
   parentProductId Int
-  parentProduct Product @relation("ComboParent", fields: [parentProductId], references: [id], onDelete: Cascade)
+  parentProduct   Product @relation("ComboParent", fields: [parentProductId], references: [id], onDelete: Cascade)
 
   componentProductId Int
-  componentProduct Product @relation("ComboComponent", fields: [componentProductId], references: [id], onDelete: Cascade)
+  componentProduct   Product @relation("ComboComponent", fields: [componentProductId], references: [id], onDelete: Cascade)
 
   quantity Int
 
@@ -2657,13 +2668,13 @@ model ProductComponent {
 }
 
 model CashMovement {
-  id          Int      @id @default(autoincrement())
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  type        CashMovementPosType
-  method      CashMovementMethod
-  amount      Decimal  @db.Decimal(10, 2)
-  concept     String
+  type    CashMovementPosType
+  method  CashMovementMethod
+  amount  Decimal             @db.Decimal(10, 2)
+  concept String
 
   cashShiftId String
   cashShift   CashShift @relation(fields: [cashShiftId], references: [id], onDelete: Restrict)
@@ -2671,11 +2682,11 @@ model CashMovement {
   createdByUserId Int?
   createdByUser   User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  paymentId   String?  @unique
-  payment     Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  paymentId String?  @unique
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
 
-  refundId    String?  @unique
-  refund      Refund?  @relation(fields: [refundId], references: [id], onDelete: SetNull)
+  refundId String? @unique
+  refund   Refund? @relation(fields: [refundId], references: [id], onDelete: SetNull)
 
   clubId Int
   club   Club @relation(fields: [clubId], references: [id])
@@ -2687,38 +2698,38 @@ model CashMovement {
 }
 
 model LedgerEntry {
-  id              String            @id @default(cuid())
-  transactionId   String
-  transaction     LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  id            String            @id @default(cuid())
+  transactionId String
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
-  clubId          Int
-  club            Club              @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id], onDelete: Restrict)
 
-  type            LedgerEntryType
-  referenceType   LedgerReferenceType
-  referenceId     String
+  type          LedgerEntryType
+  referenceType LedgerReferenceType
+  referenceId   String
 
-  accountId       String?
-  accountRef      Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  accountId  String?
+  accountRef Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
-  accountItemId   String?
-  accountItem     AccountItem?      @relation(fields: [accountItemId], references: [id], onDelete: SetNull)
+  accountItemId String?
+  accountItem   AccountItem? @relation(fields: [accountItemId], references: [id], onDelete: SetNull)
 
-  paymentId       String?
-  payment         Payment?          @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  paymentId String?
+  payment   Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
 
-  refundId        String?
-  refund          Refund?           @relation(fields: [refundId], references: [id], onDelete: SetNull)
+  refundId String?
+  refund   Refund? @relation(fields: [refundId], references: [id], onDelete: SetNull)
 
-  amount          Decimal           @db.Decimal(10, 2)
-  account         LedgerAccount
-  direction       LedgerDirection
-  description     String
+  amount      Decimal         @db.Decimal(10, 2)
+  account     LedgerAccount
+  direction   LedgerDirection
+  description String
 
   createdByUserId Int?
-  createdByUser   User?             @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdByUser   User? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([transactionId])
   @@index([account, createdAt])
@@ -2728,12 +2739,12 @@ model LedgerEntry {
 }
 
 model CashRegister {
-  id     String @id @default(cuid())
+  id String @id @default(cuid())
 
   clubId Int
-  club   Club   @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  club   Club @relation(fields: [clubId], references: [id], onDelete: Restrict)
 
-  name   String
+  name String
 
   fiscalPointOfSaleId String?
   fiscalPointOfSale   PuntoDeVentaFiscal? @relation(fields: [fiscalPointOfSaleId], references: [id], onDelete: SetNull)
@@ -2742,32 +2753,32 @@ model CashRegister {
 
   shifts CashShift[]
 
+  @@unique([clubId, name])
   @@index([clubId])
   @@index([fiscalPointOfSaleId])
-  @@unique([clubId, name])
 }
 
 model CashShift {
-  id String @id @default(cuid())
+  id             String       @id @default(cuid())
   cashRegisterId String
   cashRegister   CashRegister @relation(fields: [cashRegisterId], references: [id], onDelete: Restrict)
 
-  clubId         Int
-  club           Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
 
   openedByUserId Int?
   openedByUser   User? @relation("CashShiftOpenedBy", fields: [openedByUserId], references: [id], onDelete: SetNull)
   closedByUserId Int?
   closedByUser   User? @relation("CashShiftClosedBy", fields: [closedByUserId], references: [id], onDelete: SetNull)
 
-  openedAt DateTime @default(now()) @db.Timestamptz(3)
+  openedAt DateTime  @default(now()) @db.Timestamptz(3)
   closedAt DateTime? @db.Timestamptz(3)
 
-  openingAmount Decimal @db.Decimal(10,2)
-  expectedCash Decimal? @db.Decimal(10,2)
-  countedCash  Decimal? @db.Decimal(10,2)
-  difference   Decimal? @db.Decimal(10,2)
-  status CashShiftStatus @default(OPEN)
+  openingAmount Decimal         @db.Decimal(10, 2)
+  expectedCash  Decimal?        @db.Decimal(10, 2)
+  countedCash   Decimal?        @db.Decimal(10, 2)
+  difference    Decimal?        @db.Decimal(10, 2)
+  status        CashShiftStatus @default(OPEN)
 
   payments  Payment[]
   refunds   Refund[]
@@ -2781,46 +2792,46 @@ model CashShift {
 }
 
 model Refund {
-  id              String   @id @default(cuid())
-  displayCode     String?  @unique
-  createdAt       DateTime @default(now()) @db.Timestamptz(3)
-  amount          Decimal  @db.Decimal(10, 2)
+  id              String                 @id @default(cuid())
+  displayCode     String?                @unique
+  createdAt       DateTime               @default(now()) @db.Timestamptz(3)
+  amount          Decimal                @db.Decimal(10, 2)
   reason          String?
-  reasonType      RefundReasonType @default(OTHER)
-  status          RefundStatus @default(REQUESTED)
+  reasonType      RefundReasonType       @default(OTHER)
+  status          RefundStatus           @default(REQUESTED)
   executionMethod RefundExecutionMethod?
 
-  paymentId       String
-  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
 
-  accountId       String
-  account         Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  accountId String
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
 
-  clubId          Int
-  club            Club     @relation(fields: [clubId], references: [id], onDelete: Restrict)
+  clubId Int
+  club   Club @relation(fields: [clubId], references: [id], onDelete: Restrict)
 
-  cashShiftId     String?
-  cashShift       CashShift? @relation(fields: [cashShiftId], references: [id], onDelete: SetNull)
+  cashShiftId String?
+  cashShift   CashShift? @relation(fields: [cashShiftId], references: [id], onDelete: SetNull)
 
-  cashMovement    CashMovement?
-  ledgerEntries   LedgerEntry[]
+  cashMovement  CashMovement?
+  ledgerEntries LedgerEntry[]
 
-  createdByUserId Int?
-  createdByUser   User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
-  approvedAt      DateTime? @db.Timestamptz(3)
-  approvedByUserId Int?
-  approvedByUser  User? @relation("RefundApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
-  executedAt      DateTime? @db.Timestamptz(3)
-  executedByUserId Int?
-  executedByUser  User? @relation("RefundExecutedBy", fields: [executedByUserId], references: [id], onDelete: SetNull)
-  cancelledAt     DateTime? @db.Timestamptz(3)
-  cancelledByUserId Int?
-  cancelledByUser User? @relation("RefundCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
-  cancelReason    String?
+  createdByUserId    Int?
+  createdByUser      User?     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  approvedAt         DateTime? @db.Timestamptz(3)
+  approvedByUserId   Int?
+  approvedByUser     User?     @relation("RefundApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  executedAt         DateTime? @db.Timestamptz(3)
+  executedByUserId   Int?
+  executedByUser     User?     @relation("RefundExecutedBy", fields: [executedByUserId], references: [id], onDelete: SetNull)
+  cancelledAt        DateTime? @db.Timestamptz(3)
+  cancelledByUserId  Int?
+  cancelledByUser    User?     @relation("RefundCancelledBy", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  cancelReason       String?
   executionReference String?
-  executionNotes  String?
-  failedAt        DateTime? @db.Timestamptz(3)
-  failedReason    String?
+  executionNotes     String?
+  failedAt           DateTime? @db.Timestamptz(3)
+  failedReason       String?
 
   @@index([paymentId])
   @@index([accountId])
@@ -2872,58 +2883,58 @@ model BookingReminderLog {
 // ---------------------------------------------------------------------------
 
 model SubscriptionPlan {
-  id             String   @id @default(cuid())
-  clubId         Int
-  club           Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  name           String
-  description    String?
-  billingType    SubscriptionBillingType
-  periodMonths   Int
-  enrollmentFee  Decimal? @db.Decimal(10, 2)
+  id                     String                  @id @default(cuid())
+  clubId                 Int
+  club                   Club                    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  name                   String
+  description            String?
+  billingType            SubscriptionBillingType
+  periodMonths           Int
+  enrollmentFee          Decimal?                @db.Decimal(10, 2)
   // null = cada cuota vence según la fecha de alta.
-  dueDayOfMonth  Int?
-  graceDays      Int      @default(5)
-  pauseMaxDays   Int      @default(0)
-  pauseMaxCount  Int      @default(0)
+  dueDayOfMonth          Int?
+  graceDays              Int                     @default(5)
+  pauseMaxDays           Int                     @default(0)
+  pauseMaxCount          Int                     @default(0)
   // Días de mora (después de la gracia) para suspender al socio. null = nunca.
   suspendMemberAfterDays Int?
   grantsMemberCategoryId String?
-  grantsMemberCategory   MemberCategory? @relation(fields: [grantsMemberCategoryId], references: [id], onDelete: SetNull)
-  isActive       Boolean  @default(true)
-  sortOrder      Int      @default(0)
-  createdAt      DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  grantsMemberCategory   MemberCategory?         @relation(fields: [grantsMemberCategoryId], references: [id], onDelete: SetNull)
+  isActive               Boolean                 @default(true)
+  sortOrder              Int                     @default(0)
+  createdAt              DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime                @updatedAt @db.Timestamptz(3)
 
-  options        SubscriptionPlanOption[]
-  entitlements   SubscriptionPlanEntitlement[]
-  subscriptions  Subscription[]
+  options       SubscriptionPlanOption[]
+  entitlements  SubscriptionPlanEntitlement[]
+  subscriptions Subscription[]
 
   @@index([clubId, isActive])
 }
 
 model SubscriptionPlanOption {
-  id                String  @id @default(cuid())
+  id                String           @id @default(cuid())
   planId            String
   plan              SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   label             String
   installmentsCount Int
   // Precio de lista de cada cuota.
-  installmentPrice  Decimal @db.Decimal(10, 2)
-  isActive          Boolean @default(true)
-  sortOrder         Int     @default(0)
+  installmentPrice  Decimal          @db.Decimal(10, 2)
+  isActive          Boolean          @default(true)
+  sortOrder         Int              @default(0)
 
-  subscriptions     Subscription[]
+  subscriptions Subscription[]
 
   @@index([planId])
 }
 
 model SubscriptionPlanEntitlement {
-  id               String  @id @default(cuid())
+  id               String                      @id @default(cuid())
   planId           String
-  plan             SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  plan             SubscriptionPlan            @relation(fields: [planId], references: [id], onDelete: Cascade)
   kind             SubscriptionEntitlementKind
   activityTypeId   Int
-  activityType     ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  activityType     ActivityType                @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
   // ACTIVITY_ACCESS: null = libre.
   timesPerWeek     Int?
   // CLASS_CREDITS: créditos por período.
@@ -2935,40 +2946,40 @@ model SubscriptionPlanEntitlement {
 }
 
 model Subscription {
-  id               String  @id @default(cuid())
+  id               String                 @id @default(cuid())
   clubId           Int
-  club             Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club             Club                   @relation(fields: [clubId], references: [id], onDelete: Cascade)
   planId           String
-  plan             SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  plan             SubscriptionPlan       @relation(fields: [planId], references: [id], onDelete: Restrict)
   optionId         String
   option           SubscriptionPlanOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
   clientId         String
-  client           Client  @relation("SubscriptionClient", fields: [clientId], references: [id], onDelete: Restrict)
+  client           Client                 @relation("SubscriptionClient", fields: [clientId], references: [id], onDelete: Restrict)
   payerClientId    String
-  payerClient      Client  @relation("SubscriptionPayerClient", fields: [payerClientId], references: [id], onDelete: Restrict)
-  status           SubscriptionStatus @default(ACTIVE)
+  payerClient      Client                 @relation("SubscriptionPayerClient", fields: [payerClientId], references: [id], onDelete: Restrict)
+  status           SubscriptionStatus     @default(ACTIVE)
   // Nombre, opción, precios y beneficios al momento de la venta.
   planSnapshot     Json
   // FIXED_TERM: true (congela precio). RECURRING: false (toma el precio vigente al renovar).
   priceLocked      Boolean
-  startDate        DateTime @db.Date
+  startDate        DateTime               @db.Date
   // FIXED_TERM: último día del plazo. RECURRING: null.
-  endDate          DateTime? @db.Date
+  endDate          DateTime?              @db.Date
   // Último día del período en curso (RECURRING) o del plazo (FIXED_TERM).
-  currentPeriodEnd DateTime @db.Date
-  autoRenew        Boolean  @default(true)
-  pausesUsed       Int      @default(0)
-  cancelledAt      DateTime? @db.Timestamptz(3)
+  currentPeriodEnd DateTime               @db.Date
+  autoRenew        Boolean                @default(true)
+  pausesUsed       Int                    @default(0)
+  cancelledAt      DateTime?              @db.Timestamptz(3)
   cancelReason     String?
   notes            String?
   createdByUserId  Int
-  createdAt        DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+  createdAt        DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime               @updatedAt @db.Timestamptz(3)
 
-  installments     SubscriptionInstallment[]
-  pauses           SubscriptionPause[]
-  history          SubscriptionHistory[]
-  classPasses      ClassPass[]
+  installments SubscriptionInstallment[]
+  pauses       SubscriptionPause[]
+  history      SubscriptionHistory[]
+  classPasses  ClassPass[]
 
   @@index([clubId, status])
   @@index([clubId, clientId])
@@ -2976,54 +2987,161 @@ model Subscription {
 }
 
 model SubscriptionInstallment {
-  id             String  @id @default(cuid())
+  id             String                        @id @default(cuid())
   clubId         Int
-  club           Club    @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  club           Club                          @relation(fields: [clubId], references: [id], onDelete: Cascade)
   subscriptionId String
-  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  subscription   Subscription                  @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   // 0 = matrícula, 1..N = cuotas.
   sequence       Int
   kind           SubscriptionInstallmentKind
-  coversFrom     DateTime @db.Date
-  coversTo       DateTime @db.Date
-  dueDate        DateTime @db.Date
-  listAmount     Decimal  @db.Decimal(10, 2)
+  coversFrom     DateTime                      @db.Date
+  coversTo       DateTime                      @db.Date
+  dueDate        DateTime                      @db.Date
+  listAmount     Decimal                       @db.Decimal(10, 2)
   status         SubscriptionInstallmentStatus @default(PENDING)
-  paidAt         DateTime? @db.Timestamptz(3)
+  paidAt         DateTime?                     @db.Timestamptz(3)
   // Cuenta SUBSCRIPTION_INSTALLMENT (Account.sourceId = id de la cuota).
-  accountId      String?  @unique
-  createdAt      DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  accountId      String?                       @unique
+  createdAt      DateTime                      @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime                      @updatedAt @db.Timestamptz(3)
 
   @@unique([subscriptionId, sequence])
   @@index([clubId, status, dueDate])
 }
 
 model SubscriptionPause {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   subscriptionId  String
   subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-  startDate       DateTime @db.Date
-  endDate         DateTime @db.Date
+  startDate       DateTime     @db.Date
+  endDate         DateTime     @db.Date
   reason          String?
   createdByUserId Int
-  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
 
   @@index([subscriptionId])
 }
 
 model SubscriptionHistory {
-  id              String   @id @default(cuid())
+  id              String              @id @default(cuid())
   subscriptionId  String
-  subscription    Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  subscription    Subscription        @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
   clubId          Int
   action          String
   fromStatus      SubscriptionStatus?
   toStatus        SubscriptionStatus?
   detail          Json?
   changedByUserId Int?
-  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
 
   @@index([subscriptionId, createdAt])
   @@index([clubId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Turnero: actividades sin cancha con cupo por franja (ej. Musculación de 7 a 23,
+// turnos de 1 h, 20 lugares). Las franjas no se guardan: salen del horario.
+// ---------------------------------------------------------------------------
+
+enum ActivityTurnStatus {
+  BOOKED
+  CANCELLED
+}
+
+model ActivityTurnSchedule {
+  id                String       @id @default(cuid())
+  clubId            Int
+  club              Club         @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  activityTypeId    Int          @unique
+  activityType      ActivityType @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  slotMinutes       Int          @default(60)
+  capacity          Int
+  // [{ weekdays: [1,2,3,4,5], open: "07:00", close: "23:00" }] (0 = domingo). Hora del club.
+  windows           Json
+  // Hasta cuántos días adelante se puede reservar (0 = solo hoy).
+  bookAheadDays     Int          @default(7)
+  // Para entrar hace falta un turno reservado.
+  requiresTurn      Boolean      @default(true)
+  // Minutos antes del turno en que ya se puede entrar.
+  earlyEntryMinutes Int          @default(15)
+  isActive          Boolean      @default(true)
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime     @updatedAt @db.Timestamptz(3)
+
+  @@index([clubId, isActive])
+}
+
+model ActivityTurn {
+  id              String             @id @default(cuid())
+  clubId          Int
+  club            Club               @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  activityTypeId  Int
+  activityType    ActivityType       @relation(fields: [activityTypeId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client             @relation("ActivityTurnClient", fields: [clientId], references: [id], onDelete: Restrict)
+  userId          Int?
+  user            User?              @relation("ActivityTurnUser", fields: [userId], references: [id], onDelete: SetNull)
+  startsAt        DateTime           @db.Timestamptz(3)
+  endsAt          DateTime           @db.Timestamptz(3)
+  status          ActivityTurnStatus @default(BOOKED)
+  checkedInAt     DateTime?          @db.Timestamptz(3)
+  cancelledAt     DateTime?          @db.Timestamptz(3)
+  // null = lo reservó el jugador desde la app.
+  createdByUserId Int?
+  createdAt       DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@index([activityTypeId, startsAt, status])
+  @@index([clubId, clientId, startsAt])
+}
+
+enum AccessLogResult {
+  ALLOWED
+  DENIED
+}
+
+// Cada intento de entrar (kiosco o molinete), permitido o no.
+model AccessLog {
+  id              String          @id @default(cuid())
+  clubId          Int
+  club            Club            @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  activityTypeId  Int?
+  activityType    ActivityType?   @relation(fields: [activityTypeId], references: [id], onDelete: SetNull)
+  clientId        String?
+  client          Client?         @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  // DNI | QR | FINGERPRINT
+  method          String
+  result          AccessLogResult
+  // OK, NO_TURN, UNPAID, NOT_FOUND…
+  code            String
+  message         String
+  turnId          String?
+  createdByUserId Int?
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId, createdAt])
+  @@index([clientId, createdAt])
+}
+
+// Huella de un cliente para entrar por el lector del molinete. Se guarda la plantilla
+// que arma el lector (no la imagen del dedo) y cuándo dio su consentimiento.
+model ClientFingerprint {
+  id              String   @id @default(cuid())
+  clubId          Int
+  club            Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // 0 = pulgar derecho … 9 = meñique izquierdo
+  finger          Int?
+  // ZKFINGER10 | SIMULATED
+  format          String
+  // Plantilla en base64
+  template        String
+  consentAt       DateTime @db.Timestamptz(3)
+  createdByUserId Int?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([clubId])
+  @@index([clientId])
 }

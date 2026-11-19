@@ -12,6 +12,7 @@ import { PlayerSlotController } from '../controllers/PlayerSlotController';
 import { PlayerSubscriptionController } from '../controllers/PlayerSubscriptionController';
 import { BookingReleaseController } from '../controllers/BookingReleaseController';
 import { ClubCoursesController } from '../controllers/ClubCoursesController';
+import { ActivityTurnController } from '../controllers/ActivityTurnController';
 
 const router = Router();
 const playerSlotController = new PlayerSlotController();
@@ -33,6 +34,12 @@ router.get('/slug/:slug/booking-window', optionalAuthMiddleware, bookingReleaseC
 router.get('/slug/:slug/courses', optionalAuthMiddleware, clubCoursesController.list);
 router.post('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesController.join);
 router.delete('/slug/:slug/courses/:id/join', authMiddleware, clubCoursesController.leave);
+const activityTurnController = new ActivityTurnController();
+router.get('/slug/:slug/turns', optionalAuthMiddleware, activityTurnController.listPublic);
+router.get('/slug/:slug/access-code', authMiddleware, activityTurnController.myAccessCode);
+router.get('/slug/:slug/turns/:activityTypeId/slots', optionalAuthMiddleware, activityTurnController.daySlots);
+router.post('/slug/:slug/turns/:activityTypeId', authMiddleware, activityTurnController.book);
+router.post('/slug/:slug/turns/mine/:turnId/cancel', authMiddleware, activityTurnController.cancelMine);
 router.get('/favorites/me', authMiddleware, clubFavoriteController.listMyFavorites);
 router.get('/courses/me', authMiddleware, clubCoursesController.mine);
 const playerSubscriptionController = new PlayerSubscriptionController();
