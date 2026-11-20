@@ -48,7 +48,10 @@ type AdminOverlayProps = {
   closeOnBackdrop?: boolean;
   closeOnEscape?: boolean;
   zIndex?: number;
-  /** Renderiza en document.body (para escapar de contenedores con overflow o transform). */
+  /**
+   * Renderiza en document.body (default). Sin portal, un modal abierto desde un drawer queda
+   * encerrado en el drawer: su transform hace que el fixed inset-0 se mida contra el panel.
+   */
   portal?: boolean;
   /** Bloquea el scroll de la página mientras está abierto. */
   lockScroll?: boolean;
@@ -66,7 +69,7 @@ export default function AdminOverlay({
   closeOnBackdrop = true,
   closeOnEscape = true,
   zIndex = ADMIN_Z_INDEX.modal,
-  portal = false,
+  portal = true,
   lockScroll = true,
   ariaLabel,
 }: AdminOverlayProps) {
@@ -121,7 +124,8 @@ export default function AdminOverlay({
 
   if (portal) {
     if (!mounted || typeof document === 'undefined') return null;
-    return createPortal(content, document.body);
+    // pique-root: fuera del shell, el modal conserva tipografía y colores base.
+    return createPortal(<div className="pique-root">{content}</div>, document.body);
   }
   return content;
 }
