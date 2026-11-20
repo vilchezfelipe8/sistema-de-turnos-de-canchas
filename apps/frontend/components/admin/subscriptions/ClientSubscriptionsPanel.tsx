@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import AdminModal from '../ui/AdminModal';
+import AdminDateInput from '../ui/AdminDateInput';
 import { AdminFeedbackBanner } from '../ui/AdminFeedback';
 import AccountDrawer from '../../../modules/cuentas/components/AccountDrawer';
 import { formatMoney } from '../../../modules/cuentas/accountUtils';
@@ -445,10 +446,10 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
               </p>
             </fieldset>
           ) : null}
-          <label className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
-            Fecha de inicio (vacío = hoy)
-            <input type="date" className={inputClass} value={sellStartDate} onChange={(event) => setSellStartDate(event.target.value)} />
-          </label>
+          <div className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
+            <span>Fecha de inicio</span>
+            <AdminDateInput value={sellStartDate} onChange={setSellStartDate} placeholder="Hoy" />
+          </div>
         </div>
       </AdminModal>
 
@@ -475,14 +476,14 @@ export default function ClientSubscriptionsPanel({ clubSlug, clientId, clientNam
         <div className="grid gap-3">
           {pauseError ? <AdminFeedbackBanner tone="error" compact>{pauseError}</AdminFeedbackBanner> : null}
           <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
-              Desde (vacío = hoy)
-              <input type="date" className={inputClass} value={pauseStart} onChange={(event) => setPauseStart(event.target.value)} />
-            </label>
-            <label className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
-              Hasta
-              <input type="date" className={inputClass} value={pauseEnd} onChange={(event) => setPauseEnd(event.target.value)} />
-            </label>
+            <div className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
+              <span>Desde</span>
+              <AdminDateInput value={pauseStart} onChange={setPauseStart} placeholder="Hoy" />
+            </div>
+            <div className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
+              <span>Hasta</span>
+              <AdminDateInput value={pauseEnd} onChange={setPauseEnd} min={pauseStart || undefined} />
+            </div>
           </div>
           <label className="space-y-1 text-[12px] font-semibold text-p-text-secondary">
             Motivo (opcional)
